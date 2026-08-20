@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Equipamentos — Locus{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">Equipamentos</h1>
+
+<form method="get" class="flex flex-wrap gap-2 mb-4">
+  <input type="text" name="q" value="{{ request.GET.q }}" placeholder="Patrimônio ou serial"
+         class="border border-gray-300 rounded-md px-3 py-1.5 text-sm flex-1 min-w-[200px]">
+  <button type="submit" class="bg-gray-800 text-white rounded-md px-4 py-1.5 text-sm">Buscar</button>
+</form>
+
+<div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-100 text-gray-600 text-left">
+      <tr>
+        <th class="px-3 py-2">Patrimônio</th>
+        <th class="px-3 py-2">Modelo</th>
+        <th class="px-3 py-2">Categoria</th>
+        <th class="px-3 py-2">Status</th>
+        <th class="px-3 py-2">Condição</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for equipment in equipment_list %}
+      <tr class="border-t border-gray-100 hover:bg-gray-50">
+        <td class="px-3 py-2">
+          <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-blue-600 hover:underline">
+            {{ equipment.patrimonio }}
+          </a>
+        </td>
+        <td class="px-3 py-2">{{ equipment.model.name }}</td>
+        <td class="px-3 py-2">{{ equipment.category.name }}</td>
+        <td class="px-3 py-2">{{ equipment.get_status_display }}</td>
+        <td class="px-3 py-2">{{ equipment.get_condition_display }}</td>
+      </tr>
+      {% empty %}
+      <tr><td class="px-3 py-4 text-gray-500" colspan="5">Nenhum equipamento cadastrado ainda.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if is_paginated %}
+<div class="flex gap-2 mt-4 text-sm">
+  {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}" class="text-blue-600 hover:underline">Anterior</a>
+  {% endif %}
+  <span class="text-gray-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+  {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}" class="text-blue-600 hover:underline">Próxima</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

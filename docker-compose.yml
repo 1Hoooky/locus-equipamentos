@@ -1,0 +1,68 @@
+# Produção — VPS HostGator NVMe 4 (especificação, seção 10).
+# Uso: docker compose up -d
+#
+# Pressupõe um .env real na raiz (nunca commitado — ver .env.example)
+# com DJANGO_SETTINGS_MODULE=config.settings.prod.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - locus_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: db
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_volume:/app/staticfiles:ro
+      - media_volume:/app/media:ro
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    depends_on:
+      - web
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: ""
+    # Emissão inicial do certificado — rodar uma vez manualmente:
+    # docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
+    #   -d estoque.locuslocacoes.com.br --email seu-email@locuslocacoes.com.br --agree-tos
+    # Renovação automática (cron no host chamando este serviço) fica
+    # documentada no README, seção de deploy.
+
+volumes:
+  locus_db_data:
+  static_volume:
+  media_volume:
+  certbot_conf:
+  certbot_www:

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Locus Equipamentos{% endblock %}</title>
+  {# TODO (Fase 1, próxima etapa): trocar o CDN por Tailwind compilado via #}
+  {# build step (django-tailwind ou equivalente) antes de ir para produção. #}
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
+  <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+    <a href="{% if user.is_authenticated %}{% url 'equipment:list' %}{% else %}/{% endif %}" class="font-semibold text-lg">
+      Locus Locações — Estoque
+    </a>
+    {% if user.is_authenticated %}
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-gray-600">{{ user }} · {{ user.get_role_display }}</span>
+        <form method="post" action="{% url 'accounts:logout' %}">
+          {% csrf_token %}
+          <button type="submit" class="text-blue-600 hover:underline">Sair</button>
+        </form>
+      </div>
+    {% endif %}
+  </header>
+
+  <main class="flex-1 px-4 py-6 max-w-5xl mx-auto w-full">
+    {% for message in messages %}
+      <div class="mb-4 rounded-md bg-blue-50 text-blue-800 px-4 py-2 text-sm">{{ message }}</div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="text-center text-xs text-gray-400 py-4">
+    Locus Locações · Sistema de Gestão de Equipamentos
+  </footer>
+</body>
+</html>

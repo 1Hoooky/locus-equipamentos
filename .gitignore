@@ -1,0 +1,25 @@
+# Ambiente
+.venv/
+__pycache__/
+*.pyc
+
+# Segredos — nunca commitar
+.env
+
+# Django
+staticfiles/
+media/
+db.sqlite3
+
+# Testes/cobertura
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Editores
+.vscode/
+.idea/
+*.swp
+
+# SO
+.DS_Store
