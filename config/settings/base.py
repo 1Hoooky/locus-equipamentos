@@ -19,6 +19,12 @@ DEBUG = config("DJANGO_DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", default="", cast=Csv())
 CSRF_TRUSTED_ORIGINS = config("DJANGO_CSRF_TRUSTED_ORIGINS", default="", cast=Csv())
 
+# URL permanente usada para montar o link que o QR Code aponta (seção 14
+# da especificação). Fixa via .env, não derivada do Host da requisição —
+# assim o QR físico impresso aponta sempre para o mesmo lugar,
+# independente de qual header chegou na requisição que o gerou.
+SITE_BASE_URL = config("SITE_BASE_URL", default="http://localhost:8000")
+
 # --------------------------------------------------------------------------
 # Apps
 # --------------------------------------------------------------------------

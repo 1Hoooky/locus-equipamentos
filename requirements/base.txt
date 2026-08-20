@@ -4,3 +4,5 @@ django-simple-history>=3.7,<4.0
 python-decouple>=3.8,<4.0
 qrcode[pil]>=7.4,<8.0
 Pillow>=10.0,<11.0
+weasyprint>=69,<70
+openpyxl>=3.1,<4.0

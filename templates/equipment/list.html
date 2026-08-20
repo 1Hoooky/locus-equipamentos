@@ -1,7 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Equipamentos — Locus{% endblock %}
 {% block content %}
-<h1 class="text-xl font-semibold mb-4">Equipamentos</h1>
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold">Equipamentos</h1>
+  {% if user.is_administrativo_ou_superior %}
+  <div class="flex gap-3 text-sm">
+    <a href="{% url 'equipment:export' %}?format=csv&{{ request.GET.urlencode }}" class="text-blue-600 hover:underline">
+      Exportar CSV
+    </a>
+    <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="text-blue-600 hover:underline">
+      Exportar Excel
+    </a>
+  </div>
+  {% endif %}
+</div>
 
 <form method="get" class="flex flex-wrap gap-2 mb-4">
   <input type="text" name="q" value="{{ request.GET.q }}" placeholder="Patrimônio ou serial"
@@ -18,6 +30,7 @@
         <th class="px-3 py-2">Categoria</th>
         <th class="px-3 py-2">Status</th>
         <th class="px-3 py-2">Condição</th>
+        {% if user.is_administrativo_ou_superior %}<th class="px-3 py-2">QR</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -32,9 +45,16 @@
         <td class="px-3 py-2">{{ equipment.category.name }}</td>
         <td class="px-3 py-2">{{ equipment.get_status_display }}</td>
         <td class="px-3 py-2">{{ equipment.get_condition_display }}</td>
+        {% if user.is_administrativo_ou_superior %}
+        <td class="px-3 py-2 whitespace-nowrap">
+          <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="text-blue-600 hover:underline">QR</a>
+          ·
+          <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" target="_blank" class="text-blue-600 hover:underline">Etiqueta</a>
+        </td>
+        {% endif %}
       </tr>
       {% empty %}
-      <tr><td class="px-3 py-4 text-gray-500" colspan="5">Nenhum equipamento cadastrado ainda.</td></tr>
+      <tr><td class="px-3 py-4 text-gray-500" colspan="6">Nenhum equipamento cadastrado ainda.</td></tr>
       {% endfor %}
     </tbody>
   </table>

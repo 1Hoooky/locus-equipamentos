@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page {
+    size: A4;
+    margin: 1cm;
+  }
+  body {
+    font-family: "DejaVu Sans", Arial, sans-serif;
+    margin: 0;
+  }
+  .grid {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .label {
+    width: 9cm;
+    height: 5cm;
+    border: 1px solid #999;
+    border-radius: 4px;
+    padding: 0.4cm;
+    margin: 0 0.4cm 0.4cm 0;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    page-break-inside: avoid;
+  }
+  .label .info {
+    flex: 1;
+    padding-right: 0.3cm;
+  }
+  .label .brand {
+    font-size: 9pt;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+    margin: 0 0 0.2cm 0;
+  }
+  .label .model {
+    font-size: 10pt;
+    color: #333;
+    margin: 0 0 0.15cm 0;
+  }
+  .label .patrimonio {
+    font-size: 14pt;
+    font-weight: bold;
+    letter-spacing: 0.3pt;
+    margin: 0;
+    white-space: nowrap;
+  }
+  .label .qr {
+    width: 2.6cm;
+    height: 2.6cm;
+  }
+</style>
+</head>
+<body>
+  <div class="grid">
+    {% for label in labels %}
+    <div class="label">
+      <div class="info">
+        <p class="brand">Locus Locações</p>
+        <p class="model">{{ label.category_name }} · {{ label.model_name }}</p>
+        <p class="patrimonio">{{ label.patrimonio }}</p>
+      </div>
+      <img class="qr" src="{{ label.qr_data_uri }}" alt="QR Code {{ label.patrimonio }}">
+    </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

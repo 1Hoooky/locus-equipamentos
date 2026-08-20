@@ -9,6 +9,8 @@ from django.shortcuts import get_object_or_404, render
 from django.views import View
 from django.views.generic import ListView
 
+from apps.accounts.permissions import CAN_EXPORT_DATA, RoleRequiredMixin
+from apps.equipment.filters import filter_equipment_queryset
 from apps.equipment.models import Equipment
 
 
@@ -22,17 +24,30 @@ class EquipmentListView(LoginRequiredMixin, ListView):
 
     def get_queryset(self):
         qs = Equipment.objects.select_related("model", "category").filter(is_active=True)
-
-        q = self.request.GET.get("q", "").strip()
-        if q:
-            qs = qs.filter(patrimonio__icontains=q) | qs.filter(serial_number__icontains=q)
-
-        for field in ("status", "condition", "category"):
-            value = self.request.GET.get(field)
-            if value:
-                qs = qs.filter(**{field: value})
-
+        qs = filter_equipment_queryset(qs, self.request.GET)
         return qs.order_by("-created_at")
+
+
+class EquipmentExportView(RoleRequiredMixin, View):
+    """
+    Exportação CSV/Excel — tela da seção 12 ("Exportação de dados").
+    Respeita exatamente os mesmos filtros da listagem (`?q=`, `?status=`,
+    `?condition=`, `?category=`, `?model=`), passados como querystring.
+    Uso: /equipamentos/exportar/?format=xlsx&status=DISPONIVEL
+    """
+
+    allowed_roles = CAN_EXPORT_DATA
+
+    def get(self, request):
+        from apps.equipment.export import export_to_csv, export_to_xlsx
+
+        qs = Equipment.objects.select_related("model", "category").filter(is_active=True)
+        qs = filter_equipment_queryset(qs, request.GET).order_by("model__code", "model_sequence")
+
+        fmt = request.GET.get("format", "csv")
+        if fmt == "xlsx":
+            return export_to_xlsx(qs)
+        return export_to_csv(qs)
 
 
 class EquipmentDetailView(View):

@@ -26,7 +26,7 @@ def roles_required(*allowed_roles: str):
         def _wrapped(request, *args, **kwargs):
             if not request.user.is_authenticated:
                 raise PermissionDenied("Login obrigatório.")
-            if request.user.role not in allowed_roles:
+            if not request.user.is_superuser and request.user.role not in allowed_roles:
                 raise PermissionDenied("Seu perfil não tem acesso a esta ação.")
             return view_func(request, *args, **kwargs)
 
@@ -41,7 +41,12 @@ class RoleRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     allowed_roles: tuple[str, ...] = ()
 
     def test_func(self) -> bool:
-        return self.request.user.role in self.allowed_roles
+        user = self.request.user
+        # Superusuário (Django is_superuser) sempre passa — é a válvula de
+        # segurança operacional padrão do Django, independente do `role`
+        # de negócio. `role` continua sendo a fonte da verdade para a
+        # matriz de permissões da seção 11 no dia a dia da equipe.
+        return user.is_superuser or user.role in self.allowed_roles
 
     def handle_no_permission(self):
         if not self.request.user.is_authenticated:
