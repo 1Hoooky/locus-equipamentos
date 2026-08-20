@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{% if is_new %}Novo usuário{% else %}Editar usuário{% endif %} — Locus{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">
+  {% if is_new %}Novo usuário{% else %}Editar usuário — {{ target_user.username }}{% endif %}
+</h1>
+
+<form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg space-y-4">
+  {% csrf_token %}
+
+  {% if form.non_field_errors %}
+    <div class="text-sm text-red-600">
+      {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+    </div>
+  {% endif %}
+
+  {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+
+  {% for field in form.visible_fields %}
+    <div>
+      {% if field.name == "is_active" %}
+        <label class="flex items-center gap-2 text-sm">
+          {{ field }}
+          <span>{{ field.label }}</span>
+        </label>
+        {% if target_user and target_user.pk == request.user.pk %}
+          <p class="text-xs text-gray-500 mt-1">Você não pode desativar o próprio usuário.</p>
+        {% endif %}
+      {% else %}
+        <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}
+          <p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>
+        {% endif %}
+      {% endif %}
+      {% for error in field.errors %}
+        <p class="text-xs text-red-600 mt-1">{{ error }}</p>
+      {% endfor %}
+    </div>
+  {% endfor %}
+
+  {% if is_new %}
+    <p class="text-xs text-gray-500">
+      A senha inicial é definida aqui. Recomende ao usuário trocá-la no primeiro acesso
+      pelo fluxo "Esqueci minha senha" na tela de login.
+    </p>
+  {% endif %}
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="bg-blue-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-blue-700">
+      {% if is_new %}Criar usuário{% else %}Salvar alterações{% endif %}
+    </button>
+    <a href="{% url 'accounts:user_list' %}" class="text-sm text-gray-600 hover:underline">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

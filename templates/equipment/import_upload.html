@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Importar planilha legada — Locus{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-2">Importar planilha legada</h1>
+<p class="text-sm text-gray-600 mb-4">
+  Envie o arquivo <code>.xlsx</code> com a aba <strong>TOTAL EQUIPAMENTOS</strong>
+  (mesmo layout de <code>Estoque.Atualizado.xlsx</code>). Nada é gravado ainda —
+  a próxima tela mostra uma sugestão de modelo por linha para você revisar e
+  corrigir antes de confirmar.
+</p>
+
+<form method="post" enctype="multipart/form-data" class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg">
+  {% csrf_token %}
+  <input type="file" name="file" accept=".xlsx" required class="block w-full text-sm mb-4">
+  <button type="submit" class="bg-blue-600 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-blue-700">
+    Enviar e analisar
+  </button>
+</form>
+{% endblock %}

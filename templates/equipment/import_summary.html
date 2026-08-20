@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Importação concluída — Locus{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">Importação concluída</h1>
+
+<div class="grid grid-cols-2 gap-4 mb-6">
+  <div class="bg-white border border-gray-200 rounded-lg p-4">
+    <p class="text-2xl font-bold text-green-700">{{ created_count }}</p>
+    <p class="text-sm text-gray-600">equipamento(s) criado(s)</p>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-lg p-4">
+    <p class="text-2xl font-bold text-gray-500">{{ skipped_count }}</p>
+    <p class="text-sm text-gray-600">linha(s) não importada(s)</p>
+  </div>
+</div>
+
+{% if created %}
+<h2 class="font-semibold mb-2">Patrimônios gerados</h2>
+<div class="bg-white border border-gray-200 rounded-lg p-4 mb-6 text-sm">
+  <div class="flex flex-wrap gap-2">
+    {% for patrimonio in created %}
+      <a href="{% url 'equipment:detail' patrimonio %}" class="text-blue-600 hover:underline">{{ patrimonio }}</a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if skipped %}
+<h2 class="font-semibold mb-2">Linhas não importadas</h2>
+<div class="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-100 text-gray-600 text-left">
+      <tr><th class="px-3 py-2">Linha</th><th class="px-3 py-2">Código legado</th><th class="px-3 py-2">Motivo</th></tr>
+    </thead>
+    <tbody>
+      {% for item in skipped %}
+      <tr class="border-t border-gray-100">
+        <td class="px-3 py-2">{{ item.row_number }}</td>
+        <td class="px-3 py-2">{{ item.legacy_code|default:"—" }}</td>
+        <td class="px-3 py-2">{{ item.reason }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="text-xs text-gray-500 mb-6">
+  Essas linhas podem ser importadas depois: cadastre o modelo que faltava (se for o caso)
+  e envie a planilha novamente — as linhas já importadas não duplicam, porque cada nova
+  importação gera patrimônios novos apenas para o que você selecionar na revisão.
+</p>
+{% endif %}
+
+<a href="{% url 'equipment:list' %}" class="text-blue-600 hover:underline text-sm">Ver equipamentos</a>
+{% endblock %}

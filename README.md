@@ -17,9 +17,11 @@ O que já está implementado e testado:
 - **Exportação CSV/Excel** da listagem de equipamentos, respeitando os filtros aplicados (`apps/equipment/export.py`).
 - `django-simple-history` habilitado em `EquipmentModel` e `Equipment` (histórico automático de alterações).
 - Comando `seed_catalog` com os códigos de modelo já definidos pela Locus.
-- 28 testes automatizados passando contra PostgreSQL real, incluindo: concorrência na geração do patrimônio (12 cadastros simultâneos do mesmo modelo, zero duplicidade), decodificação real do QR (confere que ele aponta para a URL certa), vazamento de dados na página pública, matriz de permissões e exportação.
+- **Importação assistida da planilha legada** (`apps/equipment/legacy_import.py` + `views_import.py`): upload do `.xlsx` → sugestão automática de modelo por linha (comparando subcategoria/descrição do sistema/descrição livre contra o catálogo, ficando com a melhor correspondência) → tela de revisão onde o Administrador confirma ou corrige manualmente cada linha, com todos os modelos ativos disponíveis mesmo quando a categoria da planilha não bate com nenhuma cadastrada → confirmação grava via o mesmo `create_equipment()` atômico usado em todo o resto do sistema. Duas camadas de proteção contra duplicidade por reimportação (no parse e na confirmação). Restrita a Administrador. Validada rodando de ponta a ponta contra a planilha real da Locus (306 linhas: 125 com sugestão automática, as demais — a maioria climatizadores, cuja subcategoria na planilha antiga é mais granular que os 6 códigos de modelo cadastrados hoje — ficam corretamente marcadas para escolha manual em vez de arriscar um match errado).
+- **Cadastro de usuários pela interface web** (`apps/accounts/views.py` + `forms.py`, telas em `templates/accounts/`): listar, criar (com perfil e senha inicial) e editar (perfil, ativar/desativar) usuários, substituindo o uso de admin/shell do primeiro passo da Fase 1. Restrito a Administrador; inclui a trava de "não pode desativar a si mesmo".
+- 54 testes automatizados passando contra PostgreSQL real, incluindo: concorrência na geração do patrimônio (12 cadastros simultâneos do mesmo modelo, zero duplicidade), decodificação real do QR (confere que ele aponta para a URL certa), vazamento de dados na página pública, matriz de permissões, exportação, importação da planilha legada (parser e fluxo HTTP completo) e gestão de usuários.
 
-**O que ainda não está implementado** (próximos passos dentro da própria Fase 1): importação assistida da planilha legada (305 equipamentos), cadastro de usuários pela interface (hoje só via admin/shell), refinamento visual das telas. Fase 2 (clientes, movimentação, manutenção, higienização) e Fase 3 (dashboard) são backlog — schema já preparado, sem tela nem lógica ainda.
+**O que ainda não está implementado** (próximos passos dentro da própria Fase 1): refinamento visual das telas, build compilado do Tailwind (hoje via CDN). Fase 2 (clientes, movimentação, manutenção, higienização) e Fase 3 (dashboard) são backlog — schema já preparado, sem tela nem lógica ainda.
 
 ## Por que PostgreSQL também em desenvolvimento
 
@@ -74,9 +76,11 @@ Os testes mais importantes ficam em `apps/equipment/tests/`:
 - `test_public_detail_view.py` — a ficha pública do QR nunca vaza cliente, valor de aquisição ou observações internas.
 - `test_export.py` — exportação CSV/Excel reproduz os dados certos e respeita os filtros e a permissão de quem exporta.
 
+- `test_legacy_import.py` — parser da planilha legada (sugestão por subcategoria/descrição, detecção de dados faltando, categoria desconhecida ainda oferecendo lista completa de modelos, duplicidade contra equipamento já existente) e o fluxo HTTP completo de upload → revisão → confirmação, incluindo a segunda camada de defesa contra duplicidade na confirmação.
+
 Em `apps/qrcodes/tests/test_qr_and_labels.py`: o QR é decodificado de verdade (não só "gerou um PNG") e confere que a URL bate com a permanente do patrimônio; PDF de etiqueta é validado; download é restrito a Administrador/Administrativo.
 
-E em `apps/accounts/tests/test_permissions.py` — a matriz de permissões da especificação (seção 11) como teste, não só documentação.
+Em `apps/accounts/tests/test_permissions.py` — a matriz de permissões da especificação (seção 11) como teste, não só documentação. Em `apps/accounts/tests/test_user_management.py` — criação e edição de usuário pela interface, incluindo a trava de autodesativação e a restrição a Administrador.
 
 ## Deploy em produção (HostGator VPS NVMe 4)
 
