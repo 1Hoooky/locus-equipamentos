@@ -12,7 +12,22 @@ class EquipmentAdmin(SimpleHistoryAdmin):
     list_display = ("patrimonio", "model", "status", "condition", "is_active", "created_at", "qr_etiqueta_links")
     list_filter = ("status", "condition", "category", "is_active")
     search_fields = ("patrimonio", "serial_number", "legacy_code")
-    readonly_fields = ("patrimonio", "model_sequence", "category", "created_by", "superseded_by")
+    # `status`/`condition` são somente-leitura aqui de propósito: o Django
+    # admin passou a ser ferramenta técnica/contingência (fechamento da
+    # Fase 1), não a interface operacional. As telas próprias de "Alterar
+    # status"/"Alterar condição" (apps/equipment/views.py) são o único
+    # caminho que grava `StatusHistory`/`ConditionHistory` — editar esses
+    # campos aqui direto deixaria a mudança sem o evento estruturado
+    # correspondente, quebrando a garantia de consistência pedida.
+    readonly_fields = (
+        "patrimonio",
+        "model_sequence",
+        "category",
+        "created_by",
+        "superseded_by",
+        "status",
+        "condition",
+    )
     actions = ["download_labels_pdf"]
 
     @admin.display(description="QR / Etiqueta")

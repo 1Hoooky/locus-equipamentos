@@ -12,6 +12,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("contas/", include("apps.accounts.urls")),
     path("qrcodes/", include("apps.qrcodes.urls")),
+    path("catalogo/", include("apps.catalog.urls")),
     path("equipamentos/", include("apps.equipment.urls")),
 ]
 

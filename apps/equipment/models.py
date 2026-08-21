@@ -111,3 +111,48 @@ class Equipment(TimeStampedModel, SoftDeleteModel):
 
     def __str__(self) -> str:
         return self.patrimonio
+
+
+class StatusHistory(models.Model):
+    """
+    Evento estruturado de mudança de status — especificação, seções 6, 8 e
+    16 ("Eventos estruturados de domínio"). Complementa (não substitui) o
+    snapshot genérico do django-simple-history: aqui o `reason` é sempre
+    obrigatório e o registro é sempre criado pelo mesmo caminho
+    (`apps.equipment.services.change_status()`), nunca por edição direta —
+    é o que garante consistência (seção 8 do pedido de fechamento da Fase 1).
+    """
+
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, related_name="status_history")
+    old_value = models.CharField(max_length=20, choices=Status.choices)
+    new_value = models.CharField(max_length=20, choices=Status.choices)
+    changed_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="status_changes")
+    changed_at = models.DateTimeField(auto_now_add=True)
+    reason = models.TextField()
+
+    class Meta:
+        verbose_name = "histórico de status"
+        verbose_name_plural = "histórico de status"
+        ordering = ["-changed_at"]
+
+    def __str__(self) -> str:
+        return f"{self.equipment.patrimonio}: {self.old_value} → {self.new_value}"
+
+
+class ConditionHistory(models.Model):
+    """Evento estruturado de mudança de condição — mesmo raciocínio de `StatusHistory`."""
+
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, related_name="condition_history")
+    old_value = models.CharField(max_length=20, choices=Condition.choices)
+    new_value = models.CharField(max_length=20, choices=Condition.choices)
+    changed_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="condition_changes")
+    changed_at = models.DateTimeField(auto_now_add=True)
+    reason = models.TextField()
+
+    class Meta:
+        verbose_name = "histórico de condição"
+        verbose_name_plural = "histórico de condição"
+        ordering = ["-changed_at"]
+
+    def __str__(self) -> str:
+        return f"{self.equipment.patrimonio}: {self.old_value} → {self.new_value}"

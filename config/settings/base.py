@@ -4,6 +4,7 @@ Nada de credenciais aqui — tudo vem de variáveis de ambiente (.env),
 lidas via python-decouple. Ver .env.example na raiz do repositório.
 """
 
+from datetime import timedelta
 from pathlib import Path
 
 from decouple import Csv, config
@@ -40,6 +41,7 @@ DJANGO_APPS = [
 
 THIRD_PARTY_APPS = [
     "simple_history",
+    "axes",
 ]
 
 # django-simple-history usa CharField(max_length=100) por padrão para o
@@ -77,7 +79,26 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "simple_history.middleware.HistoryRequestMiddleware",
+    # django-axes exige ser o ÚLTIMO middleware da lista (especificação,
+    # seção 11: "django-axes contra força bruta").
+    "axes.middleware.AxesMiddleware",
 ]
+
+# AxesStandaloneBackend precisa vir ANTES do ModelBackend padrão — é o que
+# de fato bloqueia a tentativa de autenticação depois do limite de
+# falhas, em vez de só registrar o evento.
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+# Limiar e janela de bloqueio por força bruta. Sem número definido na
+# especificação — usamos um padrão razoável para uma equipe pequena;
+# ajustável pela Locus depois sem mudança de código.
+AXES_FAILURE_LIMIT = config("AXES_FAILURE_LIMIT", default=5, cast=int)
+AXES_COOLOFF_TIME = timedelta(minutes=config("AXES_COOLOFF_MINUTES", default=30, cast=int))
+AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+AXES_RESET_ON_SUCCESS = True
 
 ROOT_URLCONF = "config.urls"
 

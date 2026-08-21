@@ -28,7 +28,13 @@ from django.db import transaction
 
 from apps.accounts.models import User
 from apps.catalog.models import EquipmentModel
-from apps.equipment.models import Condition, Equipment, Status
+from apps.equipment.models import (
+    Condition,
+    ConditionHistory,
+    Equipment,
+    Status,
+    StatusHistory,
+)
 
 
 def build_patrimonio(code: str, sequence: int) -> str:
@@ -139,3 +145,59 @@ def supersede_equipment(*, equipment: Equipment, new_model: EquipmentModel, reas
     equipment.save(update_fields=["is_active", "status", "superseded_by", "updated_at"])
 
     return new_equipment
+
+
+@transaction.atomic
+def change_status(*, equipment: Equipment, new_status: str, reason: str, changed_by: User) -> Equipment:
+    """
+    Único caminho suportado para mudar `Equipment.status` (fechamento da
+    Fase 1, itens 5/6): grava o novo valor e cria o `StatusHistory`
+    correspondente na MESMA transação, sempre com motivo — nunca os dois
+    passos separados, para não existir mudança de status sem o evento
+    estruturado que a acompanha.
+    """
+    if not reason.strip():
+        raise ValueError("Mudança de status exige um motivo.")
+    if new_status not in Status.values:
+        raise ValueError(f"Status inválido: {new_status!r}.")
+    if new_status == equipment.status:
+        raise ValueError("O novo status é igual ao status atual.")
+
+    old_status = equipment.status
+    equipment._change_reason = f"Status: {old_status} → {new_status}. Motivo: {reason}"
+    equipment.status = new_status
+    equipment.save(update_fields=["status", "updated_at"])
+
+    StatusHistory.objects.create(
+        equipment=equipment,
+        old_value=old_status,
+        new_value=new_status,
+        changed_by=changed_by,
+        reason=reason,
+    )
+    return equipment
+
+
+@transaction.atomic
+def change_condition(*, equipment: Equipment, new_condition: str, reason: str, changed_by: User) -> Equipment:
+    """Único caminho suportado para mudar `Equipment.condition` — mesmo raciocínio de `change_status()`."""
+    if not reason.strip():
+        raise ValueError("Mudança de condição exige um motivo.")
+    if new_condition not in Condition.values:
+        raise ValueError(f"Condição inválida: {new_condition!r}.")
+    if new_condition == equipment.condition:
+        raise ValueError("A nova condição é igual à condição atual.")
+
+    old_condition = equipment.condition
+    equipment._change_reason = f"Condição: {old_condition} → {new_condition}. Motivo: {reason}"
+    equipment.condition = new_condition
+    equipment.save(update_fields=["condition", "updated_at"])
+
+    ConditionHistory.objects.create(
+        equipment=equipment,
+        old_value=old_condition,
+        new_value=new_condition,
+        changed_by=changed_by,
+        reason=reason,
+    )
+    return equipment

@@ -3,22 +3,71 @@
 {% block content %}
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-xl font-semibold">Equipamentos</h1>
-  {% if user.is_administrativo_ou_superior %}
   <div class="flex gap-3 text-sm">
+    {% if user.is_administrativo_ou_superior %}
+    <a href="{% url 'equipment:create' %}" class="bg-blue-600 text-white rounded-md px-4 py-1.5 font-medium hover:bg-blue-700">
+      Novo equipamento
+    </a>
     <a href="{% url 'equipment:export' %}?format=csv&{{ request.GET.urlencode }}" class="text-blue-600 hover:underline">
       Exportar CSV
     </a>
     <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="text-blue-600 hover:underline">
       Exportar Excel
     </a>
+    {% endif %}
   </div>
-  {% endif %}
 </div>
 
-<form method="get" class="flex flex-wrap gap-2 mb-4">
-  <input type="text" name="q" value="{{ request.GET.q }}" placeholder="Patrimônio ou serial"
-         class="border border-gray-300 rounded-md px-3 py-1.5 text-sm flex-1 min-w-[200px]">
-  <button type="submit" class="bg-gray-800 text-white rounded-md px-4 py-1.5 text-sm">Buscar</button>
+<form method="get" class="flex flex-wrap gap-2 mb-4 items-end">
+  <div class="flex-1 min-w-[200px]">
+    <label class="block text-xs text-gray-500 mb-1">Patrimônio ou serial</label>
+    <input type="text" name="q" value="{{ request.GET.q }}" placeholder="Patrimônio ou serial"
+           class="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full">
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Status</label>
+    <select name="status" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+      <option value="">Todos</option>
+      {% for value, label in status_choices %}
+      <option value="{{ value }}" {% if value == selected_status %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Condição</label>
+    <select name="condition" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+      <option value="">Todas</option>
+      {% for value, label in condition_choices %}
+      <option value="{{ value }}" {% if value == selected_condition %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Categoria</label>
+    <select name="category" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+      <option value="">Todas</option>
+      {% for category in categories %}
+      <option value="{{ category.pk }}" {% if category.pk|stringformat:"s" == selected_category %}selected{% endif %}>
+        {{ category.name }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Modelo</label>
+    <select name="model" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+      <option value="">Todos</option>
+      {% for model in models %}
+      <option value="{{ model.pk }}" {% if model.pk|stringformat:"s" == selected_model %}selected{% endif %}>
+        {{ model }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="bg-gray-800 text-white rounded-md px-4 py-1.5 text-sm">Filtrar</button>
+  {% if request.GET %}
+  <a href="{% url 'equipment:list' %}" class="text-sm text-gray-600 hover:underline px-2 py-1.5">Limpar</a>
+  {% endif %}
 </form>
 
 <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
