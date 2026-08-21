@@ -42,6 +42,16 @@ THIRD_PARTY_APPS = [
     "simple_history",
 ]
 
+# django-simple-history usa CharField(max_length=100) por padrão para o
+# motivo de alteração (`history_change_reason`). A especificação (seção
+# 8) exige motivo obrigatório em reclassificação/reemissão de patrimônio
+# sem impor limite de tamanho, e `apps/equipment/services.py` de fato
+# concatena texto extra ao motivo do usuário (ex.: "Superseded por
+# LOC-XXXX-0001. Motivo: ..."). Motivos um pouco mais longos que 100
+# caracteres já derrubavam a transação inteira com um DataError do
+# Postgres. TextField remove esse limite arbitrário.
+SIMPLE_HISTORY_HISTORY_CHANGE_REASON_USE_TEXT_FIELD = True
+
 LOCAL_APPS = [
     "apps.core",
     "apps.accounts",
@@ -111,6 +121,19 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # --------------------------------------------------------------------------
 # Senhas
 # --------------------------------------------------------------------------
+
+# Argon2 primeiro na lista (especificação, seção 11: "senha Argon2") — o
+# Django troca o hash de qualquer usuário automaticamente para Argon2 no
+# próximo login bem-sucedido, mesmo que a senha já exista com outro
+# algoritmo; os hashers legados ficam listados depois só para conseguir
+# LER hashes antigos (ex.: o superusuário criado antes desta mudança),
+# nunca para gerar hash novo.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+    "django.contrib.auth.hashers.ScryptPasswordHasher",
+]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

@@ -47,6 +47,30 @@ class PatrimonioImmutabilityTest(TestCase):
         with self.assertRaises(ValueError):
             reclassify_model(equipment=self.equipment, new_model=other_model, reason="   ", changed_by=self.user)
 
+    def test_reclassify_model_accepts_long_reason(self):
+        """
+        Regressão: `history_change_reason` do django-simple-history é
+        CharField(100) por padrão, mas o motivo de reclassificação é texto
+        livre digitado por um Administrador, sem limite imposto na
+        validação — um motivo um pouco mais detalhado (> 100 caracteres)
+        derrubava a transação inteira com um DataError do Postgres antes
+        de `SIMPLE_HISTORY_HISTORY_CHANGE_REASON_USE_TEXT_FIELD` ser
+        ligado em config/settings/base.py.
+        """
+        other_model = EquipmentModel.objects.create(category=self.category, name="NI23 Tanque Suporte 2", code="NI23TS2")
+        long_reason = (
+            "Motivo bem detalhado explicando exatamente por que este equipamento foi "
+            "cadastrado com o modelo errado e o que foi feito para corrigir - " + ("x" * 40)
+        )
+        self.assertGreater(len(long_reason), 100)
+
+        updated = reclassify_model(
+            equipment=self.equipment, new_model=other_model, reason=long_reason, changed_by=self.user
+        )
+        self.assertEqual(updated.model_id, other_model.pk)
+        latest_history = updated.history.first()
+        self.assertEqual(latest_history.history_change_reason, long_reason)
+
     def test_supersede_equipment_creates_new_patrimonio_and_inactivates_old(self):
         old_patrimonio = self.equipment.patrimonio
         heater_category = Category.objects.create(name="Aquecedor")
