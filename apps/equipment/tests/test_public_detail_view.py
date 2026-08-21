@@ -64,3 +64,71 @@ class PublicEquipmentDetailViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "equipment/detail_private.html")
         self.assertIn("Cliente Sigiloso", response.content.decode())
+
+
+class AcquisitionValueVisibilityByRoleTest(TestCase):
+    """
+    Especificação, seção 11: "Ver valor de aquisição / dados financeiros"
+    é Sim só para Administrador e Administrativo. A linha "Consultar
+    equipamento e histórico" é Sim para os 4 perfis — ou seja,
+    Operacional/Técnico e Consulta enxergam a ficha autenticada do
+    equipamento, mas o dado financeiro dentro dela precisa continuar
+    escondido para eles (auditoria de arquitetura,
+    docs/auditoria-arquitetura-fase1.md, item "visibilidade de valor de
+    aquisição sem teste automatizado" — a regra já existia e estava
+    correta no template `detail_private.html`, só faltava esta prova).
+    """
+
+    def setUp(self):
+        category = Category.objects.create(name="Aquecedor")
+        model = EquipmentModel.objects.create(category=category, name="Aquecedor Híbrido", code="AQCV")
+        creator = User.objects.create_user(username="cadastrador_valor", password="senha-forte-123")
+
+        self.equipment = create_equipment(
+            NewEquipmentData(
+                model_id=model.pk,
+                created_by=creator,
+                supplier="Fornecedor Só Para Quem Pode Ver",
+                acquisition_value=Decimal("4321.55"),
+            )
+        )
+
+        for role in ("ADMIN", "ADMINISTRATIVO", "OPERACIONAL", "CONSULTA"):
+            User.objects.create_user(username=f"valor_{role.lower()}", password="senha-forte-123", role=role)
+
+    def _get_as(self, role):
+        client = HttpClient()
+        client.login(username=f"valor_{role.lower()}", password="senha-forte-123")
+        return client.get(f"/equipamentos/{self.equipment.patrimonio}/")
+
+    def test_admin_can_see_acquisition_value(self):
+        response = self._get_as("ADMIN")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "equipment/detail_private.html")
+        content = response.content.decode()
+        self.assertIn("4321,55", content)
+        self.assertIn("Fornecedor Só Para Quem Pode Ver", content)
+
+    def test_administrativo_can_see_acquisition_value(self):
+        response = self._get_as("ADMINISTRATIVO")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "equipment/detail_private.html")
+        content = response.content.decode()
+        self.assertIn("4321,55", content)
+        self.assertIn("Fornecedor Só Para Quem Pode Ver", content)
+
+    def test_operacional_cannot_see_acquisition_value(self):
+        response = self._get_as("OPERACIONAL")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "equipment/detail_private.html")
+        content = response.content.decode()
+        self.assertNotIn("4321,55", content)
+        self.assertNotIn("Fornecedor Só Para Quem Pode Ver", content)
+
+    def test_consulta_cannot_see_acquisition_value(self):
+        response = self._get_as("CONSULTA")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "equipment/detail_private.html")
+        content = response.content.decode()
+        self.assertNotIn("4321,55", content)
+        self.assertNotIn("Fornecedor Só Para Quem Pode Ver", content)
