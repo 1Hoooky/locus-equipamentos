@@ -13,18 +13,58 @@ endurecimento de produção já existente e já testado (DEBUG=False, HSTS,
 cookies seguros, `SECURE_PROXY_SSL_HEADER`, validação de ALLOWED_HOSTS) —
 só sobrescreve o que é especificamente diferente na Render:
 
-- banco: Neon fornece uma única `DATABASE_URL`, não os campos separados
-  DB_NAME/DB_USER/DB_PASSWORD/DB_HOST/DB_PORT do docker-compose do VPS;
+- banco: `DATABASE_URL` (a connection string da Neon) é a ÚNICA fonte de
+  verdade — ver a nota logo abaixo sobre como isso é garantido, não só
+  pretendido;
 - hosts: domínio da Render (`*.onrender.com`) além do domínio próprio;
 - estáticos: o Free tier da Render não roda um Nginx dedicado ao lado do
   container `web` — o WhiteNoise serve os estáticos direto do Gunicorn;
 - django-axes atrás de um proxy único (o edge da Render), para não
   bloquear por IP todo mundo que loga através dele.
+
+Sobre `DATABASE_URL` ser realmente a ÚNICA fonte de verdade do banco:
+`config/settings/base.py` (herdado via `prod.py`) monta `DATABASES` a
+partir de `DB_NAME`/`DB_USER`/`DB_PASSWORD`/`DB_HOST`/`DB_PORT` — e
+precisa que essas variáveis existam no ambiente, mesmo aqui, só para não
+quebrar com um erro de configuração ausente antes deste módulo terminar
+de carregar. Em vez de exigir que alguém preencha essas cinco variáveis
+a parte (arriscando divergir do que está em `DATABASE_URL` se só uma das
+duas for atualizada depois), este módulo faz o parse de `DATABASE_URL`
+ANTES de herdar de `prod.py`/`base.py` e injeta os cinco campos no
+processo — então quando `base.py` lê `DB_NAME`/etc. um instante depois,
+já está lendo valores derivados desta mesma `DATABASE_URL`, nunca um
+valor suprido à parte. Não sobra nenhuma variável independente para
+divergir: só existe uma leitura da connection string, feita uma vez,
+aqui.
 """
 
+import os
 from urllib.parse import unquote, urlsplit
 
 from decouple import config
+
+# --------------------------------------------------------------------------
+# Banco — precisa rodar ANTES de "from .prod import *": é o próprio
+# carregamento de base.py (disparado por essa importação, um instante
+# depois) que lê DB_NAME/DB_USER/DB_PASSWORD/DB_HOST/DB_PORT do ambiente
+# para montar DATABASES. Injetando os cinco aqui, derivados só de
+# DATABASE_URL, garantimos que não existe um segundo lugar de onde esses
+# valores possam vir — elimina a redundância, não só documenta que ela
+# "não deveria" divergir.
+# --------------------------------------------------------------------------
+
+_database_url = config("DATABASE_URL", default="")
+if _database_url:
+    _parsed = urlsplit(_database_url)
+    os.environ["DB_HOST"] = _parsed.hostname or ""
+    os.environ["DB_PORT"] = str(_parsed.port or 5432)
+    os.environ["DB_NAME"] = _parsed.path.lstrip("/")
+    os.environ["DB_USER"] = unquote(_parsed.username or "")
+    os.environ["DB_PASSWORD"] = unquote(_parsed.password or "")
+# Se DATABASE_URL não estiver definida, base.py cai no comportamento
+# padrão dela (lê DB_NAME/DB_USER/... diretamente do ambiente) — só serve
+# para depuração local deste módulo; em produção real na Render,
+# DATABASE_URL é obrigatória (ver docs/deploy-render-neon.md).
 
 from .prod import *
 
@@ -46,32 +86,11 @@ CSRF_TRUSTED_ORIGINS = [*CSRF_TRUSTED_ORIGINS, "https://*.onrender.com"]
 if _render_hostname:
     CSRF_TRUSTED_ORIGINS.append(f"https://{_render_hostname}")
 
-# --------------------------------------------------------------------------
-# Banco — Neon. Faz o parse manual da connection string para não somar
-# uma dependência nova (dj-database-url) só para isto.
-# --------------------------------------------------------------------------
-
-_database_url = config("DATABASE_URL", default="")
+# Neon exige SSL; o Postgres do VPS (mesma rede interna do Compose) não —
+# por isso isto fica só aqui, nunca em base.py/prod.py. DATABASES já
+# existe neste ponto, montado por base.py com os valores injetados acima.
 if _database_url:
-    _parsed = urlsplit(_database_url)
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": _parsed.path.lstrip("/"),
-            "USER": unquote(_parsed.username or ""),
-            "PASSWORD": unquote(_parsed.password or ""),
-            "HOST": _parsed.hostname,
-            "PORT": _parsed.port or 5432,
-            # Neon exige SSL; o Postgres do VPS (mesma rede interna do
-            # Compose) não. Isto fica só aqui — nunca em base.py/prod.py —
-            # para não afetar o container do VPS.
-            "OPTIONS": {"sslmode": "require"},
-        }
-    }
-# Se DATABASE_URL não estiver definida, cai no comportamento herdado de
-# base.py (DB_NAME/DB_USER/... via .env) — útil só para depuração local
-# desta configuração; em produção real na Render, DATABASE_URL é
-# obrigatória (ver docs/deploy-render-neon.md).
+    DATABASES["default"]["OPTIONS"] = {"sslmode": "require"}
 
 # --------------------------------------------------------------------------
 # Estáticos — sem Nginx dedicado no Free tier da Render, o WhiteNoise

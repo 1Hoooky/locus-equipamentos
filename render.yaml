@@ -35,20 +35,12 @@ services:
         value: "True"
       - key: SITE_BASE_URL
         sync: false # URL pública final usada nos QR Codes — conferir com atenção (seção 14 da especificação)
-      # Banco (Neon) — os 5 campos abaixo vêm da mesma connection string
-      # que a Neon fornece; ver docs/deploy-render-neon.md para onde
-      # encontrar cada um no dashboard da Neon.
+      # Banco (Neon) — DATABASE_URL é a ÚNICA variável de banco necessária.
+      # config/settings/render.py faz o parse dela e deriva host/porta/
+      # nome/usuário/senha a partir daí, sem precisar de mais nenhuma
+      # variável separada (e sem risco de uma segunda cópia divergir da
+      # primeira) — ver docs/deploy-render-neon.md, seção 4.1.
       - key: DATABASE_URL
-        sync: false
-      - key: DB_HOST
-        sync: false
-      - key: DB_PORT
-        value: "5432"
-      - key: DB_NAME
-        sync: false
-      - key: DB_USER
-        sync: false
-      - key: DB_PASSWORD
         sync: false
       - key: AXES_FAILURE_LIMIT
         value: "5"
