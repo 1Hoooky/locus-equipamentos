@@ -1,0 +1,56 @@
+# Blueprint da Render para o deploy alternativo de validação da Fase 1
+# (Render Free + Neon) — ver docs/deploy-render-neon.md para o
+# procedimento completo, incluindo os valores reais a preencher.
+#
+# Uso: no dashboard da Render, "New +" → "Blueprint", apontar para este
+# repositório. A Render lê este arquivo e propõe o serviço abaixo,
+# pedindo os valores marcados com `sync: false` um a um.
+#
+# Reaproveita o MESMO Dockerfile do deploy VPS/Docker Compose (nenhuma
+# duplicação de build) — só muda `DJANGO_SETTINGS_MODULE` para o módulo
+# de configurações específico da Render (config/settings/render.py).
+# Este arquivo não afeta o deploy VPS de forma alguma: docker-compose.yml
+# continua sendo o único usado lá, este é lido só pela Render.
+
+services:
+  - type: web
+    runtime: docker
+    name: locus-equipamentos
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /contas/login/
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.render
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false # preencher com o(s) domínio(s) próprio(s), se houver — ver docs/deploy-render-neon.md
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        sync: false # idem, com o esquema https:// explícito
+      - key: DJANGO_SECURE_SSL_REDIRECT
+        value: "True"
+      - key: SITE_BASE_URL
+        sync: false # URL pública final usada nos QR Codes — conferir com atenção (seção 14 da especificação)
+      # Banco (Neon) — os 5 campos abaixo vêm da mesma connection string
+      # que a Neon fornece; ver docs/deploy-render-neon.md para onde
+      # encontrar cada um no dashboard da Neon.
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: AXES_FAILURE_LIMIT
+        value: "5"
+      - key: AXES_COOLOFF_MINUTES
+        value: "30"

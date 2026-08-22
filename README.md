@@ -101,6 +101,12 @@ Em `apps/accounts/tests/test_password_reset.py`: fluxo HTTP completo de recupera
 5. `docker compose up -d --build`.
 6. Configurar backup automático (`pg_dump` diário + cópia externa) — ver seção 17/19 da especificação; ainda não incluído neste primeiro passo, é o próximo item de infraestrutura.
 
+Procedimento operacional completo (pré-deploy, variáveis de ambiente, PostgreSQL/Gunicorn/Nginx, HTTPS, backup, rollback, teste pós-deploy e checklist de validação no celular) em `docs/deploy-fase1.md`.
+
+### Deploy alternativo de validação (Render Free + Neon)
+
+Existe um segundo caminho de deploy, em paralelo a este, para validação rápida sem VPS provisionado — reaproveita o mesmo `Dockerfile`, não altera nada deste caminho VPS. Procedimento completo, com as limitações conhecidas do tier gratuito, em `docs/deploy-render-neon.md`.
+
 ## Estrutura
 
 Ver seção 19/20 da `Especificação Técnica v1.0` para a justificativa de cada pasta. Resumo:

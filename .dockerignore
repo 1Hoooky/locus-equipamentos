@@ -1,0 +1,29 @@
+# Sem isto, `COPY . .` no Dockerfile empacota o .env real (se existir no
+# diretório no momento do `docker build`) dentro da imagem — vazando
+# SECRET_KEY/senha de banco para qualquer camada da imagem. Achado ao
+# preparar o deploy alternativo Render+Neon; corrige os dois caminhos de
+# deploy (VPS e Render), sem alterar nenhum dos dois em comportamento.
+.env
+.env.*
+!.env.example
+
+.git/
+.gitignore
+
+.venv/
+__pycache__/
+*.pyc
+
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+staticfiles/
+media/
+db.sqlite3
+
+.vscode/
+.idea/
+*.swp
+.DS_Store
