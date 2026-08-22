@@ -65,35 +65,37 @@ Nenhuma delas é um problema do código do projeto — são características da 
 - **Disco efêmero — não há disco persistente no Free tier.** Qualquer arquivo gravado localmente pelo container (inclusive `MEDIA_ROOT`) some no próximo deploy ou reinício. Não é um problema hoje (fotos/anexos ainda são um esqueleto vazio na Fase 1), mas é um bloqueador real para quando essa funcionalidade for implementada — nesse momento, mídia precisará de armazenamento externo (S3-compatible, já previsto na especificação seção 15) antes de usar fotos neste ambiente.
 - **O compute da Neon Free entra em suspensão depois de 5 minutos de inatividade**, mas volta em algumas centenas de milissegundos na primeira consulta seguinte — bem mais rápido que o "acordar" da Render, praticamente imperceptível na prática.
 - **Janela de restore da Neon Free: 6 horas** (Neon guarda o WAL para permitir "instant restore"/branching a partir de um ponto no tempo dentro dessa janela). Útil para desfazer um erro recente sem precisar de um backup manual — mas não substitui um backup externo para prazos maiores; o mesmo hábito de `pg_dump` regular do runbook do VPS vale aqui também, se este ambiente for usado por mais que alguns dias.
-- **E-mail transacional segue sem provedor configurado** — mesma pendência já registrada para o VPS; a recuperação de senha não funciona aqui também, pelo mesmo motivo.
+- **E-mail transacional segue sem provedor configurado** — mesma pendência já registrada para o VPS; a recuperação de senha não funciona aqui também, pelo mesmo motivo. **Além disso, e diferente do VPS:** a Render bloqueia tráfego de saída para as portas SMTP tradicionais (25, 465, 587) em serviços web do plano Free (mudança de plataforma confirmada no changelog oficial da Render, "Free web services will no longer allow outbound traffic to SMTP ports" — só afeta o plano Free, planos pagos não são bloqueados). Isso significa que, quando a recuperação de senha por e-mail for implementada de verdade, o `EMAIL_BACKEND` SMTP padrão do Django (que é o que `config/settings/prod.py`/`render.py` usariam por omissão, sem nenhum provedor configurado) **não vai funcionar neste ambiente**, mesmo com credenciais corretas — vai falhar silenciosamente ou dar timeout de conexão, não um erro óbvio de autenticação. Quando essa etapa chegar, o provedor de e-mail transacional (seção 10 da especificação já cita Mailgun/Resend/SES como opções) precisa ser integrado pela **API HTTPS** dele, não por SMTP — todos os três oferecem SDK/endpoint HTTP para isso. Nenhuma mudança de código foi feita agora para isto — é só o registro do porquê, para quando a Locus decidir implementar.
 
 Nenhuma dessas limitações impede validar o resto da Fase 1 (login, cadastro, permissões, geração de patrimônio, exportação, etc.) — só o critério de aceite 10 especificamente fica sujeito ao estado de "sono" da Render no momento do teste.
 
 ## 6. Criar o primeiro usuário administrador
 
-Isto é mais trabalhoso na Render do que no VPS porque **o Free tier da Render não tem Shell/SSH interativo** (recurso exclusivo dos planos pagos) — não dá para simplesmente abrir um terminal no container rodando, como o `docker compose exec web ...` do VPS. A alternativa nativa da Render para rodar um comando avulso contra a mesma imagem já em produção é um **"one-off job"**, disparado pela API (não tem botão no painel):
+**Correção importante em relação a uma versão anterior deste documento:** o Free tier da Render não oferece Shell/SSH nem "one-off jobs" gratuitos — os dois são recursos exclusivos de planos pagos. O procedimento anterior (job avulso disparado pela API) não funciona no Free tier. O que segue substitui aquele procedimento.
 
-1. Gerar uma API key em Account Settings → API Keys, no painel da Render.
-2. Pegar o "Service ID" do serviço (aparece na URL do serviço no painel, algo como `srv-xxxxxxxx`).
-3. Nas variáveis de ambiente do serviço, adicionar temporariamente `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL` e `DJANGO_SUPERUSER_PASSWORD` (o `createsuperuser --noinput` do Django lê essas três variáveis padrão — nenhum código novo precisou ser escrito para isto).
-4. Disparar o job:
+**Estratégia:** um passo de bootstrap **executado automaticamente durante a inicialização do container** (a mesma sequência que já roda `migrate`/`collectstatic` a cada subida, `docker/entrypoint.sh`) — o único ponto de execução de código disponível no Free tier sem Shell, sem SSH e sem job avulso, já que o container inicializa normalmente independente do plano. Controlado exclusivamente por três variáveis de ambiente temporárias:
 
-   ```bash
-   curl --request POST 'https://api.render.com/v1/services/SEU_SERVICE_ID/jobs' \
-     --header 'Authorization: Bearer SUA_API_KEY' \
-     --header 'Content-Type: application/json' \
-     --data-raw '{
-       "startCommand": "python manage.py createsuperuser --noinput && python manage.py shell -c \"from apps.accounts.models import User, Role; u = User.objects.get(username='"'"'SEU_USERNAME'"'"'); u.role = Role.ADMIN; u.save(update_fields=['"'"'role'"'"'])\""
-     }'
-   ```
+- **Sem credencial hardcoded** — usuário/e-mail/senha vêm só das variáveis de ambiente que você define no painel da Render; nada fica fixo no código.
+- **Sem endpoint HTTP, permanente ou temporário** — é um `management command` (`python manage.py bootstrap_admin`), chamado só durante o boot do container, nunca registrado em nenhuma rota (`apps/accounts/management/commands/bootstrap_admin.py`).
+- **Nunca promove um usuário já existente a Administrador** — se já existe alguém com o username informado, o comando só registra isso no log e não toca em nada. O único caminho que este mecanismo tem é *criar uma conta nova* com o username exato que você informar; não existe cenário em que ele altere uma conta pré-existente.
+- **Idempotente** — rodar de novo (com as mesmas variáveis, ou já sem elas) nunca duplica nem reseta nada.
+- **Reversível sem mudança de código** — "desativar" é simplesmente remover as três variáveis do serviço; no próximo boot, o comando não encontra o que precisa e não faz nada, permanentemente, até (e a menos que) alguém as defina de novo.
+- **Sem alterar a arquitetura de autenticação normal** — não mexe em `RoleRequiredMixin`, `permissions.py`, nas views de login, nem em nenhuma regra de permissão já existente; é só uma forma alternativa de criar a PRIMEIRA linha na tabela de usuários, para plataformas onde não há outra forma de fazer isso.
 
-   (o segundo comando é o mesmo ajuste de `role=ADMIN` explicado no runbook do VPS, seção 10 de `docs/deploy-fase1.md` — necessário pelo mesmo motivo: `createsuperuser` sozinho não define o perfil de negócio, só `is_superuser`).
-5. Acompanhar o resultado do job pela aba correspondente no painel do serviço.
-6. **Remover as três variáveis `DJANGO_SUPERUSER_*`** das configurações do serviço depois de confirmar que o usuário foi criado — elas guardam a senha inicial em texto simples na configuração do ambiente, sem necessidade de continuar lá depois do primeiro uso.
+**Passo a passo:**
 
-Disponibilidade de "one-off jobs" no plano Free não está confirmada com certeza total na documentação pública da Render no momento em que este texto foi escrito — se a chamada acima for recusada por causa do plano, a alternativa mais simples é fazer upgrade temporário do serviço para o plano pago mais barato só pelos poucos minutos necessários para abrir o Shell do painel e rodar `python manage.py createsuperuser` interativamente (mais o ajuste de `role`, do mesmo jeito que no VPS), e depois voltar o serviço para o plano Free — Render cobra por segundo, então o custo de fazer isso por poucos minutos é irrisório.
+1. No painel do serviço na Render, adicionar temporariamente três variáveis de ambiente:
+   - `BOOTSTRAP_ADMIN_USERNAME` — o username do primeiro administrador.
+   - `BOOTSTRAP_ADMIN_EMAIL` — o e-mail dele.
+   - `BOOTSTRAP_ADMIN_PASSWORD` — uma senha forte (validada contra a mesma política do resto do sistema — `AUTH_PASSWORD_VALIDATORS`, mínimo 10 caracteres — na hora do boot; se a senha for fraca, a inicialização do container falha alto, com uma mensagem clara, em vez de criar silenciosamente uma conta com senha fraca).
+2. Salvar — a Render reinicia o serviço automaticamente ao mudar variáveis de ambiente. No próximo boot, `docker/entrypoint.sh` chama `python manage.py bootstrap_admin` (depois do `migrate`, antes do `collectstatic`) — o comando encontra as três variáveis, cria o usuário com `role=ADMIN` e `is_superuser=True` (o mesmo par que o VPS precisa ajustar manualmente na sua seção 10 de `docs/deploy-fase1.md` — aqui já sai correto de fábrica) e imprime uma confirmação nos logs de deploy do serviço.
+3. Conferir nos logs do deploy (aba "Logs" do serviço) a linha `bootstrap_admin: Administrador '...' criado (role=ADMIN, is_superuser=True)`.
+4. **Remover as três variáveis `BOOTSTRAP_ADMIN_*`** do serviço imediatamente depois de confirmar — isto é o que "desativa" o mecanismo; elas guardam a senha inicial em texto simples na configuração do ambiente enquanto estiverem lá, sem necessidade de continuar depois do primeiro uso. A Render reinicia de novo ao salvar; esse boot seguinte já roda com as variáveis ausentes, e `bootstrap_admin` vira no-op (confirmado por teste automatizado local: ver nota abaixo).
+5. Logar com o administrador criado e trocar a senha pela própria interface, se preferir não confiar na que foi passada por variável de ambiente.
 
-Depois do primeiro administrador criado, o resto da equipe é cadastrado pela tela própria (`/contas/usuarios/`), como no VPS — não precisa mais de job avulso nem de Shell para ninguém depois do primeiro.
+Depois do primeiro administrador criado, o resto da equipe é cadastrado pela tela própria (`/contas/usuarios/`), como no VPS — não precisa mais deste mecanismo para ninguém depois do primeiro.
+
+**Nota de verificação:** o comando foi testado localmente (fora deste ambiente Render) nos quatro cenários relevantes — sem as variáveis definidas (no-op), com as variáveis definidas criando corretamente `role=ADMIN`/`is_superuser=True`, rodando de novo com as mesmas variáveis (idempotente, não duplica), e com uma senha fraca (falha alto, não cria nada). O comportamento *dentro* de um container real da Render ainda não foi observado nesta sessão — é o primeiro item do teste pós-deploy (seção 8).
 
 ## 7. Bug real corrigido (afeta os dois caminhos de deploy)
 
@@ -105,7 +107,7 @@ Isto não foi pego antes porque a suíte de testes automatizados usa o `Client` 
 
 Mesmo espírito do runbook do VPS (`docs/deploy-fase1.md`, seção 13), adaptado:
 
-1. Confirmar que é `render`, não `dev`: usando o one-off job (seção 6) ou o Shell temporário, `python manage.py shell -c "from django.conf import settings; print(settings.DEBUG, settings.SETTINGS_MODULE)"` → precisa imprimir `False config.settings.render`.
+1. Conferir nos logs de deploy a linha `bootstrap_admin: Administrador '...' criado` (seção 6) — é a primeira confirmação de que o boot rodou com `DJANGO_SETTINGS_MODULE=config.settings.render` de fato ativo (se estivesse caindo em `config.settings.dev` por engano, `AUTH_PASSWORD_VALIDATORS` ainda seria o mesmo, mas vale conferir também a linha de log do próprio Django/Gunicorn subindo sem erro de configuração).
 2. Acessar a URL pública (`https://SEU-SERVICO.onrender.com`) — se o serviço estava dormindo, esperar o "acordar" (a Render mostra uma página de carregamento própria nesse meio-tempo).
 3. `/contas/login/` carrega, certificado válido (a Render gerencia o TLS automaticamente, sem passo de certbot como no VPS).
 4. Logar com o administrador criado na seção 6, confirmar que a interface mostra os links de Categorias/Modelos/Importar planilha/Usuários (confirma o `role=ADMIN` aplicado corretamente).
@@ -120,5 +122,10 @@ Mais simples que no VPS: a Render mantém o histórico de deploys de cada servi�
 
 Só para deixar explícito, em resposta direta ao pedido de não mexer no que já existia:
 
-- **Novos, sem afetar nada existente:** `config/settings/render.py`, `render.yaml`, `.dockerignore`, este documento.
-- **Alterado:** `config/settings/prod.py` — só a correção do `SECURE_PROXY_SSL_HEADER` (seção 7), que é uma correção de bug real do próprio caminho VPS, não uma mudança de comportamento pretendido nem uma funcionalidade nova. `docker-compose.yml`, `docker-compose.dev.yml`, `docker/nginx.conf`, `docker/entrypoint.sh`, `Dockerfile` e `docs/deploy-fase1.md` **não foram tocados** — o deploy VPS continua exatamente como estava, e o `Dockerfile`/`docker/entrypoint.sh` são reaproveitados sem alteração também pela Render (ver seção 3).
+- **Novos, sem afetar nada existente:** `config/settings/render.py`, `render.yaml`, `.dockerignore`, `apps/accounts/management/commands/bootstrap_admin.py` (e os `__init__.py` do pacote), este documento.
+- **Alterados:**
+  - `config/settings/prod.py` — só a correção do `SECURE_PROXY_SSL_HEADER` (seção 7), que é uma correção de bug real do próprio caminho VPS, não uma mudança de comportamento pretendido nem uma funcionalidade nova.
+  - `docker/entrypoint.sh` — ganhou uma linha (`python manage.py bootstrap_admin`) entre o `migrate` e o `collectstatic`. **Sem efeito no VPS**: o comando só age se `BOOTSTRAP_ADMIN_USERNAME`/`PASSWORD` estiverem definidas, e o `.env` do VPS nunca as define — testado localmente confirmando que, sem essas variáveis, o comando não faz nada e retorna sucesso (não trava o `set -e` do script). O procedimento de criação do primeiro admin no VPS (`docs/deploy-fase1.md`, seção 10) continua exatamente o mesmo, sem depender disto.
+  - `docs/deploy-fase1.md` — uma nota de uma frase avisando sobre a linha nova em `entrypoint.sh`, para o documento continuar preciso; nenhuma instrução do procedimento do VPS foi alterada.
+  
+  `docker-compose.yml`, `docker-compose.dev.yml`, `docker/nginx.conf`, `Dockerfile` **não foram tocados** — o `Dockerfile` é reaproveitado sem alteração também pela Render (ver seção 3).

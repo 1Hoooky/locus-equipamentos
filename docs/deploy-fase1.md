@@ -3,6 +3,8 @@
 **Base:** commit `e93abd3`, tag `fase-1-concluida`. `Especificação Técnica v1.0`, seções 9, 10, 14, 17, 19, 22.
 **Objetivo deste documento:** colocar a Fase 1, já congelada, no ar no VPS da Locus para validação real — sem alterar nenhuma regra de negócio nem código de aplicação. Tudo aqui é infraestrutura/operação; a infraestrutura de deploy (Dockerfile, docker-compose.yml, docker/nginx.conf, docker/entrypoint.sh, config/settings/prod.py) já existe no repositório desde o primeiro commit e não foi alterada para produzir este documento — o que segue é o procedimento para usá-la corretamente, mais os pontos que exigem atenção humana.
 
+**Nota de atualização:** `docker/entrypoint.sh` ganhou depois um passo extra (`python manage.py bootstrap_admin`), adicionado para o deploy alternativo Render (ver `docs/deploy-render-neon.md`). No VPS ele não faz nada — só age se `BOOTSTRAP_ADMIN_USERNAME`/`PASSWORD` estiverem definidas no ambiente, e isso nunca acontece no `.env` do VPS. O procedimento de criação do primeiro admin no VPS (seção 10 abaixo) continua exatamente o mesmo.
+
 ---
 
 ## 1. Checklist de pré-deploy
