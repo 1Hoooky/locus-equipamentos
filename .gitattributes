@@ -1,0 +1,9 @@
+# Força LF nos scripts de shell, independente do sistema/editor de quem
+# commitar. Sem isto, um checkout no Windows (ou um editor configurado
+# para CRLF) pode reescrever docker/entrypoint.sh com fim de linha CRLF —
+# o que quebra o "#!/bin/sh" dentro do container Linux (o kernel procura
+# um interpretador chamado "/bin/sh\r", que não existe) e faz o
+# ENTRYPOINT falhar antes de imprimir qualquer log. O Dockerfile também
+# normaliza isso no build (ver comentário lá), mas evitar que aconteça no
+# commit é a correção na raiz.
+*.sh text eol=lf

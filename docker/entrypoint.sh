@@ -47,4 +47,10 @@ python manage.py bootstrap_admin
 
 python manage.py collectstatic --noinput
 
-exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
+# A Render atribui a porta pela variável PORT em tempo de execução (varia
+# a cada deploy) — sem respeitar isso, o Gunicorn escuta numa porta que o
+# proxy da Render não está checando, e o serviço nunca fica saudável. No
+# VPS, PORT nunca é definida, então cai no valor de sempre (8000), sem
+# mudança nenhuma de comportamento lá (docker-compose.yml e nginx.conf
+# continuam apontando para a porta 8000).
+exec gunicorn config.wsgi:application --bind "0.0.0.0:${PORT:-8000}" --workers 3
