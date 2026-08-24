@@ -60,4 +60,12 @@
   {% endif %}
 </div>
 {% endif %}
+
+{% if user.is_administrativo_ou_superior %}
+<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap gap-3 text-sm">
+  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="text-blue-600 hover:underline">Ver QR Code</a>
+  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" download="{{ equipment.patrimonio }}-qr.png" class="text-blue-600 hover:underline">Baixar QR Code (PNG)</a>
+  <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="text-blue-600 hover:underline">Baixar etiqueta (PDF)</a>
+</div>
+{% endif %}
 {% endblock %}

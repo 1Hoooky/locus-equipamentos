@@ -14,6 +14,12 @@
     <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="text-blue-600 hover:underline">
       Exportar Excel
     </a>
+    <a href="{% url 'qrcodes:qr_zip' %}" class="text-blue-600 hover:underline">
+      Exportar QR Codes
+    </a>
+    <a href="{% url 'qrcodes:label_zip' %}" class="text-blue-600 hover:underline">
+      Exportar Etiquetas
+    </a>
     {% endif %}
   </div>
 </div>

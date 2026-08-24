@@ -3,72 +3,177 @@
 <head>
 <meta charset="UTF-8">
 <style>
+  /*
+    Tamanho físico da etiqueta: vem do Python (LABEL_WIDTH_MM/
+    LABEL_HEIGHT_MM em apps/qrcodes/services.py), nunca fixo aqui — é o
+    que permite trocar o tamanho no futuro sem reescrever este template.
+    Uma página por etiqueta, no tamanho exato: é o formato que serviços
+    de gráfica/impressão de etiqueta esperam (compare com uma folha A4
+    com várias etiquetas soltas, que não preserva a dimensão física de
+    cada uma isoladamente).
+  */
   @page {
-    size: A4;
-    margin: 1cm;
-  }
-  body {
-    font-family: "DejaVu Sans", Arial, sans-serif;
+    size: {{ label_width_mm }}mm {{ label_height_mm }}mm;
     margin: 0;
   }
-  .grid {
-    display: flex;
-    flex-wrap: wrap;
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "DejaVu Sans", Arial, sans-serif;
   }
+
+  :root {
+    --locus-yellow: #F5C518;
+    --locus-black: #111111;
+    --locus-gray: #6B7280;
+  }
+
   .label {
-    width: 9cm;
-    height: 5cm;
-    border: 1px solid #999;
-    border-radius: 4px;
-    padding: 0.4cm;
-    margin: 0 0.4cm 0.4cm 0;
-    box-sizing: border-box;
+    width: {{ label_width_mm }}mm;
+    height: {{ label_height_mm }}mm;
+    display: flex;
+    page-break-after: always;
+    overflow: hidden;
+  }
+
+  /* Metade esquerda: identificação (marca, código de barras, patrimônio) */
+  .id-half {
+    width: 50%;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .brand-block {
+    background: var(--locus-black);
+    color: #fff;
+    padding: 2.5mm 3mm 2mm 3mm;
+    flex: 0 0 auto;
+  }
+  .brand-wordmark {
+    font-size: 15pt;
+    font-weight: bold;
+    color: var(--locus-yellow);
+    letter-spacing: 0.3pt;
+    line-height: 1;
+    margin: 0;
+  }
+  .brand-subtitle {
+    font-size: 7pt;
+    color: #D1D5DB;
+    margin: 0.3mm 0 0 0;
+  }
+  .brand-divider {
+    border: none;
+    border-top: 0.4pt solid var(--locus-yellow);
+    margin: 1.2mm 0;
+  }
+  .brand-tagline {
+    font-size: 6pt;
+    font-weight: bold;
+    letter-spacing: 0.4pt;
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  .identity-block {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    padding: 2mm 3mm 0 3mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 0;
+  }
+  .identity-label,
+  .identity-patrimonio,
+  .identity-model {
+    width: 100%;
+    min-width: 0;
+  }
+  .identity-label {
+    font-size: 5.5pt;
+    color: var(--locus-gray);
+    text-transform: uppercase;
+    letter-spacing: 0.4pt;
+    margin: 0 0 0.8mm 0;
+  }
+  .identity-barcode {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 10mm;
+    object-fit: contain;
+  }
+  .identity-patrimonio {
+    font-size: 13pt;
+    font-weight: bold;
+    letter-spacing: 0.2pt;
+    margin: 0.8mm 0 0 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .identity-model {
+    font-size: 6pt;
+    color: var(--locus-gray);
+    margin: 0.6mm 0 0 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .footer-bar {
+    background: var(--locus-black);
+    color: #D1D5DB;
+    font-size: 5.5pt;
+    padding: 1mm 3mm;
+    flex: 0 0 auto;
+  }
+
+  /* Metade direita: QR Code grande, com margem branca de segurança ao redor */
+  .qr-half {
+    width: 50%;
+    height: 100%;
+    background: #fff;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    page-break-inside: avoid;
+    justify-content: center;
+    padding: 4mm;
   }
-  .label .info {
-    flex: 1;
-    padding-right: 0.3cm;
-  }
-  .label .brand {
-    font-size: 9pt;
-    color: #555;
-    text-transform: uppercase;
-    letter-spacing: 0.5pt;
-    margin: 0 0 0.2cm 0;
-  }
-  .label .model {
-    font-size: 10pt;
-    color: #333;
-    margin: 0 0 0.15cm 0;
-  }
-  .label .patrimonio {
-    font-size: 14pt;
-    font-weight: bold;
-    letter-spacing: 0.3pt;
-    margin: 0;
-    white-space: nowrap;
-  }
-  .label .qr {
-    width: 2.6cm;
-    height: 2.6cm;
+  .qr-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 </style>
 </head>
 <body>
-  <div class="grid">
-    {% for label in labels %}
-    <div class="label">
-      <div class="info">
-        <p class="brand">Locus Locações</p>
-        <p class="model">{{ label.category_name }} · {{ label.model_name }}</p>
-        <p class="patrimonio">{{ label.patrimonio }}</p>
+  {% for label in labels %}
+  <div class="label">
+    <div class="id-half">
+      <div class="brand-block">
+        <p class="brand-wordmark">LOCUS</p>
+        <p class="brand-subtitle">Locações</p>
+        <hr class="brand-divider">
+        <p class="brand-tagline">Identificação de equipamento</p>
       </div>
-      <img class="qr" src="{{ label.qr_data_uri }}" alt="QR Code {{ label.patrimonio }}">
+      <div class="identity-block">
+        <p class="identity-label">Número de patrimônio</p>
+        <img class="identity-barcode" src="{{ label.barcode_data_uri }}" alt="Código de barras {{ label.patrimonio }}">
+        <p class="identity-patrimonio">{{ label.patrimonio }}</p>
+        <p class="identity-model">{{ label.category_name }} · {{ label.model_name }}</p>
+      </div>
+      {% if label.site_host %}
+      <div class="footer-bar">{{ label.site_host }}</div>
+      {% endif %}
     </div>
-    {% endfor %}
+    <div class="qr-half">
+      <img class="qr-image" src="{{ label.qr_data_uri }}" alt="QR Code {{ label.patrimonio }}">
+    </div>
   </div>
+  {% endfor %}
 </body>
 </html>

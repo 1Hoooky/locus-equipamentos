@@ -6,6 +6,8 @@ app_name = "qrcodes"
 
 urlpatterns = [
     path("lote/etiquetas.pdf", views.LabelBatchDownloadView.as_view(), name="label_batch"),
+    path("lote/qr.zip", views.QRCodeZipExportView.as_view(), name="qr_zip"),
+    path("lote/etiquetas.zip", views.LabelZipExportView.as_view(), name="label_zip"),
     path("<str:patrimonio>/qr.png", views.QRCodeDownloadView.as_view(), name="qr_png"),
     path("<str:patrimonio>/etiqueta.pdf", views.LabelDownloadView.as_view(), name="label_pdf"),
 ]
