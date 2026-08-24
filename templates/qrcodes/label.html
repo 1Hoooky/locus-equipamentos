@@ -34,11 +34,18 @@
     display: flex;
     page-break-after: always;
     overflow: hidden;
+    border: 0.5mm solid #000;
+    border-radius: 3mm;
   }
 
-  /* Metade esquerda: identificação (marca, código de barras, patrimônio) */
+  /*
+    Área esquerda (identidade + patrimônio): 52% da largura total — medido
+    pixel a pixel na imagem de referência enviada pelo usuário (~51,5%),
+    dentro da faixa 52%-54% da especificação. A área direita (QR) fica com
+    o restante (48%).
+  */
   .id-half {
-    width: 50%;
+    width: 52%;
     min-width: 0;
     height: 100%;
     display: flex;
@@ -49,77 +56,131 @@
     background: var(--locus-black);
     color: #fff;
     padding: 2.5mm 3mm 2mm 3mm;
+    /*
+      Fundo preto dimensionado pelo próprio conteúdo (marca + linha +
+      "IDENTIFICAÇÃO DE EQUIPAMENTO"), não por uma porcentagem fixa da
+      altura: por instrução explícita do usuário, o preto não deve se
+      estender além do necessário para conter essa escrita. O espaço que
+      sobra vai automaticamente para a área de código de barras/
+      patrimônio abaixo (flex: 1 1 auto).
+    */
     flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+  }
+  /*
+    "Locações" precisa terminar alinhada com o final visual de "LOCUS".
+    Como "LOCUS" (fonte maior, sem quebra) é o elemento mais largo dos
+    dois, este wrapper "encolhe" (inline-block) para a largura exata de
+    "LOCUS" — e "Locações", como bloco dentro dele com text-align:right,
+    encosta sua borda direita exatamente nessa mesma largura. O wrapper
+    inteiro fica centralizado no bloco preto pelo text-align:center do
+    pai acima (LOCUS permanece centralizado; só "Locações" é deslocada
+    para a direita dentro dessa largura, como assinatura da marca).
+  */
+  .brand-wordmark-wrap {
+    display: inline-block;
   }
   .brand-wordmark {
-    font-size: 15pt;
+    font-size: 30pt;
     font-weight: bold;
     color: var(--locus-yellow);
     letter-spacing: 0.3pt;
     line-height: 1;
     margin: 0;
+    white-space: nowrap;
   }
   .brand-subtitle {
     font-size: 7pt;
     color: #D1D5DB;
     margin: 0.3mm 0 0 0;
+    text-align: right;
   }
-  .brand-divider {
-    border: none;
-    border-top: 0.4pt solid var(--locus-yellow);
+  /*
+    Linha amarela + círculo: usamos flex (linha que cresce + ponto de
+    tamanho fixo) em vez de posicionamento absoluto sobre um <hr>, para
+    evitar depender de suporte a pseudo-elementos/transform no WeasyPrint.
+    Margem interna (herdada do padding do .brand-block) garante que a
+    linha não toque as bordas.
+  */
+  .brand-divider-row {
+    display: flex;
+    align-items: center;
     margin: 1.2mm 0;
   }
+  .brand-divider-line {
+    flex: 1 1 auto;
+    height: 0;
+    border-top: 0.4pt solid var(--locus-yellow);
+  }
+  .brand-divider-dot {
+    flex: 0 0 auto;
+    width: 1.3mm;
+    height: 1.3mm;
+    border-radius: 50%;
+    background: var(--locus-yellow);
+    margin-left: 0.8mm;
+  }
   .brand-tagline {
-    font-size: 6pt;
+    font-size: 5pt;
     font-weight: bold;
-    letter-spacing: 0.4pt;
+    letter-spacing: 0.2pt;
     text-transform: uppercase;
+    text-align: center;
+    white-space: nowrap;
     margin: 0;
   }
 
   .identity-block {
+    /*
+      Restante da altura da área esquerda (~39%, medido na referência)
+      depois do bloco de marca (50%) e do rodapé (11%). A referência tem
+      aqui, de cima para baixo: "NÚMERO DE PATRIMÔNIO" (removido por
+      instrução explícita), código de barras e patrimônio — mantivemos o
+      tamanho do código de barras/patrimônio fiéis à referência e
+      centralizamos o conjunto verticalmente no espaço que sobrou.
+    */
     flex: 1 1 auto;
     width: 100%;
     min-width: 0;
-    padding: 2mm 3mm 0 3mm;
+    padding: 0.75mm 3mm;
     display: flex;
     flex-direction: column;
     justify-content: center;
+    align-items: center;
     min-height: 0;
-  }
-  .identity-label,
-  .identity-patrimonio,
-  .identity-model {
-    width: 100%;
-    min-width: 0;
-  }
-  .identity-label {
-    font-size: 5.5pt;
-    color: var(--locus-gray);
-    text-transform: uppercase;
-    letter-spacing: 0.4pt;
-    margin: 0 0 0.8mm 0;
+    overflow: hidden;
   }
   .identity-barcode {
     display: block;
-    width: 100%;
+    /*
+      92% da largura da área de conteúdo — a referência mostra um código
+      de barras que ocupa quase toda a largura da faixa branca (~87%
+      medido na imagem). A altura vem do aspect ratio do PNG gerado
+      (ajustado em `module_width`, em services.py, para barras mais
+      largas/baixas como na referência), não de um max-height artificial
+      — foi exatamente um max-height pequeno combinado com esse aspect
+      ratio que deixou o código de barras minúsculo na rodada anterior.
+    */
+    width: 92%;
     height: auto;
-    max-height: 10mm;
+    max-height: 8mm;
     object-fit: contain;
+    margin: 0 auto;
+    image-rendering: pixelated;
   }
   .identity-patrimonio {
-    font-size: 13pt;
+    width: 100%;
+    min-width: 0;
+    font-size: 12pt;
+    line-height: 1.1;
     font-weight: bold;
-    letter-spacing: 0.2pt;
-    margin: 0.8mm 0 0 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .identity-model {
-    font-size: 6pt;
-    color: var(--locus-gray);
-    margin: 0.6mm 0 0 0;
+    color: #000;
+    letter-spacing: 0.1pt;
+    text-align: center;
+    margin: 1mm 0 0 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -127,17 +188,32 @@
 
   .footer-bar {
     background: var(--locus-black);
-    color: #D1D5DB;
+    color: #fff;
     font-size: 5.5pt;
     padding: 1mm 3mm;
+    /* Faixa preta do rodapé = 11% da altura da área esquerda. */
+    flex: 0 0 11%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1mm;
+  }
+  .footer-icon {
+    width: 2.4mm;
+    height: 2.4mm;
     flex: 0 0 auto;
   }
 
-  /* Metade direita: QR Code grande, com margem branca de segurança ao redor */
+  /*
+    Área direita: só o QR Code, fundo branco puro, centralizado nos dois
+    eixos, com margem (quiet zone visual) garantindo que não encoste nas
+    bordas. Nenhum outro texto/elemento aqui.
+  */
   .qr-half {
-    width: 50%;
+    width: 48%;
     height: 100%;
     background: #fff;
+    border-left: 0.35mm dashed #9CA3AF;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -147,6 +223,7 @@
     width: 100%;
     height: 100%;
     object-fit: contain;
+    image-rendering: pixelated;
   }
 </style>
 </head>
@@ -155,20 +232,29 @@
   <div class="label">
     <div class="id-half">
       <div class="brand-block">
-        <p class="brand-wordmark">LOCUS</p>
-        <p class="brand-subtitle">Locações</p>
-        <hr class="brand-divider">
+        <div class="brand-wordmark-wrap">
+          <p class="brand-wordmark">LOCUS</p>
+          <p class="brand-subtitle">Locações</p>
+        </div>
+        <div class="brand-divider-row">
+          <div class="brand-divider-line"></div>
+          <div class="brand-divider-dot"></div>
+        </div>
         <p class="brand-tagline">Identificação de equipamento</p>
       </div>
       <div class="identity-block">
-        <p class="identity-label">Número de patrimônio</p>
         <img class="identity-barcode" src="{{ label.barcode_data_uri }}" alt="Código de barras {{ label.patrimonio }}">
         <p class="identity-patrimonio">{{ label.patrimonio }}</p>
-        <p class="identity-model">{{ label.category_name }} · {{ label.model_name }}</p>
       </div>
-      {% if label.site_host %}
-      <div class="footer-bar">{{ label.site_host }}</div>
-      {% endif %}
+      <div class="footer-bar">
+        {# Cor amarela como valor literal no atributo `stroke`, não `var(--locus-yellow)`: o WeasyPrint não resolve custom properties CSS dentro de atributos de apresentação de SVG (ficava preto/invisível). #}
+        <svg class="footer-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="9.5" stroke="#F5C518" stroke-width="1.6"/>
+          <ellipse cx="12" cy="12" rx="4" ry="9.5" stroke="#F5C518" stroke-width="1.6"/>
+          <line x1="2.5" y1="12" x2="21.5" y2="12" stroke="#F5C518" stroke-width="1.6"/>
+        </svg>
+        <span>{{ label.footer_text }}</span>
+      </div>
     </div>
     <div class="qr-half">
       <img class="qr-image" src="{{ label.qr_data_uri }}" alt="QR Code {{ label.patrimonio }}">

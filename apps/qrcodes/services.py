@@ -23,7 +23,6 @@ import base64
 import io
 import re
 import zipfile
-from urllib.parse import urlsplit
 
 import barcode
 import qrcode
@@ -43,6 +42,13 @@ from apps.equipment.models import Equipment
 # valor fixo escrito em outro lugar.
 LABEL_WIDTH_MM = 100
 LABEL_HEIGHT_MM = 50
+
+# Texto fixo do rodapé da etiqueta — deliberadamente uma constante, não
+# derivado de `settings.SITE_BASE_URL`: em ambiente de desenvolvimento/
+# validação isso mostraria "localhost:8000" (ou o domínio de staging) na
+# etiqueta impressa, o que é informação técnica/de debug, não uma marca
+# adequada para uma etiqueta física aprovada pelo layout de referência.
+LABEL_FOOTER_TEXT = "www.locuslocacoes.com.br"
 
 
 def equipment_url(equipment: Equipment) -> str:
@@ -77,7 +83,17 @@ def generate_barcode_png(equipment: Equipment) -> bytes:
     # grande, logo abaixo do código de barras na etiqueta — duplicar o
     # texto (menor e mais apertado) embutido na própria imagem do código
     # só poluiria o layout sem ganhar legibilidade.
-    code.write(buffer, options={"write_text": False, "quiet_zone": 2.0, "module_height": 10.0})
+    #
+    # module_width=0.41mm (padrão da biblioteca é 0.2mm): ajuste só de
+    # RENDERIZAÇÃO, não de codificação — deixa as barras proporcionalmente
+    # mais largas/baixas (aspect ratio ≈ 6.8, medido pixel a pixel na
+    # referência visual aprovada pelo usuário), para caber uma barra larga
+    # e legível na faixa branca compacta da etiqueta sem precisar de altura
+    # excessiva. O conteúdo codificado (`equipment.patrimonio`) não muda.
+    code.write(
+        buffer,
+        options={"write_text": False, "quiet_zone": 2.0, "module_height": 10.0, "module_width": 0.41},
+    )
     return buffer.getvalue()
 
 
@@ -88,14 +104,13 @@ def _barcode_data_uri(equipment: Equipment) -> str:
 
 
 def _label_context(equipment: Equipment) -> dict:
-    site_host = urlsplit(settings.SITE_BASE_URL).netloc or settings.SITE_BASE_URL
     return {
         "patrimonio": equipment.patrimonio,
         "model_name": equipment.model.name,
         "category_name": equipment.category.name,
         "qr_data_uri": _qr_data_uri(equipment),
         "barcode_data_uri": _barcode_data_uri(equipment),
-        "site_host": site_host,
+        "footer_text": LABEL_FOOTER_TEXT,
     }
 
 
