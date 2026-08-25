@@ -38,6 +38,40 @@ class SoftDeleteModel(models.Model):
         abstract = True
 
 
+class ConsumedSubmissionToken(models.Model):
+    """
+    Chave de idempotência de formulário — 3º reteste manual: o consumo do
+    token de reenvio só na SESSÃO tinha uma race condition real (dois
+    POSTs quase simultâneos carregam a mesma sessão no início do request,
+    ambos veem o token na própria cópia em memória, ambos passam na
+    checagem e ambos criam — o `del` de um não afeta a cópia já carregada
+    do outro, porque a sessão só é persistida no fim do request).
+
+    A atomicidade agora vem do banco: consumir um token é INSERIR uma
+    linha aqui, e o índice UNIQUE de `token` garante que, de N requisições
+    concorrentes com o MESMO token, exatamente UMA consegue inserir — as
+    demais recebem IntegrityError e são tratadas como reenvio. PostgreSQL
+    serializa os inserts conflitantes no próprio índice, sem lock manual.
+
+    As linhas são um registro de consumo, não de emissão: só tokens já
+    usados chegam aqui. `created_at` permite expurgo periódico (qualquer
+    linha com mais de alguns dias já não corresponde a nenhum formulário
+    aberto — o token da sessão terá sido substituído muito antes);
+    `SubmissionGuard.issue()` faz esse expurgo de forma oportunista.
+    """
+
+    token = models.CharField(max_length=64, unique=True)
+    scope = models.CharField(max_length=150, help_text="Só para diagnóstico — qual formulário consumiu o token.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "token de submissão consumido"
+        verbose_name_plural = "tokens de submissão consumidos"
+
+    def __str__(self) -> str:
+        return f"{self.scope}: {self.token[:8]}…"
+
+
 class Address(TimeStampedModel):
     """
     Endereço reutilizável — Fase 2 (Operação, fundação aprovada em

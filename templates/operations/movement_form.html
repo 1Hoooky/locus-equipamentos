@@ -54,7 +54,12 @@
     var currentLocationId = "{{ equipment.current_location_id|default_if_none:'' }}";
 
     var allOptions = Array.prototype.map.call(destSelect.options, function (opt) {
-      return { value: opt.value, text: opt.text, type: opt.getAttribute("data-type") };
+      return {
+        value: opt.value,
+        text: opt.text,
+        type: opt.getAttribute("data-type"),
+        search: opt.getAttribute("data-search") || opt.text.toLowerCase()
+      };
     });
 
     var typeLabel = {
@@ -63,19 +68,50 @@
       MANUTENCAO: "Manutenção"
     };
 
+    // Pesquisa incremental de cliente/unidade (3º reteste manual) — só
+    // conveniência de exibição: filtra as opções JÁ carregadas (e já
+    // permitidas pelo backend). Segurança não muda: o form/service
+    // continuam validando o destination_location enviado no POST.
+    var searchInput = document.createElement("input");
+    searchInput.type = "search";
+    searchInput.placeholder = "Pesquisar cliente ou unidade…";
+    searchInput.autocomplete = "off";
+    searchInput.className = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full mb-1";
+    searchInput.style.display = "none";
+    destSelect.parentNode.insertBefore(searchInput, destSelect);
+
     var emptyHint = document.createElement("p");
     emptyHint.className = "text-xs text-amber-700 mt-1";
     emptyHint.style.display = "none";
     destSelect.parentNode.appendChild(emptyHint);
 
+    // Case-insensitive e acento-insensitive: "maringa" encontra "Maringá".
+    function normalize(text) {
+      return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+
     function refresh() {
       var wanted = requiredType[typeSelect.value];
       var previousValue = destSelect.value;
+      var term = normalize(searchInput.value.trim());
+
+      // A pesquisa só aparece onde faz sentido: destinos de CLIENTE
+      // (dezenas/centenas possíveis). Estoque/Manutenção têm poucas
+      // opções — sem campo de busca.
+      var searchable = wanted === "CLIENTE";
+      searchInput.style.display = searchable ? "" : "none";
+      if (!searchable) {
+        term = "";
+      }
+
+      var totalCompatible = 0;
       destSelect.innerHTML = "";
       allOptions.forEach(function (opt) {
         if (!opt.value) return; // placeholder "---------"
         if (wanted && opt.type !== wanted) return;
         if (typeSelect.value === "TRANSFERENCIA" && opt.value === currentLocationId) return;
+        totalCompatible += 1;
+        if (term && normalize(opt.search).indexOf(term) === -1) return;
         var el = document.createElement("option");
         el.value = opt.value;
         el.textContent = opt.text;
@@ -87,20 +123,28 @@
       if (stillPresent) {
         destSelect.value = previousValue;
       }
-      // Select vazio não pode ser silencioso (2º reteste manual: "Envio
-      // para manutenção" sem nenhum destino cadastrado parecia um bug
-      // mudo) — explica o que falta cadastrar.
+      // Select vazio não pode ser silencioso (2º reteste manual) —
+      // distingue "nada cadastrado deste tipo" de "a pesquisa não
+      // encontrou nada".
       if (destSelect.options.length === 0 && wanted) {
-        emptyHint.textContent =
-          "Nenhuma localização do tipo \"" + (typeLabel[wanted] || wanted) + "\" disponível. " +
-          "Cadastre uma em Unidades (ou rode as migrações pendentes, que criam as localizações internas da Locus).";
+        if (term && totalCompatible > 0) {
+          emptyHint.textContent = "Nenhum cliente/unidade corresponde à pesquisa \"" + searchInput.value.trim() + "\".";
+        } else {
+          emptyHint.textContent =
+            "Nenhuma localização do tipo \"" + (typeLabel[wanted] || wanted) + "\" disponível. " +
+            "Cadastre uma em Unidades (ou rode as migrações pendentes, que criam as localizações internas da Locus).";
+        }
         emptyHint.style.display = "";
       } else {
         emptyHint.style.display = "none";
       }
     }
 
-    typeSelect.addEventListener("change", refresh);
+    typeSelect.addEventListener("change", function () {
+      searchInput.value = "";
+      refresh();
+    });
+    searchInput.addEventListener("input", refresh);
     refresh();
   })();
 </script>

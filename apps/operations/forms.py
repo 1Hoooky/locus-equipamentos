@@ -37,13 +37,21 @@ TEXT_INPUT_CLASS = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full
 
 class DestinationLocationSelect(forms.Select):
     """
-    Acrescenta `data-type="CLIENTE"/"ESTOQUE"/"MANUTENCAO"/...` em cada
-    `<option>` — usado só pelo JS de conveniência do template
-    (`movement_form.html`) para re-filtrar o select no navegador quando o
-    usuário troca o tipo de movimentação, sem precisar de um round-trip
-    ao servidor. A filtragem que REALMENTE importa (segurança) é a da
-    queryset do campo, montada em `MovementForm.__init__` — funciona
-    igual com JS desabilitado.
+    Acrescenta dois atributos `data-` em cada `<option>`, consumidos só
+    pelo JS de conveniência do template (`movement_form.html`):
+
+    - `data-type="CLIENTE"/"ESTOQUE"/...` — re-filtra o select quando o
+      usuário troca o tipo de movimentação;
+    - `data-search` — corpus da pesquisa incremental (3º reteste manual):
+      nome exibido do cliente + nome da unidade, em minúsculas. Inclui o
+      nome da unidade MESMO quando o rótulo visível não o mostra (cliente
+      de unidade única exibe só "Cliente X", mas digitar o nome da
+      unidade também tem que encontrá-lo).
+
+    A filtragem que REALMENTE importa (segurança) é a da queryset do
+    campo, montada em `MovementForm.__init__` — funciona igual com JS
+    desabilitado, e o backend continua rejeitando destino incompatível
+    manipulado direto no POST.
     """
 
     def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
@@ -51,6 +59,10 @@ class DestinationLocationSelect(forms.Select):
         instance = getattr(value, "instance", None)
         if instance is not None:
             option["attrs"]["data-type"] = instance.type
+            search_parts = [instance.name]
+            if instance.type == LocationType.CLIENTE and instance.client_id:
+                search_parts.insert(0, instance.client.display_name())
+            option["attrs"]["data-search"] = " ".join(part for part in search_parts if part).lower()
         return option
 
 

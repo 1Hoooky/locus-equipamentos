@@ -170,6 +170,52 @@ class DestinationFilteredByMovementTypeTest(MovementDestinationSelectionTestBase
         self.assertFalse(Movement.objects.exists())
 
 
+class DestinationSearchCorpusTest(MovementDestinationSelectionTestBase):
+    """
+    3º reteste manual (item 3): pesquisa incremental de destino Cliente.
+    A filtragem em si roda no navegador (client-side sobre as opções já
+    carregadas — sem segurança envolvida), mas o CORPUS da pesquisa é
+    gerado no servidor: cada `<option>` carrega `data-search` com o nome
+    exibido do cliente + o nome da unidade, em minúsculas. Estes testes
+    cobrem a parte server-side: o corpus tem que incluir o nome da
+    unidade MESMO quando o rótulo visível não o mostra (cliente de
+    unidade única exibe só "Cliente X").
+    """
+
+    def test_option_search_corpus_includes_client_and_unit_names(self):
+        response = self.client.get(f"/operacao/movimentar/{self.equipment.patrimonio}/")
+        content = response.content.decode()
+        # Cliente de unidade única: rótulo visível é só "Modema Automóveis",
+        # mas o data-search inclui a unidade "Maringá" — digitar o nome da
+        # unidade também encontra o cliente.
+        self.assertIn('data-search="modema automóveis maringá"', content)
+        self.assertIn('data-search="outra empresa maringá"', content)
+
+    def test_internal_locations_search_corpus_is_their_own_name(self):
+        response = self.client.get(f"/operacao/movimentar/{self.equipment.patrimonio}/")
+        content = response.content.decode()
+        self.assertIn('data-search="estoque central"', content)
+
+    def test_multi_unit_client_corpus_still_carries_each_unit_name(self):
+        create_location(
+            NewLocationData(name="Filial Londrina", type=LocationType.CLIENTE, client=self.modema)
+        )
+        response = self.client.get(f"/operacao/movimentar/{self.equipment.patrimonio}/")
+        content = response.content.decode()
+        self.assertIn('data-search="modema automóveis maringá"', content)
+        self.assertIn('data-search="modema automóveis filial londrina"', content)
+
+    def test_manipulated_post_is_still_blocked_regardless_of_search(self):
+        """A pesquisa é só exibição — o POST com destino incompatível segue rejeitado no backend (item 10 da validação)."""
+        response = self.client.post(
+            f"/operacao/movimentar/{self.equipment.patrimonio}/",
+            {"movement_type": MovementType.RETIRADA, "destination_location": self.unidade_modema.pk, "reason": ""},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("destination_location", response.context["form"].errors)
+        self.assertFalse(Movement.objects.exists())
+
+
 class MaintenanceDestinationAvailabilityTest(MovementDestinationSelectionTestBase):
     """
     2º reteste manual (item 2): "Envio para manutenção" com select vazio.
