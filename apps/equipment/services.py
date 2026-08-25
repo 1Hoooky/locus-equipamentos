@@ -201,3 +201,54 @@ def change_condition(*, equipment: Equipment, new_condition: str, reason: str, c
         reason=reason,
     )
     return equipment
+
+
+def get_equipment_history_timeline(equipment: Equipment) -> list[dict]:
+    """
+    Linha do tempo única de eventos do equipamento, para a ficha
+    autenticada (seção "Histórico do equipamento"). NÃO é uma nova fonte
+    de dados: só lê e funde `StatusHistory`/`ConditionHistory`, que já são
+    gravados exclusivamente por `change_status()`/`change_condition()`
+    acima — nenhum campo novo, nenhuma tabela nova, nenhum evento novo.
+
+    Cada evento vira um dict num formato comum (`event_type`,
+    `event_type_label`, `old_value_display`, `new_value_display`,
+    `reason`, `changed_by`, `changed_at`) para que o template possa
+    iterar uma única lista homogênea. É esse formato comum — não o
+    template — que permite plugar novos tipos de evento no futuro
+    (Manutenção/Higienização/Movimentação, Fase 2): basta um novo bloco
+    aqui que produza dicts no mesmo formato, sem tocar na página.
+    """
+    events = []
+
+    for h in equipment.status_history.select_related("changed_by").all():
+        events.append(
+            {
+                "event_type": "status",
+                "event_type_label": "Status",
+                "old_value_display": h.get_old_value_display(),
+                "new_value_display": h.get_new_value_display(),
+                "reason": h.reason,
+                "changed_by": h.changed_by,
+                "changed_at": h.changed_at,
+            }
+        )
+
+    for h in equipment.condition_history.select_related("changed_by").all():
+        events.append(
+            {
+                "event_type": "condicao",
+                "event_type_label": "Condição",
+                "old_value_display": h.get_old_value_display(),
+                "new_value_display": h.get_new_value_display(),
+                "reason": h.reason,
+                "changed_by": h.changed_by,
+                "changed_at": h.changed_at,
+            }
+        )
+
+    # `StatusHistory`/`ConditionHistory` já vêm ordenados (`-changed_at`)
+    # individualmente pelo Meta de cada model, mas a fusão dos dois
+    # precisa de uma reordenação explícita para o conjunto combinado.
+    events.sort(key=lambda event: event["changed_at"], reverse=True)
+    return events

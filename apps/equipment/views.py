@@ -36,6 +36,7 @@ from apps.equipment.services import (
     change_condition,
     change_status,
     create_equipment,
+    get_equipment_history_timeline,
     reclassify_model,
     supersede_equipment,
 )
@@ -308,4 +309,15 @@ class EquipmentDetailView(View):
                 {"equipment": equipment},
             )
 
-        return render(request, "equipment/detail_private.html", {"equipment": equipment})
+        return render(
+            request,
+            "equipment/detail_private.html",
+            {
+                "equipment": equipment,
+                # Só na ficha autenticada — a rota pública do QR Code
+                # (acima) nunca recebe esta chave no contexto, então
+                # `detail_public.html` não tem como exibir o histórico
+                # mesmo por engano.
+                "history_events": get_equipment_history_timeline(equipment),
+            },
+        )

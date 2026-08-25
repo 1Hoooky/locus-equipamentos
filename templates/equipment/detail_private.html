@@ -68,4 +68,39 @@
   <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="text-blue-600 hover:underline">Baixar etiqueta (PDF)</a>
 </div>
 {% endif %}
+
+{% comment %}
+  Histórico do equipamento: linha do tempo somente leitura, fundindo
+  StatusHistory + ConditionHistory (history_events, montado em
+  apps/equipment/services.get_equipment_history_timeline — nenhum campo/
+  tabela/evento novo, só leitura do que já é gravado pelas telas de
+  "Alterar status"/"Alterar condição" acima). Sem link de editar/excluir
+  por design — esses registros não são editáveis por aqui.
+
+  O template não faz nenhum "if" checando o tipo do evento: cada evento
+  já chega pronto (event_type_label, old/new_value_display, reason,
+  changed_by, changed_at) num formato comum, então um tipo de evento novo
+  no futuro (Manutenção/Higienização/Movimentação, Fase 2) só precisa
+  entrar nesse mesmo formato em get_equipment_history_timeline — esta
+  seção não precisa ser reconstruída.
+{% endcomment %}
+<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4">
+  <h2 class="text-sm font-semibold text-gray-700 mb-3">Histórico do equipamento</h2>
+  {% if history_events %}
+  <ul class="space-y-4">
+    {% for event in history_events %}
+    <li class="border-l-2 border-gray-200 pl-3">
+      <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">{{ event.event_type_label }}</p>
+      <p class="text-sm font-medium text-gray-900">{{ event.old_value_display }} &rarr; {{ event.new_value_display }}</p>
+      <p class="text-sm text-gray-600">{{ event.reason }}</p>
+      <p class="text-xs text-gray-400 mt-1">
+        Alterado por {{ event.changed_by }} — {{ event.changed_at|date:"d/m/Y" }} às {{ event.changed_at|time:"H:i" }}
+      </p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-gray-500">Nenhuma alteração registrada ainda.</p>
+  {% endif %}
+</div>
 {% endblock %}
