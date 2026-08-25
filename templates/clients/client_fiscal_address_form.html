@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Endereço fiscal — {{ client.display_name }}{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">Endereço fiscal — {{ client.display_name }}</h1>
+
+<form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg space-y-4">
+  {% csrf_token %}
+  {% for field in form %}
+    <div>
+      <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% for error in field.errors %}<p class="text-xs text-red-600 mt-1">{{ error }}</p>{% endfor %}
+    </div>
+  {% endfor %}
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="bg-blue-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-blue-700">
+      Salvar
+    </button>
+    <a href="{% url 'clients:detail' client.pk %}" class="text-sm text-gray-600 hover:underline">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

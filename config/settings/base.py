@@ -196,3 +196,12 @@ X_FRAME_OPTIONS = "DENY"
 LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "equipment:list"
 LOGOUT_REDIRECT_URL = "accounts:login"
+
+# --------------------------------------------------------------------------
+# Consulta de CNPJ — "acelerador de cadastro" de cliente (Fase 2 —
+# Operação, arquitetura v1.0, seção 4). Views/forms nunca importam um
+# provider concreto; só `apps.clients.lookup.CompanyLookupService`, que lê
+# esta configuração para decidir qual provider usar.
+# --------------------------------------------------------------------------
+
+COMPANY_LOOKUP_PROVIDER = config("COMPANY_LOOKUP_PROVIDER", default="brasilapi")

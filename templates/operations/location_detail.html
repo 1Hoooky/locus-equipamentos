@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ location.name }} — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'operations:location_list' %}" class="text-sm text-blue-600 hover:underline">&larr; Voltar</a>
+
+<div class="mt-3 bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+  <p class="text-sm text-gray-500">{{ location.get_type_display }}</p>
+  <h1 class="text-2xl font-bold tracking-tight mb-4">{{ location.name }}</h1>
+
+  {% if location.client %}
+  <p class="text-sm">Cliente: <a href="{% url 'clients:detail' location.client.pk %}" class="text-blue-600 hover:underline">{{ location.client.display_name }}</a></p>
+  {% endif %}
+
+  <div class="mt-4 border-t border-gray-100 pt-4">
+    <h2 class="text-sm font-semibold text-gray-700 mb-2">Endereço operacional</h2>
+    {% if location.address %}
+    <p class="text-sm text-gray-700">{{ location.address }}</p>
+    {% if location.address.reference_notes %}<p class="text-sm text-gray-500">{{ location.address.reference_notes }}</p>{% endif %}
+    {% else %}
+    <p class="text-sm text-gray-500">Nenhum endereço cadastrado.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if user.is_administrativo_ou_superior or user.is_superuser %}
+<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap gap-3 text-sm">
+  <a href="{% url 'operations:location_update' location.pk %}" class="text-blue-600 hover:underline">Editar unidade</a>
+  <a href="{% url 'operations:location_address_update' location.pk %}" class="text-blue-600 hover:underline">Editar endereço</a>
+</div>
+{% endif %}
+
+<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4">
+  <h2 class="text-sm font-semibold text-gray-700 mb-3">Equipamentos aqui</h2>
+  {% if equipment_here %}
+  <ul class="space-y-2">
+    {% for equipment in equipment_here %}
+    <li class="text-sm border-l-2 border-gray-200 pl-3">
+      <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="font-medium text-blue-600 hover:underline">{{ equipment.patrimonio }}</a>
+      <span class="text-gray-500">— {{ equipment.model.name }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-gray-500">Nenhum equipamento nesta localização no momento.</p>
+  {% endif %}
+</div>
+{% endblock %}

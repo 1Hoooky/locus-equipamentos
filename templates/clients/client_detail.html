@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ client.display_name }} — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'clients:list' %}" class="text-sm text-blue-600 hover:underline">&larr; Voltar</a>
+
+<div class="mt-3 bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+  <p class="text-sm text-gray-500">{{ client.get_client_type_display }}</p>
+  <h1 class="text-2xl font-bold tracking-tight mb-4">{{ client.display_name }}</h1>
+
+  <dl class="grid grid-cols-2 gap-y-3 text-sm">
+    <dt class="text-gray-500">Razão social</dt>
+    <dd>{{ client.company_name }}</dd>
+
+    <dt class="text-gray-500">Nome fantasia</dt>
+    <dd>{{ client.trade_name|default:"—" }}</dd>
+
+    <dt class="text-gray-500">CNPJ</dt>
+    <dd>{{ client.document|default:"—" }}</dd>
+
+    <dt class="text-gray-500">Situação cadastral</dt>
+    <dd>{{ client.registration_status|default:"—" }}</dd>
+
+    <dt class="text-gray-500">Inscrição estadual</dt>
+    <dd>{{ client.state_registration|default:"—" }}</dd>
+
+    <dt class="text-gray-500">Telefone</dt>
+    <dd>{{ client.phone|default:"—" }}</dd>
+
+    <dt class="text-gray-500">E-mail</dt>
+    <dd>{{ client.email|default:"—" }}</dd>
+
+    <dt class="text-gray-500">Contato responsável</dt>
+    <dd>{{ client.contact_name|default:"—" }}</dd>
+  </dl>
+
+  {% if client.notes %}
+  <p class="mt-4 text-sm text-gray-600 border-t border-gray-100 pt-3">{{ client.notes }}</p>
+  {% endif %}
+</div>
+
+{% if user.is_administrativo_ou_superior or user.is_superuser %}
+<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap gap-3 text-sm">
+  <a href="{% url 'clients:update' client.pk %}" class="text-blue-600 hover:underline">Editar dados</a>
+  <a href="{% url 'clients:fiscal_address_update' client.pk %}" class="text-blue-600 hover:underline">Editar endereço fiscal</a>
+  <a href="{% url 'operations:location_create' %}?client={{ client.pk }}" class="text-blue-600 hover:underline">Nova unidade</a>
+</div>
+{% endif %}
+
+<div class="mt-4 bg-white border border-gray-200 rounded-lg p-6">
+  <h2 class="text-sm font-semibold text-gray-700 mb-3">Endereço fiscal</h2>
+  {% if client.fiscal_address %}
+  <p class="text-sm text-gray-700">{{ client.fiscal_address }}</p>
+  {% if client.fiscal_address.cep %}<p class="text-sm text-gray-500">CEP {{ client.fiscal_address.cep }}</p>{% endif %}
+  {% else %}
+  <p class="text-sm text-gray-500">Nenhum endereço fiscal cadastrado.</p>
+  {% endif %}
+</div>
+
+<div class="mt-4 bg-white border border-gray-200 rounded-lg p-6">
+  <h2 class="text-sm font-semibold text-gray-700 mb-3">Unidades</h2>
+  {% if locations %}
+  <ul class="space-y-2">
+    {% for location in locations %}
+    <li class="text-sm border-l-2 border-gray-200 pl-3">
+      <a href="{% url 'operations:location_detail' location.pk %}" class="font-medium text-blue-600 hover:underline">{{ location.name }}</a>
+      <span class="text-gray-500">— {{ location.get_type_display }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-gray-500">Nenhuma unidade cadastrada para este cliente ainda.</p>
+  {% endif %}
+</div>
+{% endblock %}

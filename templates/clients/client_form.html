@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Novo cliente — Locus{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">Novo cliente</h1>
+
+{% if form.non_field_errors %}
+<div class="mb-4 rounded-md bg-red-50 text-red-800 px-4 py-2 text-sm">
+  {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-2xl space-y-6">
+  {% csrf_token %}
+
+  <section>
+    <h2 class="text-sm font-semibold text-gray-700 mb-3">Dados do cliente</h2>
+    <div class="grid grid-cols-2 gap-4">
+      {% for field in form %}
+        {% if field.name in "client_type,document,company_name,trade_name,registration_status,state_registration,phone,email,contact_name" %}
+        <div>
+          <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% for error in field.errors %}<p class="text-xs text-red-600 mt-1">{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <button type="submit" name="action" value="lookup"
+            class="mt-3 bg-gray-100 text-gray-800 rounded-md px-4 py-1.5 text-sm font-medium hover:bg-gray-200 border border-gray-300">
+      Consultar CNPJ
+    </button>
+    <div class="mt-4">
+      <label class="block text-sm font-medium mb-1" for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>
+      {{ form.notes }}
+    </div>
+  </section>
+
+  <section class="border-t border-gray-100 pt-4">
+    <h2 class="text-sm font-semibold text-gray-700 mb-3">Endereço fiscal</h2>
+    <div class="grid grid-cols-2 gap-4">
+      {% for field in form %}
+        {% if field.name in "fiscal_cep,fiscal_logradouro,fiscal_numero,fiscal_complemento,fiscal_bairro,fiscal_cidade,fiscal_uf" %}
+        <div>
+          <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="border-t border-gray-100 pt-4">
+    <h2 class="text-sm font-semibold text-gray-700 mb-3">Unidade inicial (opcional)</h2>
+    <div class="mb-3">
+      <label class="block text-sm font-medium mb-1" for="{{ form.initial_location_name.id_for_label }}">{{ form.initial_location_name.label }}</label>
+      {{ form.initial_location_name }}
+    </div>
+    <label class="flex items-center gap-2 text-sm mb-3">
+      {{ form.use_fiscal_as_operational }}
+      <span>{{ form.use_fiscal_as_operational.label }}</span>
+    </label>
+    <div class="grid grid-cols-2 gap-4">
+      {% for field in form %}
+        {% if field.name in "operational_cep,operational_logradouro,operational_numero,operational_complemento,operational_bairro,operational_cidade,operational_uf" %}
+        <div>
+          <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <div class="mt-3">
+      <label class="block text-sm font-medium mb-1" for="{{ form.operational_reference_notes.id_for_label }}">{{ form.operational_reference_notes.label }}</label>
+      {{ form.operational_reference_notes }}
+    </div>
+  </section>
+
+  <div class="flex items-center gap-3 pt-2 border-t border-gray-100">
+    <button type="submit" name="action" value="save"
+            class="bg-blue-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-blue-700">
+      Salvar cliente
+    </button>
+    <a href="{% url 'clients:list' %}" class="text-sm text-gray-600 hover:underline">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

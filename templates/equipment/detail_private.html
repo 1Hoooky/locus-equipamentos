@@ -21,10 +21,22 @@
     <dd>{{ equipment.legacy_code|default:"—" }}</dd>
 
     <dt class="text-gray-500">Localização atual</dt>
-    <dd>{{ equipment.current_location|default:"Não definida (Fase 2)" }}</dd>
+    <dd>
+      {% if equipment.current_location %}
+        <a href="{% url 'operations:location_detail' equipment.current_location.pk %}" class="text-blue-600 hover:underline">{{ equipment.current_location }}</a>
+      {% else %}
+        Não definida
+      {% endif %}
+    </dd>
 
     <dt class="text-gray-500">Cliente atual</dt>
-    <dd>{{ equipment.current_client|default:"—" }}</dd>
+    <dd>
+      {% if equipment.current_client %}
+        <a href="{% url 'clients:detail' equipment.current_client.pk %}" class="text-blue-600 hover:underline">{{ equipment.current_client.display_name }}</a>
+      {% else %}
+        —
+      {% endif %}
+    </dd>
 
     {# can_view_acquisition_value vem da view (CAN_VIEW_ACQUISITION_VALUE, apps/accounts/permissions.py) — não é só este "if" que protege o dado: para quem não tem a permissão, a própria consulta ao banco em EquipmentDetailView já não traz supplier/acquisition_date/acquisition_value (auditoria final da Fase 1, 25/08/2026). #}
     {% if can_view_acquisition_value %}
@@ -44,12 +56,13 @@
   {% endif %}
 
   <p class="mt-6 text-xs text-gray-400">
-    Ações rápidas (registrar manutenção, higienização, movimentação) chegam na Fase 2.
+    Ações rápidas de manutenção completa/higienização chegam numa próxima etapa da Fase 2.
   </p>
 </div>
 
 {% if user.is_operacional_ou_superior %}
 <div class="mt-4 bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap gap-3 text-sm">
+  <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="text-blue-600 hover:underline">Registrar movimentação</a>
   <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="text-blue-600 hover:underline">Alterar status</a>
   <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="text-blue-600 hover:underline">Alterar condição</a>
   {% if user.is_administrativo_ou_superior %}

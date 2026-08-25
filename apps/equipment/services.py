@@ -37,6 +37,10 @@ from apps.equipment.models import (
     StatusHistory,
 )
 
+# Import local (não no topo do módulo) de apps.operations.models dentro de
+# get_equipment_history_timeline() abaixo — ver comentário naquela função
+# para o porquê de não subir este import para o nível do módulo.
+
 # Limite por operação de cadastro em lote (melhoria operacional da Fase 1,
 # 25/08/2026). Justificativa: o inventário inicial tem "centenas" de
 # equipamentos, mas normalmente em lotes separados por modelo — 500 cobre
@@ -308,21 +312,30 @@ def change_condition(*, equipment: Equipment, new_condition: str, reason: str, c
     return equipment
 
 
+def _movement_location_display(location_name: str, client_name: str) -> str:
+    if not location_name:
+        return "—"
+    if client_name:
+        return f"{location_name} ({client_name})"
+    return location_name
+
+
 def get_equipment_history_timeline(equipment: Equipment) -> list[dict]:
     """
     Linha do tempo única de eventos do equipamento, para a ficha
-    autenticada (seção "Histórico do equipamento"). NÃO é uma nova fonte
-    de dados: só lê e funde `StatusHistory`/`ConditionHistory`, que já são
-    gravados exclusivamente por `change_status()`/`change_condition()`
-    acima — nenhum campo novo, nenhuma tabela nova, nenhum evento novo.
+    autenticada (seção "Histórico do equipamento"). Funde
+    `StatusHistory`/`ConditionHistory` (Fase 1) com `Movement` (Fase 2,
+    arquitetura v1.0/v1.1) — exatamente o terceiro bloco que a docstring
+    original desta função (escrita na Fase 1) já previa: "basta um novo
+    bloco aqui que produza dicts no mesmo formato, sem tocar na página".
+    Nenhum campo novo no dict comum, nenhuma tabela nova além de
+    `Movement` (que já existe e só é escrita por
+    `apps.operations.services.create_movement()`).
 
     Cada evento vira um dict num formato comum (`event_type`,
     `event_type_label`, `old_value_display`, `new_value_display`,
     `reason`, `changed_by`, `changed_at`) para que o template possa
-    iterar uma única lista homogênea. É esse formato comum — não o
-    template — que permite plugar novos tipos de evento no futuro
-    (Manutenção/Higienização/Movimentação, Fase 2): basta um novo bloco
-    aqui que produza dicts no mesmo formato, sem tocar na página.
+    iterar uma única lista homogênea.
     """
     events = []
 
@@ -349,6 +362,27 @@ def get_equipment_history_timeline(equipment: Equipment) -> list[dict]:
                 "reason": h.reason,
                 "changed_by": h.changed_by,
                 "changed_at": h.changed_at,
+            }
+        )
+
+    # Import local — evita subir uma dependência de apps.operations para o
+    # topo do módulo apps.equipment.services só por causa desta função de
+    # leitura (mesmo padrão já usado em apps.equipment.views para
+    # apps.equipment.export/apps.equipment.models.Status). Não há ciclo
+    # real (apps.operations.models não importa apps.equipment.services),
+    # mas mantém a mesma disciplina já adotada no restante do projeto.
+    for m in equipment.movements.select_related("created_by").all():
+        events.append(
+            {
+                "event_type": "movimentacao",
+                "event_type_label": m.get_movement_type_display(),
+                "old_value_display": _movement_location_display(m.origin_location_name, m.origin_client_name),
+                "new_value_display": _movement_location_display(
+                    m.destination_location_name, m.destination_client_name
+                ),
+                "reason": m.reason,
+                "changed_by": m.created_by,
+                "changed_at": m.created_at,
             }
         )
 

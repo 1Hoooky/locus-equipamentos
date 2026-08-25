@@ -1,0 +1,284 @@
+"""
+Services de operação — Fase 2 (arquitetura v1.0 seção 8/9 + delta v1.1
+seções 6-10, e a regra adicional de compatibilidade destino×tipo de
+movimentação, autorizada junto com o início da implementação). Único
+caminho suportado para criar/editar `Location` e para criar `Movement` —
+nunca `Location.objects.create()`/`Movement.objects.create()` direto em
+view/form, nem qualquer caminho paralelo que altere
+`Equipment.current_location`/`current_client` fora de `create_movement()`.
+"""
+
+from dataclasses import dataclass
+
+from django.db import transaction
+
+from apps.accounts.models import User
+from apps.clients.models import Client
+from apps.core.services import AddressData, create_address, update_address
+from apps.equipment.models import Equipment, Status
+from apps.equipment.services import change_status
+from apps.operations.models import Location, LocationType, Movement, MovementType
+
+# ---------------------------------------------------------------------------
+# Location
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class NewLocationData:
+    name: str
+    type: str
+    client: Client | None = None
+    address: AddressData | None = None
+    change_reason: str = "Cadastro de unidade/localização."
+
+
+def _validate_location_client_matches_type(*, type_: str, client: Client | None) -> None:
+    # Mesma regra da CheckConstraint `location_client_matches_type`
+    # (apps.operations.models) — repetida aqui para rejeitar ANTES de
+    # qualquer escrita, com uma mensagem clara, em vez de depender só do
+    # IntegrityError do banco (dupla camada, mesmo padrão já usado em
+    # change_status()/change_condition()).
+    if type_ == LocationType.CLIENTE and client is None:
+        raise ValueError("Localização do tipo Cliente exige um cliente vinculado.")
+    if type_ != LocationType.CLIENTE and client is not None:
+        raise ValueError("Só localizações do tipo Cliente podem ter um cliente vinculado.")
+
+
+@transaction.atomic
+def create_location(data: NewLocationData) -> Location:
+    """
+    Cria uma `Location` — usada tanto para a unidade inicial de um cliente
+    (chamada por `apps.clients.services.create_client()`) quanto para
+    unidades adicionais/estoque/manutenção cadastradas depois.
+    """
+    if not data.name.strip():
+        raise ValueError("Nome da localização é obrigatório.")
+    if data.type not in LocationType.values:
+        raise ValueError(f"Tipo de localização inválido: {data.type!r}.")
+    _validate_location_client_matches_type(type_=data.type, client=data.client)
+
+    address = create_address(data.address)
+
+    location = Location(
+        name=data.name,
+        type=data.type,
+        client=data.client,
+        address=address,
+    )
+    location._change_reason = data.change_reason  # consumido pelo django-simple-history
+    location.save()
+    return location
+
+
+@dataclass
+class LocationUpdateData:
+    name: str
+    type: str
+    client: Client | None = None
+    change_reason: str = "Edição de unidade/localização."
+
+
+@transaction.atomic
+def update_location(*, location: Location, data: LocationUpdateData) -> Location:
+    """
+    Edita nome/tipo/cliente de uma `Location` já existente. Não mexe em
+    `address`: editar o endereço operacional é
+    `apps.core.services.update_address()` diretamente sobre o `Address` já
+    vinculado (mesmo raciocínio de `apps.clients.services.update_client()`
+    para o endereço fiscal).
+    """
+    if not data.name.strip():
+        raise ValueError("Nome da localização é obrigatório.")
+    if data.type not in LocationType.values:
+        raise ValueError(f"Tipo de localização inválido: {data.type!r}.")
+    _validate_location_client_matches_type(type_=data.type, client=data.client)
+
+    location._change_reason = data.change_reason
+    location.name = data.name
+    location.type = data.type
+    location.client = data.client
+    location.save()
+    return location
+
+
+@transaction.atomic
+def update_location_address(
+    *, location: Location, data: AddressData, change_reason: str = "Edição de endereço operacional."
+) -> Location:
+    """Cria (se ainda não houver) ou edita in-place o `address` operacional da unidade — mesmo raciocínio de `apps.clients.services.update_fiscal_address()`."""
+    if location.address_id is None:
+        location._change_reason = "Endereço operacional cadastrado."
+        location.address = create_address(data)
+        location.save(update_fields=["address"])
+    else:
+        update_address(address=location.address, data=data, change_reason=change_reason)
+    return location
+
+
+# ---------------------------------------------------------------------------
+# Movement
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _TransitionRule:
+    required_statuses: tuple[str, ...]
+    new_status: str | None  # None = a movimentação não altera o status
+
+
+# Regras finais status × movimentação (delta v1.1, seção 10). OUTRO
+# deliberadamente fora deste dicionário: não tem exigência de status nem
+# efeito de status — é só um evento anotado na timeline (ver
+# _validate_transition() e o pseudofluxo abaixo).
+_TRANSITION_RULES: dict[str, _TransitionRule] = {
+    MovementType.INSTALACAO: _TransitionRule(required_statuses=(Status.DISPONIVEL,), new_status=Status.EM_OPERACAO),
+    MovementType.RETIRADA: _TransitionRule(required_statuses=(Status.EM_OPERACAO,), new_status=Status.DISPONIVEL),
+    MovementType.TRANSFERENCIA: _TransitionRule(required_statuses=(Status.EM_OPERACAO,), new_status=None),
+    MovementType.RETORNO_ESTOQUE: _TransitionRule(
+        required_statuses=(Status.EM_OPERACAO, Status.MANUTENCAO), new_status=Status.DISPONIVEL
+    ),
+    MovementType.ENVIO_MANUTENCAO: _TransitionRule(
+        required_statuses=(Status.DISPONIVEL, Status.EM_OPERACAO), new_status=Status.MANUTENCAO
+    ),
+    MovementType.RETORNO_MANUTENCAO: _TransitionRule(
+        required_statuses=(Status.MANUTENCAO,), new_status=Status.DISPONIVEL
+    ),
+}
+
+# Regra explícita acrescentada pelo usuário na autorização de implementação
+# desta etapa: o TIPO da Location de destino tem que ser compatível com o
+# tipo de movimentação — rejeitado pelo backend antes de qualquer escrita.
+# Qualquer combinação fora deste dicionário (só MovementType.OUTRO) não tem
+# exigência de tipo de destino.
+_REQUIRED_DESTINATION_TYPE: dict[str, str] = {
+    MovementType.INSTALACAO: LocationType.CLIENTE,
+    MovementType.RETIRADA: LocationType.ESTOQUE,
+    MovementType.RETORNO_ESTOQUE: LocationType.ESTOQUE,
+    MovementType.ENVIO_MANUTENCAO: LocationType.MANUTENCAO,
+    MovementType.RETORNO_MANUTENCAO: LocationType.ESTOQUE,
+    MovementType.TRANSFERENCIA: LocationType.CLIENTE,
+}
+
+
+def _validate_transition(*, equipment: Equipment, movement_type: str, destination_location: Location | None) -> str | None:
+    """
+    Valida a transição pedida contra o estado JÁ BLOQUEADO de `equipment`
+    (`select_for_update()`, feito pelo chamador antes desta função).
+    Levanta `ValueError` com mensagem clara se a transição não for
+    permitida; retorna o novo status (ou `None`, se a movimentação não
+    altera o status) quando a transição é válida. Nenhuma escrita
+    acontece aqui — só leitura e validação.
+    """
+    if movement_type not in MovementType.values:
+        raise ValueError(f"Tipo de movimentação inválido: {movement_type!r}.")
+
+    if movement_type == MovementType.OUTRO:
+        # Sem exigência de status, sem efeito de status, sem exigência de
+        # tipo de destino — evento apenas anotado na timeline (motivo
+        # obrigatório, checado à parte). Não faz parte de nenhum fluxo de
+        # tela autorizado nesta etapa (instalação/retirada/transferência/
+        # manutenção); existe só porque o enum já previa o valor.
+        return None
+
+    rule = _TRANSITION_RULES[movement_type]
+    if equipment.status not in rule.required_statuses:
+        raise ValueError(
+            f"Não é possível registrar '{MovementType(movement_type).label}' para um equipamento com status "
+            f"'{equipment.get_status_display()}'. Status exigido: "
+            f"{', '.join(Status(s).label for s in rule.required_statuses)}."
+        )
+
+    required_destination_type = _REQUIRED_DESTINATION_TYPE[movement_type]
+    if destination_location is None:
+        raise ValueError(f"'{MovementType(movement_type).label}' exige uma localização de destino.")
+    if destination_location.type != required_destination_type:
+        raise ValueError(
+            f"'{MovementType(movement_type).label}' exige um destino do tipo "
+            f"'{LocationType(required_destination_type).label}' — "
+            f"'{destination_location.name}' é do tipo '{destination_location.get_type_display()}'."
+        )
+
+    return rule.new_status
+
+
+def _client_display_name(client: Client | None) -> str:
+    return client.display_name() if client else ""
+
+
+@dataclass
+class NewMovementData:
+    equipment_id: int
+    movement_type: str
+    created_by: User
+    destination_location: Location | None = None
+    reason: str = ""
+
+
+@transaction.atomic
+def create_movement(data: NewMovementData) -> Movement:
+    """
+    Único caminho suportado para registrar uma movimentação operacional —
+    instalação, retirada, transferência, retorno ao estoque, envio/retorno
+    de manutenção. Nunca `Movement.objects.create()` direto, nunca edição
+    direta de `Equipment.current_location`/`current_client` fora daqui
+    (delta v1.1, seção 7/8/9).
+    """
+    equipment = Equipment.objects.select_for_update().get(pk=data.equipment_id)
+
+    # Origem NUNCA vem do chamador — sempre o estado já bloqueado (delta
+    # v1.1, seção 6, item 4): elimina por construção a possibilidade de
+    # origem divergente do estado real no momento da transação.
+    origin_location = equipment.current_location
+
+    new_status = _validate_transition(
+        equipment=equipment,
+        movement_type=data.movement_type,
+        destination_location=data.destination_location,
+    )
+
+    if data.movement_type == MovementType.OUTRO and not data.reason.strip():
+        raise ValueError("Movimentação do tipo 'Outro' exige motivo/observação.")
+
+    movement = Movement.objects.create(
+        equipment=equipment,
+        movement_type=data.movement_type,
+        origin_location=origin_location,
+        destination_location=data.destination_location,
+        origin_location_name=origin_location.name if origin_location else "",
+        destination_location_name=data.destination_location.name if data.destination_location else "",
+        origin_client_name=_client_display_name(origin_location.client) if origin_location else "",
+        destination_client_name=_client_display_name(data.destination_location.client)
+        if data.destination_location
+        else "",
+        reason=data.reason,
+        created_by=data.created_by,
+    )
+
+    if new_status is not None and new_status != equipment.status:
+        # Reaproveita change_status() já existente — não duplica a
+        # gravação de StatusHistory.
+        change_status(
+            equipment=equipment,
+            new_status=new_status,
+            reason=f"Alterado automaticamente por movimentação: {movement.get_movement_type_display()}.",
+            changed_by=data.created_by,
+        )
+
+    # current_location/current_client sempre escritos juntos, no mesmo
+    # save() — nenhuma janela onde um reflete o movimento e o outro não
+    # (delta v1.1, seção 7). Para os seis tipos com tela autorizada nesta
+    # etapa, `_validate_transition()` já garante `destination_location`
+    # não-nulo, então `destination` é sempre o destino informado. Só
+    # `MovementType.OUTRO` pode chegar aqui sem destino (não tem tela
+    # nesta etapa; existe só porque o enum já previa o valor) — decisão
+    # tomada durante a implementação: sem destino informado, OUTRO é
+    # tratado como evento apenas anotado, e current_location/current_client
+    # permanecem inalterados (mantém o valor já bloqueado), em vez de
+    # zerá-los por ausência de destino.
+    destination = data.destination_location if data.destination_location is not None else origin_location
+    equipment.current_location = destination
+    equipment.current_client = destination.client if destination else None
+    equipment.save(update_fields=["current_location", "current_client", "updated_at"])
+
+    return movement

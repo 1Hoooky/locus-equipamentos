@@ -111,8 +111,17 @@ class Equipment(TimeStampedModel, SoftDeleteModel):
     current_location = models.ForeignKey(
         "operations.Location", null=True, blank=True, on_delete=models.SET_NULL, related_name="equipment_here"
     )
+    # editable=False (Fase 2, delta v1.1 seção 1): current_client é campo
+    # DERIVADO de current_location.client, só escrito por
+    # apps.operations.services.create_movement() dentro do mesmo save()
+    # que current_location — nunca editável isoladamente por form/admin.
     current_client = models.ForeignKey(
-        "clients.Client", null=True, blank=True, on_delete=models.SET_NULL, related_name="equipment_with_client"
+        "clients.Client",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="equipment_with_client",
+        editable=False,
     )
 
     # --- Reemissão excepcional de patrimônio (seção 8) --------------------

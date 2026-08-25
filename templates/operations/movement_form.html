@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Movimentar {{ equipment.patrimonio }} — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-sm text-blue-600 hover:underline">&larr; Voltar</a>
+
+<h1 class="text-xl font-semibold mb-1 mt-3">Registrar movimentação</h1>
+<p class="text-sm text-gray-500 mb-4">{{ equipment.patrimonio }} — {{ equipment.model.name }} · status atual: {{ equipment.get_status_display }}</p>
+
+{% if form.non_field_errors %}
+<div class="mb-4 rounded-md bg-red-50 text-red-800 px-4 py-2 text-sm">
+  {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg space-y-4">
+  {% csrf_token %}
+  {% for field in form %}
+    <div>
+      <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% for error in field.errors %}<p class="text-xs text-red-600 mt-1">{{ error }}</p>{% endfor %}
+    </div>
+  {% endfor %}
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="bg-blue-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-blue-700">
+      Registrar
+    </button>
+    <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-sm text-gray-600 hover:underline">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

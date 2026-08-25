@@ -18,6 +18,8 @@
     {% if user.is_authenticated %}
       <nav class="flex items-center gap-4 text-sm">
         <a href="{% url 'equipment:list' %}" class="text-gray-600 hover:text-gray-900">Equipamentos</a>
+        <a href="{% url 'clients:list' %}" class="text-gray-600 hover:text-gray-900">Clientes</a>
+        <a href="{% url 'operations:location_list' %}" class="text-gray-600 hover:text-gray-900">Unidades</a>
         {% if user.is_administrativo_ou_superior or user.is_superuser %}
           <a href="{% url 'catalog:category_list' %}" class="text-gray-600 hover:text-gray-900">Categorias</a>
           <a href="{% url 'catalog:model_list' %}" class="text-gray-600 hover:text-gray-900">Modelos</a>

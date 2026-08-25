@@ -67,6 +67,15 @@ CAN_EXPORT_DATA = (Role.ADMIN, Role.ADMINISTRATIVO)
 CAN_IMPORT_LEGACY_SPREADSHEET = (Role.ADMIN,)
 CAN_SUPERSEDE_EQUIPMENT = (Role.ADMIN,)  # reemissão excepcional de patrimônio (especificação, seção 8/13-C)
 
+# Fase 2 — Operação (arquitetura aprovada v1.0, seção 11). `CAN_REGISTER_OPERATIONS`
+# não é redefinida aqui — já existe acima desde a Fase 1, reservada exatamente
+# para "manutenção/higienização/movimentação", e é reaproveitada tal como está
+# para instalar/retirar/transferir equipamento (nenhuma constante nova para isso).
+CAN_VIEW_CLIENTS = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA)
+CAN_MANAGE_CLIENTS = (Role.ADMIN, Role.ADMINISTRATIVO)
+CAN_MANAGE_LOCATIONS = (Role.ADMIN, Role.ADMINISTRATIVO)
+CAN_VIEW_MOVEMENTS = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA)
+
 # Revisão de 25/08/2026 (auditoria final da Fase 1 — fechamento de
 # inconsistências): duas constantes foram removidas por não corresponderem
 # a nenhum comportamento real do sistema.
