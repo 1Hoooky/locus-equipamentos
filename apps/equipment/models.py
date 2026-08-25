@@ -12,6 +12,8 @@ Pontos que este arquivo protege deliberadamente:
   patrimônio (seção 8) — nunca em fluxo normal.
 """
 
+import uuid
+
 from django.core.exceptions import ValidationError
 from django.db import models
 from simple_history.models import HistoricalRecords
@@ -33,6 +35,52 @@ class Condition(models.TextChoices):
     MEDIO = "MEDIO", "Médio"
     RUIM = "RUIM", "Ruim"
     INUTILIZAVEL = "INUTILIZAVEL", "Inutilizável"
+
+
+class EquipmentBatch(models.Model):
+    """
+    Registro mínimo de UMA operação de "adicionar equipamentos em lote"
+    (melhoria operacional da Fase 1, pedida em 25/08/2026, depois do
+    congelamento original).
+
+    Não é uma segunda arquitetura de auditoria de criação: quem/quando
+    criou cada unidade continua sendo `Equipment.created_by`/`created_at`,
+    exatamente como no cadastro individual — `apps.equipment.services.
+    create_equipment_batch()` só chama `create_equipment()` `quantity`
+    vezes, sem duplicar nada disso. Este model existe para resolver um
+    problema distinto: depois que o lote é criado, como localizar de novo
+    "quais equipamentos nasceram juntos nesta operação", para as ações de
+    "ver equipamentos deste lote" e "exportar etiquetas/QR só deste lote".
+
+    Deliberadamente NÃO usamos o intervalo numérico de `model_sequence`
+    para isso, mesmo a operação de lote sendo atômica e livre de corrida
+    (mesmo `select_for_update()` de `create_equipment()`): um equipamento
+    pode ser reclassificado para OUTRO modelo depois
+    (`services.reclassify_model()`), o que o tiraria silenciosamente do
+    intervalo original — efeito colateral de uma regra pensada para outra
+    finalidade (corrigir classificação errada), não uma decisão real sobre
+    associação de lote. A FK direta `Equipment.batch` é uma marca
+    permanente e explícita, no mesmo espírito de `patrimonio`/
+    `model_sequence` (imutáveis após a criação, nunca expostos em nenhum
+    formulário de edição).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    model = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="equipment_batches")
+    quantity = models.PositiveIntegerField()
+    condition = models.CharField(max_length=20, choices=Condition.choices)
+    first_patrimonio = models.CharField(max_length=40)
+    last_patrimonio = models.CharField(max_length=40)
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="equipment_batches_created")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "lote de cadastro de equipamentos"
+        verbose_name_plural = "lotes de cadastro de equipamentos"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Lote {self.model.code} x{self.quantity} ({self.first_patrimonio} → {self.last_patrimonio})"
 
 
 class Equipment(TimeStampedModel, SoftDeleteModel):
@@ -79,6 +127,14 @@ class Equipment(TimeStampedModel, SoftDeleteModel):
 
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="equipment_created")
+
+    # Preenchido só quando o equipamento nasce via cadastro em lote
+    # (services.create_equipment_batch()) — nulo para cadastro individual
+    # e para toda a base existente antes desta melhoria. Nunca exposto em
+    # formulário de edição (mesmo raciocínio de patrimonio/model_sequence).
+    batch = models.ForeignKey(
+        EquipmentBatch, null=True, blank=True, on_delete=models.SET_NULL, related_name="equipment_items", editable=False
+    )
 
     history = HistoricalRecords()
 

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Lote criado — Locus{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">{{ batch.quantity }} equipamento{{ batch.quantity|pluralize }} criado{{ batch.quantity|pluralize }}</h1>
+
+<div class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg space-y-3 mb-6">
+  <dl class="grid grid-cols-2 gap-y-2 text-sm">
+    <dt class="text-gray-500">Modelo</dt>
+    <dd>{{ batch.model.name }} ({{ batch.model.code }})</dd>
+
+    <dt class="text-gray-500">Quantidade</dt>
+    <dd>{{ batch.quantity }}</dd>
+
+    <dt class="text-gray-500">Primeiro patrimônio</dt>
+    <dd>{{ batch.first_patrimonio }}</dd>
+
+    <dt class="text-gray-500">Último patrimônio</dt>
+    <dd>{{ batch.last_patrimonio }}</dd>
+  </dl>
+  <p class="text-sm text-green-700 font-medium pt-2 border-t border-gray-100">
+    {{ batch.first_patrimonio }} &rarr; {{ batch.last_patrimonio }} criados com sucesso.
+  </p>
+</div>
+
+<div class="flex flex-wrap gap-3 text-sm">
+  <a href="{% url 'equipment:list' %}?batch={{ batch.id }}" class="bg-blue-600 text-white rounded-md px-4 py-1.5 font-medium hover:bg-blue-700">
+    Ver equipamentos criados
+  </a>
+  <a href="{% url 'qrcodes:label_zip' %}?batch={{ batch.id }}" class="text-blue-600 hover:underline">
+    Exportar etiquetas deste lote
+  </a>
+  <a href="{% url 'qrcodes:qr_zip' %}?batch={{ batch.id }}" class="text-blue-600 hover:underline">
+    Exportar QR Codes deste lote
+  </a>
+</div>
+{% endblock %}

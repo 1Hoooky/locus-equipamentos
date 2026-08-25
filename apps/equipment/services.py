@@ -32,9 +32,21 @@ from apps.equipment.models import (
     Condition,
     ConditionHistory,
     Equipment,
+    EquipmentBatch,
     Status,
     StatusHistory,
 )
+
+# Limite por operação de cadastro em lote (melhoria operacional da Fase 1,
+# 25/08/2026). Justificativa: o inventário inicial tem "centenas" de
+# equipamentos, mas normalmente em lotes separados por modelo — 500 cobre
+# com folga qualquer lote real de um único modelo, sem abrir espaço para
+# uma operação acidental ou abusiva travar a linha do EquipmentModel (via
+# select_for_update, dentro de create_equipment()) por tempo desproporcional:
+# cada unidade custa ~3 consultas ao banco, então 500 unidades já é uma
+# transação de centenas de queries — um valor bem maior viraria um risco
+# real de lock prolongado sem ganho prático correspondente.
+MAX_BATCH_QUANTITY = 500
 
 
 def build_patrimonio(code: str, sequence: int) -> str:
@@ -88,6 +100,99 @@ def create_equipment(data: NewEquipmentData) -> Equipment:
         notes=data.notes,
         created_by=data.created_by,
     )
+
+
+@dataclass
+class NewEquipmentBatchData:
+    model_id: int
+    quantity: int
+    created_by: User
+    condition: str = Condition.BOM
+    supplier: str = ""
+    acquisition_date: datetime.date | None = None
+    acquisition_value: Decimal | None = None
+    notes: str = ""
+
+
+@transaction.atomic
+def create_equipment_batch(data: NewEquipmentBatchData) -> EquipmentBatch:
+    """
+    Cadastro em lote (melhoria operacional da Fase 1, pedida em
+    25/08/2026): cria `data.quantity` unidades independentes do mesmo
+    modelo, cada uma com patrimônio próprio e permanente — nunca um único
+    `Equipment` com "quantidade".
+
+    Reuso deliberado: chama `create_equipment()` — a MESMA função do
+    cadastro individual — `quantity` vezes, dentro desta única transação.
+    Não existe um segundo contador nem geração manual de patrimônio aqui.
+    Cada chamada a `create_equipment()` já faz `select_for_update()` na
+    linha do `EquipmentModel` (ver docstring do módulo); chamá-la em
+    sequência, na mesma transação, preserva exatamente a mesma garantia de
+    unicidade/sequência sob concorrência que o cadastro individual já tem
+    — inclusive contra outro lote ou outro cadastro individual do MESMO
+    modelo rodando ao mesmo tempo, que ficam serializados pelo lock da
+    mesma linha.
+
+    Atomicidade: por estar inteira dentro de um único `@transaction.atomic`
+    (o `@transaction.atomic` de `create_equipment()` só abre um savepoint
+    aninhado, não uma transação nova), qualquer exceção no meio do laço
+    desfaz TODAS as criações já feitas nesta chamada — nunca sobra um lote
+    "pela metade" no banco.
+
+    Não gera QR/etiqueta/ZIP aqui — essas exportações usam os geradores já
+    existentes (`apps.qrcodes.services`), sob demanda, só depois que o
+    lote já está persistido (pedido explícito do usuário: nada de PDF/PNG/
+    ZIP durante a transação de cadastro).
+    """
+    if data.quantity < 1:
+        raise ValueError("A quantidade precisa ser de pelo menos 1 unidade.")
+    if data.quantity > MAX_BATCH_QUANTITY:
+        raise ValueError(f"A quantidade máxima por operação de lote é {MAX_BATCH_QUANTITY} unidades.")
+    if data.condition not in Condition.values:
+        raise ValueError(f"Condição inválida: {data.condition!r}.")
+
+    model = EquipmentModel.objects.get(pk=data.model_id)
+    if not model.is_active:
+        raise ValueError("Não é possível cadastrar equipamentos em lote para um modelo inativo.")
+
+    # first_patrimonio/last_patrimonio só existem depois do laço abaixo —
+    # criamos o registro do lote já no início (para servir de FK a cada
+    # Equipment conforme vai sendo criado) e completamos esses dois campos
+    # ao final, ainda dentro da mesma transação atômica.
+    batch = EquipmentBatch.objects.create(
+        model=model,
+        quantity=data.quantity,
+        condition=data.condition,
+        created_by=data.created_by,
+        first_patrimonio="",
+        last_patrimonio="",
+    )
+
+    equipment_list = []
+    for _ in range(data.quantity):
+        equipment = create_equipment(
+            NewEquipmentData(
+                model_id=data.model_id,
+                created_by=data.created_by,
+                # Deliberadamente SEM serial_number/legacy_code: são
+                # identificadores individuais por unidade física e não
+                # podem ser preenchidos em massa para um lote inteiro.
+                supplier=data.supplier,
+                acquisition_date=data.acquisition_date,
+                acquisition_value=data.acquisition_value,
+                condition=data.condition,
+                notes=data.notes,
+            )
+        )
+        equipment.batch = batch
+        equipment.save(update_fields=["batch"])
+        equipment_list.append(equipment)
+
+    batch.first_patrimonio = equipment_list[0].patrimonio
+    batch.last_patrimonio = equipment_list[-1].patrimonio
+    batch.save(update_fields=["first_patrimonio", "last_patrimonio"])
+
+    return batch
 
 
 @transaction.atomic

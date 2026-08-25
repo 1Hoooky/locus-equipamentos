@@ -14,6 +14,7 @@ from django import forms
 
 from apps.catalog.models import EquipmentModel
 from apps.equipment.models import Condition, Equipment
+from apps.equipment.services import MAX_BATCH_QUANTITY
 
 TEXT_INPUT_CLASS = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
 
@@ -47,6 +48,42 @@ class EquipmentCreateForm(forms.Form):
                 field.widget.attrs.setdefault("class", TEXT_INPUT_CLASS)
             else:
                 field.widget.attrs.setdefault("class", TEXT_INPUT_CLASS)
+
+
+class EquipmentBatchCreateForm(forms.Form):
+    """
+    Cadastro em lote — mesmo raciocínio de `EquipmentCreateForm` (não é um
+    ModelForm; a criação real passa por
+    `apps.equipment.services.create_equipment_batch()`). Deliberadamente
+    NÃO pede serial do fabricante nem código legado: são identificadores
+    individuais por unidade física e não podem ser preenchidos em massa
+    para um lote inteiro (pedido explícito do usuário).
+    """
+
+    model = forms.ModelChoiceField(
+        queryset=EquipmentModel.objects.filter(is_active=True).select_related("category").order_by(
+            "category__name", "name"
+        ),
+        label="Modelo",
+    )
+    quantity = forms.IntegerField(
+        label="Quantidade",
+        min_value=1,
+        max_value=MAX_BATCH_QUANTITY,
+        help_text=f"Máximo de {MAX_BATCH_QUANTITY} unidades por operação.",
+    )
+    condition = forms.ChoiceField(label="Condição inicial", choices=Condition.choices, initial=Condition.BOM)
+    supplier = forms.CharField(label="Fornecedor", max_length=150, required=False)
+    acquisition_date = forms.DateField(
+        label="Data de aquisição", required=False, widget=forms.DateInput(attrs={"type": "date"})
+    )
+    acquisition_value = forms.DecimalField(label="Valor de aquisição", max_digits=10, decimal_places=2, required=False)
+    notes = forms.CharField(label="Observações", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs.setdefault("class", TEXT_INPUT_CLASS)
 
 
 class EquipmentUpdateForm(forms.ModelForm):

@@ -4,6 +4,8 @@ de QR e etiqueta"), restritas a Administrador/Administrativo (matriz da
 seção 11).
 """
 
+import uuid
+
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.views import View
@@ -59,29 +61,47 @@ class LabelBatchDownloadView(RoleRequiredMixin, View):
         return response
 
 
-def _active_equipment_for_export():
+def _active_equipment_for_export(request=None):
     """
     Base comum das duas exportações em lote abaixo: todos os equipamentos
     ativos (nunca os inativos/"excluídos" via soft delete — seção 3 do
     pedido), na mesma ordenação (categoria, código do modelo, patrimônio)
     para o resultado ser determinístico e fácil de conferir.
+
+    `?batch=<uuid>` (melhoria operacional da Fase 1, 25/08/2026, "Exportar
+    etiquetas/QR Codes deste lote" na tela de resultado do cadastro em
+    lote) restringe o resultado só aos equipamentos daquela operação. Sem
+    o parâmetro, o comportamento é exatamente o de antes — todos os
+    equipamentos ativos.
     """
-    return Equipment.objects.filter(is_active=True).select_related("model", "category").order_by(
+    qs = Equipment.objects.filter(is_active=True).select_related("model", "category").order_by(
         "category__name", "model__code", "model_sequence"
     )
+    batch_value = request.GET.get("batch") if request is not None else None
+    if batch_value:
+        try:
+            uuid.UUID(batch_value)
+        except (ValueError, AttributeError, TypeError):
+            pass
+        else:
+            qs = qs.filter(batch_id=batch_value)
+    return qs
 
 
 class QRCodeZipExportView(RoleRequiredMixin, View):
     """
-    Exportação em lote dos QR Codes de todos os equipamentos ativos —
-    .zip organizado em Categoria/Código-do-modelo/Patrimônio.png (seção 3
-    do pedido). Botão "Exportar QR Codes" na listagem de equipamentos.
+    Exportação em lote dos QR Codes de todos os equipamentos ativos (ou,
+    com `?batch=<uuid>`, só os de um lote de cadastro específico) — .zip
+    organizado em Categoria/Código-do-modelo/Patrimônio.png (seção 3 do
+    pedido). Botão "Exportar QR Codes" na listagem de equipamentos e
+    "Exportar QR Codes deste lote" na tela de resultado do cadastro em
+    lote.
     """
 
     allowed_roles = CAN_MANAGE_EQUIPMENT
 
     def get(self, request):
-        zip_bytes = generate_qr_zip(_active_equipment_for_export())
+        zip_bytes = generate_qr_zip(_active_equipment_for_export(request))
         response = HttpResponse(zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = 'attachment; filename="qrcodes-locus.zip"'
         return response
@@ -90,16 +110,18 @@ class QRCodeZipExportView(RoleRequiredMixin, View):
 class LabelZipExportView(RoleRequiredMixin, View):
     """
     Exportação em lote das etiquetas (uma PDF por equipamento, página
-    única no tamanho físico exato) de todos os equipamentos ativos —
-    mesma organização Categoria/Código-do-modelo/Patrimônio.pdf da
-    exportação de QR Codes acima (seção 4 do pedido). Botão "Exportar
-    Etiquetas" na listagem de equipamentos.
+    única no tamanho físico exato) de todos os equipamentos ativos (ou,
+    com `?batch=<uuid>`, só os de um lote de cadastro específico) — mesma
+    organização Categoria/Código-do-modelo/Patrimônio.pdf da exportação de
+    QR Codes acima (seção 4 do pedido). Botão "Exportar Etiquetas" na
+    listagem de equipamentos e "Exportar Etiquetas deste lote" na tela de
+    resultado do cadastro em lote.
     """
 
     allowed_roles = CAN_MANAGE_EQUIPMENT
 
     def get(self, request):
-        zip_bytes = generate_labels_zip(_active_equipment_for_export())
+        zip_bytes = generate_labels_zip(_active_equipment_for_export(request))
         response = HttpResponse(zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = 'attachment; filename="etiquetas-locus.zip"'
         return response

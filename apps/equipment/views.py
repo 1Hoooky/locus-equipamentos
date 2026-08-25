@@ -6,6 +6,9 @@ próprias de cadastro/edição/reclassificação/reemissão que substituem o
 Django admin como interface operacional (fechamento da Fase 1).
 """
 
+import datetime
+from decimal import Decimal
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, redirect, render
@@ -26,17 +29,20 @@ from apps.equipment.filters import filter_equipment_queryset
 from apps.equipment.forms import (
     ChangeConditionForm,
     ChangeStatusForm,
+    EquipmentBatchCreateForm,
     EquipmentCreateForm,
     EquipmentUpdateForm,
     ReclassifyModelForm,
     SupersedeEquipmentForm,
 )
-from apps.equipment.models import Condition, Equipment, Status
+from apps.equipment.models import Condition, Equipment, EquipmentBatch, Status
 from apps.equipment.services import (
+    NewEquipmentBatchData,
     NewEquipmentData,
     change_condition,
     change_status,
     create_equipment,
+    create_equipment_batch,
     get_equipment_history_timeline,
     reclassify_model,
     supersede_equipment,
@@ -106,6 +112,130 @@ class EquipmentCreateView(RoleRequiredMixin, View):
             messages.success(request, f"Equipamento {equipment.patrimonio} cadastrado com sucesso.")
             return redirect("equipment:detail", patrimonio=equipment.patrimonio)
         return render(request, "equipment/equipment_form.html", {"form": form, "is_new": True})
+
+
+SESSION_KEY_BATCH_PENDING = "equipment_batch_pending"
+
+
+class EquipmentBatchCreateView(RoleRequiredMixin, View):
+    """
+    Passo 1/3 do cadastro em lote (melhoria operacional da Fase 1, pedida
+    em 25/08/2026) — mesmo padrão de fluxo em múltiplas telas já usado na
+    importação legada (upload → revisão → resumo,
+    `apps/equipment/views_import.py`): aqui, formulário → confirmação
+    (`EquipmentBatchConfirmView`) → resultado (`EquipmentBatchResultView`).
+
+    Mesma permissão de `EquipmentCreateView` (`CAN_MANAGE_EQUIPMENT`) — os
+    perfis que já podem cadastrar equipamento individualmente são os
+    mesmos que podem cadastrar em lote; nenhum privilégio novo é
+    concedido.
+    """
+
+    allowed_roles = CAN_MANAGE_EQUIPMENT
+
+    def get(self, request):
+        return render(request, "equipment/batch_create.html", {"form": EquipmentBatchCreateForm()})
+
+    def post(self, request):
+        form = EquipmentBatchCreateForm(request.POST)
+        if not form.is_valid():
+            return render(request, "equipment/batch_create.html", {"form": form})
+
+        cleaned = form.cleaned_data
+        # Guardado na sessão (não no banco ainda) — nada é persistido até a
+        # confirmação explícita no próximo passo. Mesma técnica já usada em
+        # LegacyImportUploadView/LegacyImportReviewView.
+        request.session[SESSION_KEY_BATCH_PENDING] = {
+            "model_id": cleaned["model"].pk,
+            "quantity": cleaned["quantity"],
+            "condition": cleaned["condition"],
+            "supplier": cleaned["supplier"],
+            "acquisition_date": cleaned["acquisition_date"].isoformat() if cleaned["acquisition_date"] else None,
+            "acquisition_value": str(cleaned["acquisition_value"]) if cleaned["acquisition_value"] is not None else None,
+            "notes": cleaned["notes"],
+        }
+        return redirect("equipment:batch_confirm")
+
+
+class EquipmentBatchConfirmView(RoleRequiredMixin, View):
+    """
+    Passo 2/3: confirmação explícita antes de criar de fato — pedido do
+    usuário para evitar criação acidental em lotes grandes.
+
+    A proteção contra clique duplo/reenvio do formulário está em
+    `del request.session[SESSION_KEY_BATCH_PENDING]` logo no início do
+    POST: a chave é consumida (uso único) antes mesmo de chamar o serviço,
+    então uma segunda tentativa (F5 na página de confirmação, "voltar" +
+    reenviar) não encontra mais dado pendente e é mandada de volta para o
+    formulário, em vez de criar um segundo lote.
+    """
+
+    allowed_roles = CAN_MANAGE_EQUIPMENT
+
+    def get(self, request):
+        pending = request.session.get(SESSION_KEY_BATCH_PENDING)
+        if not pending:
+            messages.info(
+                request, "Nenhum cadastro em lote pendente de confirmação — preencha o formulário primeiro."
+            )
+            return redirect("equipment:batch_create")
+
+        model = get_object_or_404(EquipmentModel, pk=pending["model_id"])
+        return render(
+            request,
+            "equipment/batch_confirm.html",
+            {
+                "model": model,
+                "quantity": pending["quantity"],
+                "condition_display": dict(Condition.choices).get(pending["condition"], pending["condition"]),
+            },
+        )
+
+    def post(self, request):
+        pending = request.session.get(SESSION_KEY_BATCH_PENDING)
+        if not pending:
+            messages.error(request, "A confirmação expirou ou já foi usada. Preencha o formulário novamente.")
+            return redirect("equipment:batch_create")
+
+        del request.session[SESSION_KEY_BATCH_PENDING]
+
+        try:
+            batch = create_equipment_batch(
+                NewEquipmentBatchData(
+                    model_id=pending["model_id"],
+                    quantity=pending["quantity"],
+                    created_by=request.user,
+                    condition=pending["condition"],
+                    supplier=pending["supplier"],
+                    acquisition_date=(
+                        datetime.date.fromisoformat(pending["acquisition_date"])
+                        if pending["acquisition_date"]
+                        else None
+                    ),
+                    acquisition_value=(
+                        Decimal(pending["acquisition_value"]) if pending["acquisition_value"] is not None else None
+                    ),
+                    notes=pending["notes"],
+                )
+            )
+        except (ValueError, EquipmentModel.DoesNotExist) as exc:
+            messages.error(request, str(exc) or "Não foi possível criar o lote de equipamentos.")
+            return redirect("equipment:batch_create")
+
+        messages.success(
+            request, f"{batch.quantity} equipamentos criados: {batch.first_patrimonio} → {batch.last_patrimonio}."
+        )
+        return redirect("equipment:batch_result", batch_id=batch.pk)
+
+
+class EquipmentBatchResultView(RoleRequiredMixin, View):
+    """Passo 3/3: resumo do lote recém-criado, com atalhos para consultar/exportar só essas unidades."""
+
+    allowed_roles = CAN_MANAGE_EQUIPMENT
+
+    def get(self, request, batch_id):
+        batch = get_object_or_404(EquipmentBatch.objects.select_related("model", "created_by"), pk=batch_id)
+        return render(request, "equipment/batch_result.html", {"batch": batch})
 
 
 class EquipmentUpdateView(RoleRequiredMixin, View):

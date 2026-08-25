@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Confirmar cadastro em lote — Locus{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">Confirmar cadastro em lote</h1>
+
+<div class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg space-y-4">
+  <p class="text-sm text-gray-800">
+    Você está prestes a criar <strong>{{ quantity }}</strong> equipamento{{ quantity|pluralize }}
+    do modelo <strong>{{ model.name }} ({{ model.code }})</strong>, condição inicial
+    <strong>{{ condition_display }}</strong>.
+  </p>
+  <p class="text-sm text-gray-600">
+    Cada unidade receberá um patrimônio individual e permanente. Esta ação não pode ser desfeita
+    pela interface.
+  </p>
+
+  <form method="post" class="flex items-center gap-3 pt-2">
+    {% csrf_token %}
+    <button type="submit" class="bg-blue-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-blue-700">
+      Confirmar e criar {{ quantity }} equipamento{{ quantity|pluralize }}
+    </button>
+    <a href="{% url 'equipment:batch_create' %}" class="text-sm text-gray-600 hover:underline">Voltar e corrigir</a>
+  </form>
+</div>
+{% endblock %}

@@ -6,6 +6,8 @@ a exportação precisa respeitar exatamente os mesmos filtros da tela, não
 uma lógica reimplementada à parte que pode divergir com o tempo.
 """
 
+import uuid
+
 from django.db.models import Q, QuerySet
 from django.http import QueryDict
 
@@ -30,5 +32,19 @@ def filter_equipment_queryset(queryset: QuerySet, params: QueryDict) -> QuerySet
         if field in ("category", "model") and not value.isdigit():
             continue
         queryset = queryset.filter(**{field: value})
+
+    # "batch" (UUID) — usado pela tela de resultado do cadastro em lote
+    # ("Ver equipamentos criados", equipment/batch_result.html) para
+    # filtrar só os equipamentos daquela operação. Mesmo cuidado de
+    # category/model acima: um valor que não seja um UUID válido é
+    # ignorado, não derruba a listagem.
+    batch_value = params.get("batch")
+    if batch_value:
+        try:
+            uuid.UUID(batch_value)
+        except (ValueError, AttributeError, TypeError):
+            pass
+        else:
+            queryset = queryset.filter(batch_id=batch_value)
 
     return queryset
