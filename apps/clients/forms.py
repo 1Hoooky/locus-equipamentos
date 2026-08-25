@@ -23,9 +23,11 @@ TEXT_INPUT_CLASS = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full
 
 class ClientForm(forms.Form):
     # --- Dados do cliente ---------------------------------------------
+    # Decisão revista a pedido do usuário: o CNPJ (não a razão social) é
+    # o campo obrigatório do cadastro — o inverso do que valia antes.
     client_type = forms.ChoiceField(label="Tipo", choices=ClientType.choices, initial=ClientType.PJ)
-    document = forms.CharField(label="CNPJ", max_length=18, required=False)
-    company_name = forms.CharField(label="Razão social", max_length=200)
+    document = forms.CharField(label="CNPJ", max_length=18)
+    company_name = forms.CharField(label="Razão social", max_length=200, required=False)
     trade_name = forms.CharField(label="Nome fantasia", max_length=200, required=False)
     registration_status = forms.CharField(label="Situação cadastral", max_length=60, required=False)
     state_registration = forms.CharField(label="Inscrição estadual", max_length=20, required=False)
@@ -75,6 +77,19 @@ class ClientForm(forms.Form):
             # registros Address independentes.
             for suffix in ("cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf"):
                 cleaned[f"operational_{suffix}"] = cleaned.get(f"fiscal_{suffix}", "")
+
+        # CNPJ agora é o campo obrigatório (razão social virou opcional) —
+        # valida o dígito verificador aqui, com erro amigável preso ao
+        # campo, em vez de deixar só `create_client()` pegar isso (mesma
+        # regra reaproveitada de `CNPJLookupForm.clean()`, nunca uma cópia
+        # divergente).
+        client_type = cleaned.get("client_type")
+        document = cleaned.get("document")
+        if client_type and document:
+            try:
+                cleaned["document"] = validate_document_for_type(document, client_type)
+            except ValidationError as exc:
+                self.add_error("document", exc)
         return cleaned
 
 
@@ -123,9 +138,12 @@ class ClientUpdateForm(forms.Form):
     (`apps.operations`).
     """
 
+    # Decisão revista a pedido do usuário: o CNPJ (não a razão social) é
+    # o campo obrigatório — o inverso do que valia antes (mesma mudança
+    # de `ClientForm`).
     client_type = forms.ChoiceField(label="Tipo", choices=ClientType.choices)
-    document = forms.CharField(label="CNPJ", max_length=18, required=False)
-    company_name = forms.CharField(label="Razão social", max_length=200)
+    document = forms.CharField(label="CNPJ", max_length=18)
+    company_name = forms.CharField(label="Razão social", max_length=200, required=False)
     trade_name = forms.CharField(label="Nome fantasia", max_length=200, required=False)
     registration_status = forms.CharField(label="Situação cadastral", max_length=60, required=False)
     state_registration = forms.CharField(label="Inscrição estadual", max_length=20, required=False)
@@ -138,3 +156,14 @@ class ClientUpdateForm(forms.Form):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
             field.widget.attrs.setdefault("class", TEXT_INPUT_CLASS)
+
+    def clean(self):
+        cleaned = super().clean()
+        client_type = cleaned.get("client_type")
+        document = cleaned.get("document")
+        if client_type and document:
+            try:
+                cleaned["document"] = validate_document_for_type(document, client_type)
+            except ValidationError as exc:
+                self.add_error("document", exc)
+        return cleaned

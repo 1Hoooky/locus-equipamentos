@@ -264,40 +264,59 @@ class CnpjLookupDoesNotRequireFullFormTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["form"].errors, {})
 
-    def test_save_action_still_requires_company_name(self):
-        """O formulário COMPLETO (ação Salvar) continua exigindo os campos obrigatórios normalmente."""
+    def _full_save_payload(self, **overrides):
+        data = {
+            "action": "save",
+            "client_type": ClientType.PJ,
+            "document": VALID_CNPJ,
+            "company_name": "",
+            "trade_name": "",
+            "registration_status": "",
+            "state_registration": "",
+            "phone": "",
+            "email": "",
+            "contact_name": "",
+            "notes": "",
+            "fiscal_cep": "",
+            "fiscal_logradouro": "",
+            "fiscal_numero": "",
+            "fiscal_complemento": "",
+            "fiscal_bairro": "",
+            "fiscal_cidade": "",
+            "fiscal_uf": "",
+            "initial_location_name": "",
+            "operational_cep": "",
+            "operational_logradouro": "",
+            "operational_numero": "",
+            "operational_complemento": "",
+            "operational_bairro": "",
+            "operational_cidade": "",
+            "operational_uf": "",
+            "operational_reference_notes": "",
+        }
+        data.update(overrides)
+        return data
+
+    def test_save_action_no_longer_requires_company_name(self):
+        """
+        Decisão revista a pedido do usuário: razão social virou opcional
+        (o CNPJ é que é obrigatório agora) — o inverso do que valia antes.
+        """
+        token = self.client.get("/clientes/novo/").context["submission_token"]
+        response = self.client.post(
+            "/clientes/novo/", self._full_save_payload(submission_token=token, company_name="")
+        )
+        self.assertEqual(response.status_code, 302)
+        client = Client.objects.get(document="11222333000181")
+        self.assertEqual(client.company_name, "")
+
+    def test_save_action_requires_document(self):
+        """O formulário COMPLETO (ação Salvar) exige CNPJ — o campo que virou obrigatório."""
+        token = self.client.get("/clientes/novo/").context["submission_token"]
         response = self.client.post(
             "/clientes/novo/",
-            {
-                "action": "save",
-                "client_type": ClientType.PJ,
-                "document": VALID_CNPJ,
-                "company_name": "",
-                "trade_name": "",
-                "registration_status": "",
-                "state_registration": "",
-                "phone": "",
-                "email": "",
-                "contact_name": "",
-                "notes": "",
-                "fiscal_cep": "",
-                "fiscal_logradouro": "",
-                "fiscal_numero": "",
-                "fiscal_complemento": "",
-                "fiscal_bairro": "",
-                "fiscal_cidade": "",
-                "fiscal_uf": "",
-                "initial_location_name": "",
-                "operational_cep": "",
-                "operational_logradouro": "",
-                "operational_numero": "",
-                "operational_complemento": "",
-                "operational_bairro": "",
-                "operational_cidade": "",
-                "operational_uf": "",
-                "operational_reference_notes": "",
-            },
+            self._full_save_payload(submission_token=token, document="", company_name="Empresa Sem CNPJ LTDA"),
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn("company_name", response.context["form"].errors)
-        self.assertFalse(Client.objects.filter(document="11222333000181").exists())
+        self.assertIn("document", response.context["form"].errors)
+        self.assertFalse(Client.objects.filter(company_name="Empresa Sem CNPJ LTDA").exists())

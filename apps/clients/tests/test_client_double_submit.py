@@ -3,8 +3,15 @@ Regressão do bug relatado (#3): Enter repetido durante a criação de
 cliente disparava múltiplos cadastros/duplicatas. A correção é um token
 de sessão de uso único (mesmo padrão de `EquipmentBatchConfirmView`,
 `apps/equipment/views.py`) — não depende só de desabilitar o botão no
-navegador, e funciona mesmo para cliente sem documento (onde a unicidade
-de `document` não é uma segunda camada de defesa possível).
+navegador.
+
+O CNPJ passou a ser o campo obrigatório do cadastro (a razão social virou
+opcional — decisão revista a pedido do usuário, depois da correção do
+bug #3 original). Isso significa que "cliente sem documento" deixou de
+ser um cenário criável — os testes que provavam a proteção "mesmo sem
+documento" foram adaptados para provar o equivalente com o campo agora
+opcional (`company_name` em branco), mantendo a mesma ideia: a proteção
+contra reenvio não depende de nenhum campo específico estar preenchido.
 """
 
 from django.contrib.auth import get_user_model
@@ -14,13 +21,16 @@ from apps.clients.models import Client, ClientType
 
 User = get_user_model()
 
+VALID_CNPJ = "11.222.333/0001-81"
+
 
 def _save_post_data(submission_token, **overrides):
     data = {
         "action": "save",
         "submission_token": submission_token,
         "client_type": ClientType.PJ,
-        "document": "",
+        # CNPJ é obrigatório agora — ver docstring do módulo.
+        "document": VALID_CNPJ,
         "company_name": "Cliente Reenvio LTDA",
         "trade_name": "",
         "registration_status": "",
@@ -76,18 +86,23 @@ class ClientCreateDoubleSubmitTest(TestCase):
         self.assertEqual(Client.objects.filter(document="11222333000181").count(), 1)
         self.assertEqual(Client.objects.count(), 1)
 
-    def test_double_submit_protection_works_without_document(self):
-        """A proteção não pode depender da unicidade de `document` — precisa funcionar mesmo sem CNPJ/CPF."""
+    def test_double_submit_protection_works_with_blank_company_name(self):
+        """
+        A proteção não pode depender de nenhum campo opcional estar
+        preenchido — só o token importa. `company_name` é o campo opcional
+        agora (o CNPJ é que é obrigatório), então é ele que fica em
+        branco aqui para provar isso.
+        """
         token = self._get_token()
-        data = _save_post_data(token, company_name="Cliente Sem Documento LTDA")
+        data = _save_post_data(token, company_name="")  # já usa o VALID_CNPJ padrão de _save_post_data
 
         first = self.client.post("/clientes/novo/", data)
         self.assertEqual(first.status_code, 302)
-        self.assertEqual(Client.objects.filter(company_name="Cliente Sem Documento LTDA").count(), 1)
+        self.assertEqual(Client.objects.filter(document="11222333000181", company_name="").count(), 1)
 
         second = self.client.post("/clientes/novo/", data)
         self.assertEqual(second.status_code, 302)
-        self.assertEqual(Client.objects.filter(company_name="Cliente Sem Documento LTDA").count(), 1)
+        self.assertEqual(Client.objects.filter(document="11222333000181").count(), 1)
 
     def test_missing_session_token_blocks_save_instead_of_creating(self):
         """POST direto sem nunca ter feito o GET (sem token pendente na sessão) é tratado como reenvio, não cria nada."""
@@ -120,10 +135,10 @@ class ClientCreateDoubleSubmitTest(TestCase):
 
     def test_validation_error_reissues_token_so_retry_still_works(self):
         token = self._get_token()
-        invalid_data = _save_post_data(token, company_name="")  # razão social obrigatória
+        invalid_data = _save_post_data(token, document="")  # CNPJ obrigatório agora
         invalid_response = self.client.post("/clientes/novo/", invalid_data)
         self.assertEqual(invalid_response.status_code, 200)
-        self.assertIn("company_name", invalid_response.context["form"].errors)
+        self.assertIn("document", invalid_response.context["form"].errors)
 
         new_token = invalid_response.context["submission_token"]
         self.assertTrue(new_token)

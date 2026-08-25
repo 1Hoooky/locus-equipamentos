@@ -30,10 +30,20 @@ class Client(TimeStampedModel, SoftDeleteModel):
     # (v1.0, seção 1). Único entre não-nulos/não-vazios — protegido contra
     # duplicidade mesmo entre clientes soft-deletados (é a mesma empresa,
     # não deveria virar um segundo cadastro; ver create_client()).
+    #
+    # Decisão revista a pedido do usuário: o CNPJ/CPF é o dado que
+    # realmente identifica o cliente de forma inequívoca — passou a ser
+    # OBRIGATÓRIO (`blank=False`, o padrão do Django); a razão social virou
+    # OPCIONAL (`blank=True` abaixo), o inverso do que valia antes. A
+    # obrigatoriedade "de verdade" continua sendo decidida em
+    # `apps.clients.services.create_client()`/`update_client()` (nunca só
+    # aqui) — este `blank=False` só mantém o Django admin (que gera um
+    # ModelForm automático a partir do model) consistente com a mesma
+    # regra.
     document = models.CharField(
-        max_length=18, blank=True, help_text="CNPJ (ou, futuramente, CPF). Só dígitos, validado no backend."
+        max_length=18, help_text="CNPJ (ou, futuramente, CPF). Só dígitos, validado no backend."
     )
-    company_name = models.CharField(max_length=200, help_text="Razão social.")
+    company_name = models.CharField(max_length=200, blank=True, help_text="Razão social (opcional).")
     trade_name = models.CharField(max_length=200, blank=True, help_text="Nome fantasia.")
     registration_status = models.CharField(
         max_length=60, blank=True, help_text="Situação cadastral (ex.: 'ATIVA'), quando disponível pela consulta de CNPJ."
@@ -71,8 +81,15 @@ class Client(TimeStampedModel, SoftDeleteModel):
                 raise ValidationError({"document": exc.message}) from exc
 
     def display_name(self) -> str:
-        """Regra única de nome de exibição — reaproveitada pelos snapshots históricos de `Movement` (delta v1.1, seção 4)."""
-        return self.trade_name or self.company_name
+        """
+        Regra única de nome de exibição — reaproveitada pelos snapshots
+        históricos de `Movement` (delta v1.1, seção 4). Cai para o
+        documento (e por fim para o pk) quando nome fantasia/razão social
+        não foram informados — agora que a razão social é opcional
+        (o CNPJ passou a ser o campo obrigatório), não pode ficar em
+        branco em listagens/mensagens.
+        """
+        return self.trade_name or self.company_name or self.document or f"Cliente #{self.pk}"
 
     def __str__(self) -> str:
         return self.display_name()

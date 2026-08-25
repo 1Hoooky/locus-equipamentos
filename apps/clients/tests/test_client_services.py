@@ -3,6 +3,11 @@ Testes de `apps.clients.services` — `create_client()`/`update_client()`.
 Cobre: normalização/duplicidade de documento (inclusive contra cliente
 inativo), independência entre endereço fiscal e endereço de entrega
 (validação obrigatória #9), unidade inicial (#10), e auditoria (#15).
+
+Decisão revista a pedido do usuário: o CNPJ/CPF passou a ser o campo
+OBRIGATÓRIO do cadastro (a razão social virou opcional) — o inverso do
+que valia antes. `document` é exigido em `create_client()`/`update_client()`
+independentemente de `company_name` estar preenchido.
 """
 
 from django.test import TestCase
@@ -27,9 +32,20 @@ class CreateClientTest(TestCase):
         self.assertEqual(client.document, "11222333000181")
         self.assertEqual(client.pk is not None, True)
 
-    def test_company_name_is_required(self):
+    def test_company_name_is_optional(self):
+        """Razão social virou opcional — o CNPJ é que é obrigatório agora."""
+        client = create_client(NewClientData(client_type=ClientType.PJ, company_name="", document=VALID_CNPJ))
+        self.assertEqual(client.company_name, "")
+        self.assertEqual(client.document, "11222333000181")
+
+    def test_document_is_required(self):
         with self.assertRaises(ValueError):
-            create_client(NewClientData(client_type=ClientType.PJ, company_name="   "))
+            create_client(NewClientData(client_type=ClientType.PJ, company_name="Cliente Sem CNPJ LTDA", document=""))
+
+    def test_document_with_only_non_digit_characters_is_still_rejected_as_required(self):
+        """Documento que normaliza para vazio (só caracteres não numéricos) também conta como ausente."""
+        with self.assertRaises(ValueError):
+            create_client(NewClientData(client_type=ClientType.PJ, company_name="Cliente X", document="--/."))
 
     def test_invalid_document_checksum_is_rejected(self):
         from django.core.exceptions import ValidationError
@@ -51,13 +67,22 @@ class CreateClientTest(TestCase):
         with self.assertRaises(ValueError):
             create_client(NewClientData(client_type=ClientType.PJ, company_name="Cliente Novo", document=VALID_CNPJ))
 
-    def test_multiple_clients_without_document_do_not_collide(self):
-        create_client(NewClientData(client_type=ClientType.PJ, company_name="Sem Documento Um"))
-        create_client(NewClientData(client_type=ClientType.PJ, company_name="Sem Documento Dois"))
+    def test_legacy_clients_without_document_do_not_collide_at_db_level(self):
+        """
+        `document` passou a ser exigido por `create_client()`, mas a
+        constraint do model (`uniq_client_document_when_present`) continua
+        condicionada a "não vazio" — clientes legados/criados fora do
+        service (ex.: import antigo) sem documento continuam podendo
+        coexistir sem colidir.
+        """
+        Client.objects.create(company_name="Sem Documento Um")
+        Client.objects.create(company_name="Sem Documento Dois")
         self.assertEqual(Client.objects.filter(document="").count(), 2)
 
     def test_creation_is_recorded_in_history(self):
-        client = create_client(NewClientData(client_type=ClientType.PJ, company_name="Cliente Auditado LTDA"))
+        client = create_client(
+            NewClientData(client_type=ClientType.PJ, company_name="Cliente Auditado LTDA", document=VALID_CNPJ)
+        )
         self.assertEqual(client.history.count(), 1)
         self.assertEqual(client.history.first().history_type, "+")
 
@@ -72,6 +97,7 @@ class FiscalAndOperationalAddressIndependenceTest(TestCase):
             NewClientData(
                 client_type=ClientType.PJ,
                 company_name="Cliente Endereço Único LTDA",
+                document=VALID_CNPJ,
                 fiscal_address=same_values,
                 initial_location_name="Unidade Matriz",
                 initial_location_address=same_values,
@@ -95,6 +121,7 @@ class FiscalAndOperationalAddressIndependenceTest(TestCase):
             NewClientData(
                 client_type=ClientType.PJ,
                 company_name="Cliente Com Unidade LTDA",
+                document=VALID_CNPJ,
                 initial_location_name="Unidade Inicial",
             )
         )
@@ -103,7 +130,9 @@ class FiscalAndOperationalAddressIndependenceTest(TestCase):
         self.assertEqual(location.name, "Unidade Inicial")
 
     def test_no_initial_location_created_when_not_requested(self):
-        client = create_client(NewClientData(client_type=ClientType.PJ, company_name="Cliente Sem Unidade LTDA"))
+        client = create_client(
+            NewClientData(client_type=ClientType.PJ, company_name="Cliente Sem Unidade LTDA", document=VALID_CNPJ)
+        )
         self.assertFalse(Location.objects.filter(client=client).exists())
 
 
@@ -149,3 +178,18 @@ class UpdateClientTest(TestCase):
         self.client_record.refresh_from_db()
         self.assertEqual(self.client_record.history.count(), history_count_before + 1)
         self.assertEqual(self.client_record.history.first().history_change_reason, "Correção de telefone.")
+
+    def test_document_is_required_on_update_too(self):
+        with self.assertRaises(ValueError):
+            update_client(
+                client=self.client_record,
+                data=ClientUpdateData(client_type=ClientType.PJ, company_name="Cliente Original LTDA", document=""),
+            )
+
+    def test_company_name_is_optional_on_update(self):
+        update_client(
+            client=self.client_record,
+            data=ClientUpdateData(client_type=ClientType.PJ, company_name="", document=VALID_CNPJ),
+        )
+        self.client_record.refresh_from_db()
+        self.assertEqual(self.client_record.company_name, "")

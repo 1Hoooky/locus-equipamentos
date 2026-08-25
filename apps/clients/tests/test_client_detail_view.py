@@ -24,11 +24,16 @@ from apps.operations.models import Location
 User = get_user_model()
 
 
+VALID_CNPJ = "11.222.333/0001-81"
+
+
 def _save_post_data(**overrides):
     data = {
         "action": "save",
         "client_type": ClientType.PJ,
-        "document": "",
+        # CNPJ é o campo obrigatório do cadastro (decisão revista a
+        # pedido do usuário — a razão social virou opcional).
+        "document": VALID_CNPJ,
         "company_name": "Cliente Endereços LTDA",
         "trade_name": "",
         "registration_status": "",

@@ -59,10 +59,12 @@ def create_client(data: NewClientData) -> Client:
     inicial — tudo na mesma transação atômica (rollback total em caso de
     falha em qualquer etapa).
     """
-    if not data.company_name.strip():
-        raise ValueError("Razão social é obrigatória.")
-
     normalized_document = validate_document_for_type(data.document, data.client_type)
+    # Decisão revista a pedido do usuário: o CNPJ/CPF (não a razão social)
+    # é o campo obrigatório — o inverso do que valia antes. `company_name`
+    # agora é opcional (ver `Client.company_name`/`display_name()`).
+    if not normalized_document:
+        raise ValueError("CNPJ é obrigatório.")
     _validate_document_unique(normalized_document)
 
     fiscal_address = create_address(data.fiscal_address)
@@ -129,10 +131,9 @@ def update_client(*, client: Client, data: ClientUpdateData) -> Client:
     diretamente sobre o `Address` já vinculado — trocar de `Address` inteiro
     não é uma operação suportada aqui.
     """
-    if not data.company_name.strip():
-        raise ValueError("Razão social é obrigatória.")
-
     normalized_document = validate_document_for_type(data.document, data.client_type)
+    if not normalized_document:
+        raise ValueError("CNPJ é obrigatório.")
     _validate_document_unique(normalized_document, exclude_pk=client.pk)
 
     client._change_reason = data.change_reason
