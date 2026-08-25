@@ -182,12 +182,12 @@ class MovementCreateView(RoleRequiredMixin, View):
 
     def get(self, request, patrimonio):
         equipment = get_object_or_404(Equipment, patrimonio=patrimonio)
-        form = MovementForm()
+        form = MovementForm(current_location=equipment.current_location)
         return render(request, "operations/movement_form.html", {"form": form, "equipment": equipment})
 
     def post(self, request, patrimonio):
         equipment = get_object_or_404(Equipment, patrimonio=patrimonio)
-        form = MovementForm(request.POST)
+        form = MovementForm(request.POST, current_location=equipment.current_location)
         if not form.is_valid():
             return render(request, "operations/movement_form.html", {"form": form, "equipment": equipment})
 

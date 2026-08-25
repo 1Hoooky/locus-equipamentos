@@ -13,8 +13,10 @@ parte. É o mesmo formulário usado tanto para "Consultar CNPJ" quanto para
 """
 
 from django import forms
+from django.core.exceptions import ValidationError
 
 from apps.clients.models import ClientType
+from apps.clients.validators import validate_document_for_type
 
 TEXT_INPUT_CLASS = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
 
@@ -73,6 +75,42 @@ class ClientForm(forms.Form):
             # registros Address independentes.
             for suffix in ("cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf"):
                 cleaned[f"operational_{suffix}"] = cleaned.get(f"fiscal_{suffix}", "")
+        return cleaned
+
+
+class CNPJLookupForm(forms.Form):
+    """
+    Validação MÍNIMA da ação "Consultar CNPJ" — bug relatado pelo usuário:
+    a consulta não pode exigir os mesmos campos do cadastro completo
+    (razão social, endereço etc.), só o necessário para consultar. Um
+    formulário deliberadamente separado de `ClientForm`, em vez de
+    reaproveitar `ClientForm.is_valid()`, é a correção arquitetural: as
+    duas ações (`lookup`/`save`) agora rodam validações genuinamente
+    diferentes, não a mesma validação "com um form parcialmente
+    preenchido".
+    """
+
+    client_type = forms.ChoiceField(label="Tipo", choices=ClientType.choices)
+    document = forms.CharField(label="CNPJ", max_length=18)
+
+    def clean(self):
+        cleaned = super().clean()
+        client_type = cleaned.get("client_type")
+        document = cleaned.get("document")
+        if not client_type or not document:
+            return cleaned
+
+        if client_type != ClientType.PJ:
+            # A consulta automática só existe para CNPJ (BrasilAPI) —
+            # "tipo PJ, quando aplicável" (não é uma limitação nova desta
+            # correção: CompanyLookupService sempre validou como CNPJ; só
+            # não havia essa checagem amigável antes de chamar o serviço).
+            raise ValidationError("Consulta automática está disponível só para CNPJ (Pessoa Jurídica).")
+
+        try:
+            cleaned["document"] = validate_document_for_type(document, client_type)
+        except ValidationError as exc:
+            self.add_error("document", exc)
         return cleaned
 
 

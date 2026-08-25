@@ -57,13 +57,27 @@
 </div>
 
 <div class="mt-4 bg-white border border-gray-200 rounded-lg p-6">
-  <h2 class="text-sm font-semibold text-gray-700 mb-3">Unidades</h2>
+  <h2 class="text-sm font-semibold text-gray-700 mb-3">Unidades / endereços operacionais</h2>
   {% if locations %}
-  <ul class="space-y-2">
+  <ul class="space-y-3">
     {% for location in locations %}
-    <li class="text-sm border-l-2 border-gray-200 pl-3">
-      <a href="{% url 'operations:location_detail' location.pk %}" class="font-medium text-blue-600 hover:underline">{{ location.name }}</a>
-      <span class="text-gray-500">— {{ location.get_type_display }}</span>
+    <li class="text-sm border-l-2 border-gray-200 pl-3 py-1">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <a href="{% url 'operations:location_detail' location.pk %}" class="font-medium text-blue-600 hover:underline">{{ location.name }}</a>
+          <span class="text-gray-500">— {{ location.get_type_display }}</span>
+          {% if location.address %}
+          <p class="text-gray-700 mt-1">{{ location.address }}</p>
+          {% if location.address.cep %}<p class="text-gray-500">CEP {{ location.address.cep }}</p>{% endif %}
+          {% if location.address.reference_notes %}<p class="text-gray-500">{{ location.address.reference_notes }}</p>{% endif %}
+          {% else %}
+          <p class="text-gray-500 mt-1">Nenhum endereço cadastrado para esta unidade.</p>
+          {% endif %}
+        </div>
+        {% if user.is_administrativo_ou_superior or user.is_superuser %}
+        <a href="{% url 'operations:location_address_update' location.pk %}" class="text-blue-600 hover:underline whitespace-nowrap">Editar endereço</a>
+        {% endif %}
+      </div>
     </li>
     {% endfor %}
   </ul>

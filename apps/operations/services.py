@@ -199,6 +199,15 @@ def _validate_transition(*, equipment: Equipment, movement_type: str, destinatio
             f"'{destination_location.name}' é do tipo '{destination_location.get_type_display()}'."
         )
 
+    # Bug relatado: era possível registrar uma "Transferência" de uma
+    # unidade para ELA MESMA — não é uma movimentação real. Só faz
+    # sentido para TRANSFERENCIA (as demais movimentações não têm
+    # `current_location` como candidato de destino: instalação/retirada
+    # exigem tipos incompatíveis com a origem, e retorno de
+    # estoque/manutenção já mudam de tipo por definição).
+    if movement_type == MovementType.TRANSFERENCIA and destination_location.pk == equipment.current_location_id:
+        raise ValueError("O equipamento já está nesta unidade.")
+
     return rule.new_status
 
 

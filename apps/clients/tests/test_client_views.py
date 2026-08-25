@@ -93,11 +93,17 @@ class ManualClientRegistrationTest(TestCase):
         self.client.login(username="cadastrador", password="senha-forte-123")
 
     def test_save_without_ever_calling_lookup_creates_client(self):
+        # GET inicial só para obter o token de proteção contra reenvio
+        # (bug #3) — sem ele, `action=save` é tratado como uma tentativa de
+        # reenvio e nada é criado.
+        submission_token = self.client.get("/clientes/novo/").context["submission_token"]
+
         with patch("httpx.get") as mock_get:
             response = self.client.post(
                 "/clientes/novo/",
                 {
                     "action": "save",
+                    "submission_token": submission_token,
                     "client_type": ClientType.PJ,
                     "document": VALID_CNPJ,
                     "company_name": "Cliente Totalmente Manual LTDA",
@@ -194,3 +200,104 @@ class CnpjLookupFlowTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("não encontrado", response.content.decode().lower())
+
+
+class CnpjLookupDoesNotRequireFullFormTest(TestCase):
+    """
+    Regressão do bug relatado: 'Consultar CNPJ' exigia Razão Social (e o
+    resto do cadastro completo) porque a mesma validação de `ClientForm`
+    era acionada na hora de renderizar os erros de campo, mesmo sem o view
+    chamar `is_valid()` explicitamente. `action=lookup` agora só valida
+    tipo PJ (quando aplicável) + CNPJ presente/checksum válido — nada mais.
+    """
+
+    def setUp(self):
+        User.objects.create_user(username="consultador_minimo", password="senha-forte-123", role="ADMINISTRATIVO")
+        self.client.login(username="consultador_minimo", password="senha-forte-123")
+
+    def test_only_valid_cnpj_and_lookup_action_is_enough(self):
+        """Só client_type + document + action=lookup — nenhum outro campo no POST."""
+        payload = {"razao_social": "Empresa Só CNPJ LTDA"}
+        with patch("httpx.get", return_value=_fake_response(200, payload)):
+            response = self.client.post(
+                "/clientes/novo/", {"action": "lookup", "client_type": ClientType.PJ, "document": VALID_CNPJ}
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Empresa Só CNPJ LTDA", response.content.decode())
+        self.assertFalse(Client.objects.filter(company_name="Empresa Só CNPJ LTDA").exists())
+
+    def test_blank_company_name_does_not_block_lookup(self):
+        payload = {"razao_social": "Empresa Encontrada LTDA"}
+        with patch("httpx.get", return_value=_fake_response(200, payload)):
+            response = self.client.post(
+                "/clientes/novo/",
+                {"action": "lookup", "client_type": ClientType.PJ, "document": VALID_CNPJ, "company_name": ""},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        # Nem em português nem em inglês pode aparecer um erro de campo
+        # obrigatório para razão social nesta tela.
+        self.assertNotIn("Este campo é obrigatório", content)
+        self.assertNotIn("This field is required", content)
+        # A prova mais direta: o form devolvido ao template está SEM
+        # nenhum erro (é um form não vinculado — nunca roda full_clean()).
+        self.assertEqual(response.context["form"].errors, {})
+        self.assertFalse(response.context["form"].is_bound)
+        self.assertIn("Empresa Encontrada LTDA", content)
+
+    def test_lookup_with_invalid_cnpj_checksum_shows_document_error_not_company_name(self):
+        response = self.client.post(
+            "/clientes/novo/",
+            {"action": "lookup", "client_type": ClientType.PJ, "document": "11.222.333/0001-80", "company_name": ""},
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn("Este campo é obrigatório", content)
+        self.assertEqual(response.context["form"].errors, {})
+
+    def test_lookup_without_document_does_not_raise_and_does_not_require_company_name(self):
+        response = self.client.post(
+            "/clientes/novo/", {"action": "lookup", "client_type": ClientType.PJ, "document": "", "company_name": ""}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["form"].errors, {})
+
+    def test_save_action_still_requires_company_name(self):
+        """O formulário COMPLETO (ação Salvar) continua exigindo os campos obrigatórios normalmente."""
+        response = self.client.post(
+            "/clientes/novo/",
+            {
+                "action": "save",
+                "client_type": ClientType.PJ,
+                "document": VALID_CNPJ,
+                "company_name": "",
+                "trade_name": "",
+                "registration_status": "",
+                "state_registration": "",
+                "phone": "",
+                "email": "",
+                "contact_name": "",
+                "notes": "",
+                "fiscal_cep": "",
+                "fiscal_logradouro": "",
+                "fiscal_numero": "",
+                "fiscal_complemento": "",
+                "fiscal_bairro": "",
+                "fiscal_cidade": "",
+                "fiscal_uf": "",
+                "initial_location_name": "",
+                "operational_cep": "",
+                "operational_logradouro": "",
+                "operational_numero": "",
+                "operational_complemento": "",
+                "operational_bairro": "",
+                "operational_cidade": "",
+                "operational_uf": "",
+                "operational_reference_notes": "",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("company_name", response.context["form"].errors)
+        self.assertFalse(Client.objects.filter(document="11222333000181").exists())

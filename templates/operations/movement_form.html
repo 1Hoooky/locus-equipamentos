@@ -28,4 +28,57 @@
     <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-sm text-gray-600 hover:underline">Cancelar</a>
   </div>
 </form>
+
+<script>
+  // Melhoria de UX só de front-end (bug relatado: o select de destino não
+  // mudava conforme o tipo de movimentação escolhido, deixando escolhas
+  // incompatíveis visíveis/selecionáveis). A filtragem que REALMENTE
+  // garante segurança é a da queryset do form no backend (MovementForm.__init__,
+  // apps/operations/forms.py) — funciona igual com JS desabilitado, só
+  // sem essa prévia dinâmica; o service (create_movement) continua sendo
+  // a autoridade final em qualquer um dos dois casos.
+  (function () {
+    var typeSelect = document.getElementById("id_movement_type");
+    var destSelect = document.getElementById("id_destination_location");
+    if (!typeSelect || !destSelect) return;
+
+    var requiredType = {
+      INSTALACAO: "CLIENTE",
+      TRANSFERENCIA: "CLIENTE",
+      RETIRADA: "ESTOQUE",
+      RETORNO_ESTOQUE: "ESTOQUE",
+      ENVIO_MANUTENCAO: "MANUTENCAO",
+      RETORNO_MANUTENCAO: "ESTOQUE"
+    };
+    var currentLocationId = "{{ equipment.current_location_id|default_if_none:'' }}";
+
+    var allOptions = Array.prototype.map.call(destSelect.options, function (opt) {
+      return { value: opt.value, text: opt.text, type: opt.getAttribute("data-type") };
+    });
+
+    function refresh() {
+      var wanted = requiredType[typeSelect.value];
+      var previousValue = destSelect.value;
+      destSelect.innerHTML = "";
+      allOptions.forEach(function (opt) {
+        if (!opt.value) return; // placeholder "---------"
+        if (wanted && opt.type !== wanted) return;
+        if (typeSelect.value === "TRANSFERENCIA" && opt.value === currentLocationId) return;
+        var el = document.createElement("option");
+        el.value = opt.value;
+        el.textContent = opt.text;
+        destSelect.appendChild(el);
+      });
+      var stillPresent = Array.prototype.some.call(destSelect.options, function (o) {
+        return o.value === previousValue;
+      });
+      if (stillPresent) {
+        destSelect.value = previousValue;
+      }
+    }
+
+    typeSelect.addEventListener("change", refresh);
+    refresh();
+  })();
+</script>
 {% endblock %}

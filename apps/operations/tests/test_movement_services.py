@@ -209,6 +209,39 @@ class DestinationTypeCompatibilityTest(MovementTestBase):
                     self._move(movement_type, None)
 
 
+class TransferToSameLocationRejectionTest(MovementTestBase):
+    """
+    Regressão do bug relatado (#7): era possível registrar
+    `Unidade 1 → Unidade 1` como TRANSFERENCIA — não é uma movimentação
+    real. `create_movement()` rejeita quando `destination_location ==
+    equipment.current_location` para TRANSFERENCIA, com mensagem clara.
+    """
+
+    def test_transferencia_to_current_location_is_rejected(self):
+        self._move(MovementType.INSTALACAO, self.unidade_cliente)
+        with self.assertRaises(ValueError) as ctx:
+            self._move(MovementType.TRANSFERENCIA, self.unidade_cliente)
+        self.assertIn("já está nesta unidade", str(ctx.exception))
+
+    def test_transferencia_to_a_different_location_still_works(self):
+        """A rejeição é só para a MESMA localização — transferir para outra continua funcionando normalmente."""
+        self._move(MovementType.INSTALACAO, self.unidade_cliente)
+        self._move(MovementType.TRANSFERENCIA, self.unidade_outro_cliente)
+        self.equipment.refresh_from_db()
+        self.assertEqual(self.equipment.current_location, self.unidade_outro_cliente)
+
+    def test_rejection_leaves_no_partial_write(self):
+        self._move(MovementType.INSTALACAO, self.unidade_cliente)
+        movements_before = Movement.objects.count()
+
+        with self.assertRaises(ValueError):
+            self._move(MovementType.TRANSFERENCIA, self.unidade_cliente)
+
+        self.equipment.refresh_from_db()
+        self.assertEqual(self.equipment.current_location, self.unidade_cliente)
+        self.assertEqual(Movement.objects.count(), movements_before)
+
+
 class OutroReasonRequirementTest(MovementTestBase):
     def test_outro_without_reason_is_rejected(self):
         with self.assertRaises(ValueError):

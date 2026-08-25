@@ -11,6 +11,7 @@
 
 <form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-2xl space-y-6">
   {% csrf_token %}
+  <input type="hidden" name="submission_token" value="{{ submission_token }}">
 
   <section>
     <h2 class="text-sm font-semibold text-gray-700 mb-3">Dados do cliente</h2>
@@ -83,4 +84,66 @@
     <a href="{% url 'clients:list' %}" class="text-sm text-gray-600 hover:underline">Cancelar</a>
   </div>
 </form>
+
+<script>
+  // Melhoria de UX só de front-end (bug relatado: o checkbox "usar
+  // endereço fiscal como endereço de entrega" não dava nenhum feedback
+  // visual antes de salvar). A cópia que REALMENTE garante integridade
+  // continua sendo feita no backend, em ClientForm.clean() — este script
+  // só copia os valores na tela para o usuário ver o resultado antes de
+  // enviar o formulário; se o JS estiver desabilitado, o formulário
+  // funciona exatamente igual, só sem essa prévia visual.
+  (function () {
+    var checkbox = document.getElementById("id_use_fiscal_as_operational");
+    if (!checkbox) return;
+
+    var suffixes = ["cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf"];
+
+    function operationalField(suffix) {
+      return document.getElementById("id_operational_" + suffix);
+    }
+
+    function fiscalField(suffix) {
+      return document.getElementById("id_fiscal_" + suffix);
+    }
+
+    function syncFromFiscal() {
+      if (!checkbox.checked) return;
+      suffixes.forEach(function (suffix) {
+        var source = fiscalField(suffix);
+        var target = operationalField(suffix);
+        if (source && target) {
+          target.value = source.value;
+        }
+      });
+    }
+
+    function setOperationalReadOnly(readOnly) {
+      suffixes.forEach(function (suffix) {
+        var target = operationalField(suffix);
+        if (!target) return;
+        target.readOnly = readOnly;
+        target.classList.toggle("bg-gray-100", readOnly);
+      });
+    }
+
+    checkbox.addEventListener("change", function () {
+      setOperationalReadOnly(checkbox.checked);
+      syncFromFiscal();
+    });
+
+    suffixes.forEach(function (suffix) {
+      var source = fiscalField(suffix);
+      if (source) {
+        source.addEventListener("input", syncFromFiscal);
+      }
+    });
+
+    // Estado inicial ao carregar a página — inclusive depois de "Consultar
+    // CNPJ", que pode re-renderizar o formulário com o checkbox já marcado
+    // e os campos fiscais preenchidos pela consulta.
+    setOperationalReadOnly(checkbox.checked);
+    syncFromFiscal();
+  })();
+</script>
 {% endblock %}
