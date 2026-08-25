@@ -40,9 +40,14 @@ class LocationViewPermissionTest(TestCase):
 
     def test_creating_location_via_http(self):
         self.client.login(username="loc_admin", password="senha-forte-123")
+        # GET primeiro para obter o token de proteção contra reenvio
+        # (generalizado no 2º reteste manual) — sem ele o POST é tratado
+        # como reenvio e nada é criado.
+        token = self.client.get("/operacao/unidades/novo/").context["submission_token"]
         response = self.client.post(
             "/operacao/unidades/novo/",
             {
+                "submission_token": token,
                 "name": "Nova Unidade HTTP",
                 "type": LocationType.ESTOQUE,
                 "client": "",
@@ -95,9 +100,15 @@ class MovementTimelineIntegrationTest(TestCase):
 
     def test_movement_appears_in_authenticated_timeline(self):
         self.client.login(username="timeline_admin", password="senha-forte-123")
+        token = self.client.get(f"/operacao/movimentar/{self.equipment.patrimonio}/").context["submission_token"]
         response = self.client.post(
             f"/operacao/movimentar/{self.equipment.patrimonio}/",
-            {"movement_type": "INSTALACAO", "destination_location": self.unidade.pk, "reason": ""},
+            {
+                "submission_token": token,
+                "movement_type": "INSTALACAO",
+                "destination_location": self.unidade.pk,
+                "reason": "",
+            },
         )
         self.assertEqual(response.status_code, 302)
 

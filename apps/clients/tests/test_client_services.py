@@ -129,11 +129,36 @@ class FiscalAndOperationalAddressIndependenceTest(TestCase):
         self.assertEqual(location.type, LocationType.CLIENTE)
         self.assertEqual(location.name, "Unidade Inicial")
 
-    def test_no_initial_location_created_when_not_requested(self):
+    def test_principal_location_is_created_automatically_when_no_unit_name_given(self):
+        """
+        2º reteste manual: a unidade deixou de ser uma obrigação
+        operacional artificial — a Location principal é criada SEMPRE
+        junto com o cliente (antes, sem nome de unidade digitado, nenhuma
+        Location nascia e instalar equipamento exigia uma segunda ação
+        manual em "Nova unidade").
+        """
+        operational = AddressData(cep="83000-000", logradouro="Rua Entrega", numero="50", cidade="Curitiba", uf="PR")
         client = create_client(
-            NewClientData(client_type=ClientType.PJ, company_name="Cliente Sem Unidade LTDA", document=VALID_CNPJ)
+            NewClientData(
+                client_type=ClientType.PJ,
+                company_name="Cliente Sem Unidade Nomeada LTDA",
+                document=VALID_CNPJ,
+                initial_location_name="",
+                initial_location_address=operational,
+            )
         )
-        self.assertFalse(Location.objects.filter(client=client).exists())
+        location = Location.objects.get(client=client)
+        self.assertEqual(location.type, LocationType.CLIENTE)
+        self.assertEqual(location.name, "Unidade principal")
+        self.assertEqual(location.address.logradouro, "Rua Entrega")
+
+    def test_principal_location_created_even_without_any_address(self):
+        """Mesmo sem endereço nenhum, o cliente nasce com a Location principal — instalar equipamento nunca exige 'Nova unidade' antes."""
+        client = create_client(
+            NewClientData(client_type=ClientType.PJ, company_name="Cliente Sem Endereço LTDA", document=VALID_CNPJ)
+        )
+        self.assertEqual(Location.objects.filter(client=client).count(), 1)
+        self.assertEqual(Location.objects.get(client=client).name, "Unidade principal")
 
 
 class UpdateClientTest(TestCase):

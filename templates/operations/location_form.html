@@ -11,6 +11,7 @@
 
 <form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg space-y-4">
   {% csrf_token %}
+  <input type="hidden" name="submission_token" value="{{ submission_token }}">
   {% for field in form %}
     <div>
       <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>

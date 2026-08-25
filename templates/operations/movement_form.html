@@ -14,6 +14,7 @@
 
 <form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg space-y-4">
   {% csrf_token %}
+  <input type="hidden" name="submission_token" value="{{ submission_token }}">
   {% for field in form %}
     <div>
       <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -56,6 +57,17 @@
       return { value: opt.value, text: opt.text, type: opt.getAttribute("data-type") };
     });
 
+    var typeLabel = {
+      CLIENTE: "Cliente",
+      ESTOQUE: "Estoque/Barracão",
+      MANUTENCAO: "Manutenção"
+    };
+
+    var emptyHint = document.createElement("p");
+    emptyHint.className = "text-xs text-amber-700 mt-1";
+    emptyHint.style.display = "none";
+    destSelect.parentNode.appendChild(emptyHint);
+
     function refresh() {
       var wanted = requiredType[typeSelect.value];
       var previousValue = destSelect.value;
@@ -74,6 +86,17 @@
       });
       if (stillPresent) {
         destSelect.value = previousValue;
+      }
+      // Select vazio não pode ser silencioso (2º reteste manual: "Envio
+      // para manutenção" sem nenhum destino cadastrado parecia um bug
+      // mudo) — explica o que falta cadastrar.
+      if (destSelect.options.length === 0 && wanted) {
+        emptyHint.textContent =
+          "Nenhuma localização do tipo \"" + (typeLabel[wanted] || wanted) + "\" disponível. " +
+          "Cadastre uma em Unidades (ou rode as migrações pendentes, que criam as localizações internas da Locus).";
+        emptyHint.style.display = "";
+      } else {
+        emptyHint.style.display = "none";
       }
     }
 

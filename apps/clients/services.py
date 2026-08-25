@@ -43,12 +43,28 @@ class NewClientData:
     contact_name: str = ""
     notes: str = ""
     fiscal_address: AddressData | None = None
-    # "Endereço de entrega"/unidade inicial do cadastro simples (v1.0,
-    # seção 3) — opcional. Quando informado, cria a primeira `Location`
-    # (type=CLIENTE) do cliente na MESMA transação.
+    # Nome da unidade inicial — OPCIONAL desde o 2º reteste manual: a
+    # Location operacional principal é criada SEMPRE junto com o cliente
+    # (na mesma transação), com este nome quando informado ou com
+    # DEFAULT_INITIAL_LOCATION_NAME quando em branco. Motivo (relato do
+    # usuário): cliente com um único endereço não pode ser obrigado a
+    # cadastrar manualmente uma "unidade" com praticamente os mesmos dados
+    # só para conseguir instalar um equipamento. A arquitetura
+    # Client → Location → Equipment.current_location fica intacta — a
+    # mudança é só QUANDO a Location principal nasce (sempre), não ONDE o
+    # equipamento aponta.
     initial_location_name: str = ""
     initial_location_address: AddressData | None = None
     change_reason: str = "Cadastro inicial."
+
+
+# Nome interno padronizado da Location principal criada automaticamente
+# quando o usuário não dá um nome à unidade. Na tela de movimentação esse
+# nome NÃO aparece para cliente de unidade única (exibe só o nome do
+# cliente — ver apps.operations.forms._destination_label); ele só se torna
+# visível quando o cliente ganha unidades adicionais e o sufixo passa a
+# distinguir uma da outra.
+DEFAULT_INITIAL_LOCATION_NAME = "Unidade principal"
 
 
 @transaction.atomic
@@ -85,23 +101,25 @@ def create_client(data: NewClientData) -> Client:
     client._change_reason = data.change_reason  # consumido pelo django-simple-history
     client.save()
 
-    if data.initial_location_name.strip():
-        # Reaproveita o service de Location — create_client() nunca cria
-        # Location direto; apps.operations.services é o único caminho
-        # suportado para isso (mesma disciplina de "nunca criar caminho
-        # paralelo" pedida na implementação).
-        from apps.operations.models import LocationType
-        from apps.operations.services import NewLocationData, create_location
+    # A Location operacional principal é criada SEMPRE (2º reteste manual)
+    # — antes disto, ela só nascia quando o usuário digitava um nome de
+    # unidade (campo rotulado como opcional), então o fluxo normal
+    # terminava sem NENHUMA Location e instalar um equipamento exigia uma
+    # segunda ação manual em "Nova unidade". Reaproveita o service de
+    # Location — create_client() nunca cria Location direto;
+    # apps.operations.services é o único caminho suportado para isso.
+    from apps.operations.models import LocationType
+    from apps.operations.services import NewLocationData, create_location
 
-        create_location(
-            NewLocationData(
-                name=data.initial_location_name,
-                type=LocationType.CLIENTE,
-                client=client,
-                address=data.initial_location_address,
-                change_reason="Unidade inicial criada junto com o cadastro do cliente.",
-            )
+    create_location(
+        NewLocationData(
+            name=data.initial_location_name.strip() or DEFAULT_INITIAL_LOCATION_NAME,
+            type=LocationType.CLIENTE,
+            client=client,
+            address=data.initial_location_address,
+            change_reason="Unidade principal criada automaticamente junto com o cadastro do cliente.",
         )
+    )
 
     return client
 

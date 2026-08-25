@@ -13,6 +13,7 @@ from django.views.generic import ListView
 from apps.accounts.permissions import CAN_MANAGE_LOCATIONS, CAN_REGISTER_OPERATIONS, CAN_VIEW_CLIENTS, RoleRequiredMixin
 from apps.core.forms import AddressForm
 from apps.core.services import AddressData
+from apps.core.submission import SubmissionGuard
 from apps.equipment.models import Equipment
 from apps.operations.forms import LocationForm, LocationUpdateForm, MovementForm
 from apps.operations.models import Location, LocationType
@@ -25,6 +26,19 @@ from apps.operations.services import (
     update_location,
     update_location_address,
 )
+
+# Proteção contra reenvio (2º reteste manual: Enter repetido em "Nova
+# unidade" criava várias Locations idênticas) — mesmo SubmissionGuard já
+# usado no cadastro de cliente. Server-side, nunca só JS: um mesmo submit
+# válido produz no máximo um objeto/evento.
+_location_create_guard = SubmissionGuard("location_create")
+
+
+def _movement_guard(patrimonio: str) -> SubmissionGuard:
+    # Scope por equipamento: registrar movimentação de DOIS equipamentos em
+    # abas diferentes não pode fazer um formulário invalidar o token do
+    # outro (mesma sessão, formulários independentes).
+    return SubmissionGuard(f"movement_create:{patrimonio}")
 
 
 class LocationListView(RoleRequiredMixin, ListView):
@@ -82,12 +96,35 @@ class LocationCreateView(RoleRequiredMixin, View):
         if client_id:
             initial = {"type": LocationType.CLIENTE, "client": client_id}
         form = LocationForm(initial=initial)
-        return render(request, "operations/location_form.html", {"form": form, "is_new": True})
+        token = _location_create_guard.issue(request)
+        return render(
+            request,
+            "operations/location_form.html",
+            {"form": form, "is_new": True, "submission_token": token},
+        )
 
     def post(self, request):
         form = LocationForm(request.POST)
         if not form.is_valid():
-            return render(request, "operations/location_form.html", {"form": form, "is_new": True})
+            # Nada foi criado — reemite o token para a correção seguinte.
+            token = _location_create_guard.issue(request)
+            return render(
+                request,
+                "operations/location_form.html",
+                {"form": form, "is_new": True, "submission_token": token},
+            )
+
+        if not _location_create_guard.consume_if_valid(request):
+            # Reenvio (Enter repetido, duplo clique, "voltar" + reenviar) —
+            # 2º reteste manual: era possível criar várias unidades
+            # idênticas. Nada é criado nesta tentativa. Deliberadamente SEM
+            # UNIQUE(name): dois clientes diferentes podem legitimamente
+            # ter unidades homônimas.
+            messages.info(
+                request,
+                "Este formulário já havia sido enviado. Se a unidade não aparece na lista, tente novamente.",
+            )
+            return redirect("operations:location_list")
 
         cleaned = form.cleaned_data
         address = AddressData(
@@ -106,7 +143,13 @@ class LocationCreateView(RoleRequiredMixin, View):
             )
         except ValueError as exc:
             form.add_error(None, str(exc))
-            return render(request, "operations/location_form.html", {"form": form, "is_new": True})
+            # Token já consumido — emite um novo para a próxima tentativa.
+            token = _location_create_guard.issue(request)
+            return render(
+                request,
+                "operations/location_form.html",
+                {"form": form, "is_new": True, "submission_token": token},
+            )
 
         messages.success(request, f"Unidade {location.name} cadastrada com sucesso.")
         return redirect("operations:location_detail", pk=location.pk)
@@ -183,13 +226,36 @@ class MovementCreateView(RoleRequiredMixin, View):
     def get(self, request, patrimonio):
         equipment = get_object_or_404(Equipment, patrimonio=patrimonio)
         form = MovementForm(current_location=equipment.current_location)
-        return render(request, "operations/movement_form.html", {"form": form, "equipment": equipment})
+        token = _movement_guard(patrimonio).issue(request)
+        return render(
+            request,
+            "operations/movement_form.html",
+            {"form": form, "equipment": equipment, "submission_token": token},
+        )
 
     def post(self, request, patrimonio):
         equipment = get_object_or_404(Equipment, patrimonio=patrimonio)
+        guard = _movement_guard(patrimonio)
         form = MovementForm(request.POST, current_location=equipment.current_location)
         if not form.is_valid():
-            return render(request, "operations/movement_form.html", {"form": form, "equipment": equipment})
+            token = guard.issue(request)
+            return render(
+                request,
+                "operations/movement_form.html",
+                {"form": form, "equipment": equipment, "submission_token": token},
+            )
+
+        if not guard.consume_if_valid(request):
+            # Reenvio — as regras de transição do service já rejeitariam a
+            # maioria dos duplicados (status incompatível na 2ª tentativa),
+            # mas a proteção vale para TODAS as combinações, sem depender
+            # de cada regra específica: um mesmo submit válido produz no
+            # máximo um evento de movimentação.
+            messages.info(
+                request,
+                "Esta movimentação já havia sido enviada. Confira a timeline do equipamento antes de tentar de novo.",
+            )
+            return redirect("equipment:detail", patrimonio=equipment.patrimonio)
 
         try:
             movement = create_movement(
@@ -203,7 +269,13 @@ class MovementCreateView(RoleRequiredMixin, View):
             )
         except ValueError as exc:
             form.add_error(None, str(exc))
-            return render(request, "operations/movement_form.html", {"form": form, "equipment": equipment})
+            # Token já consumido — emite um novo para a próxima tentativa.
+            token = guard.issue(request)
+            return render(
+                request,
+                "operations/movement_form.html",
+                {"form": form, "equipment": equipment, "submission_token": token},
+            )
 
         messages.success(
             request, f"Movimentação registrada: {movement.get_movement_type_display()} — {equipment.patrimonio}."

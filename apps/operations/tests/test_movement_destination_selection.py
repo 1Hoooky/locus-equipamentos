@@ -4,7 +4,11 @@ movimentação) e cobertura HTTP do #7 (transferência para a mesma unidade).
 
 #4 — o select de destino mostrava só `location.name` (ex.: "Maringá"),
 insuficiente porque clientes diferentes podem ter unidades com o mesmo
-nome: destinos do tipo Cliente agora aparecem como "Cliente — Unidade".
+nome: destinos do tipo Cliente são qualificados pelo cliente. Refinado no
+2º reteste manual: cliente com UMA ÚNICA unidade exibe só "Cliente X"
+(sem sufixo artificial "— Unidade principal"); o formato
+"Cliente X — Unidade" só aparece quando o cliente tem unidades
+adicionais, quando o sufixo realmente distingue uma da outra.
 
 #5 — o select oferecia todos os destinos ativos, inclusive tipos
 incompatíveis com o `movement_type` escolhido (ex.: unidades de cliente
@@ -49,22 +53,43 @@ class MovementDestinationSelectionTestBase(TestCase):
 
         self.equipment = create_equipment(NewEquipmentData(model_id=model.pk, created_by=self.user))
 
+    def _movement_token(self):
+        """Token da proteção contra reenvio — exigido só pelos POSTs que chegam a criar movimentação."""
+        return self.client.get(f"/operacao/movimentar/{self.equipment.patrimonio}/").context["submission_token"]
+
 
 class DestinationLabelShowsClientAndUnitTest(MovementDestinationSelectionTestBase):
-    """Bug #4: destinos do tipo Cliente mostram 'Cliente — Unidade', não só o nome da unidade."""
+    """
+    Bug #4 + refinamento do 2º reteste: cliente de unidade única exibe só
+    "Cliente X"; o formato "Cliente X — Unidade" fica reservado para
+    clientes com múltiplas unidades, quando o sufixo distingue de verdade.
+    """
 
-    def test_form_page_shows_client_qualified_labels_for_client_locations(self):
+    def test_single_unit_client_shows_only_client_name(self):
+        """Cada cliente do setUp tem UMA unidade — o nome da unidade ("Maringá") não acrescenta nada e não aparece."""
+        response = self.client.get(f"/operacao/movimentar/{self.equipment.patrimonio}/")
+        content = response.content.decode()
+
+        self.assertIn(">Modema Automóveis<", content)
+        self.assertIn(">Outra Empresa<", content)
+        # Nem "Maringá" sozinho nem o sufixo "— Maringá" aparecem para
+        # cliente de unidade única (checagem por texto completo da opção).
+        self.assertNotIn(">Maringá<", content)
+        self.assertNotIn("Modema Automóveis — Maringá", content)
+
+    def test_multi_unit_client_shows_client_dash_unit_labels(self):
+        """Com uma segunda unidade, o mesmo cliente passa a exibir 'Cliente — Unidade' em TODAS as suas unidades."""
+        create_location(
+            NewLocationData(name="Filial Londrina", type=LocationType.CLIENTE, client=self.modema)
+        )
         response = self.client.get(f"/operacao/movimentar/{self.equipment.patrimonio}/")
         content = response.content.decode()
 
         self.assertIn("Modema Automóveis — Maringá", content)
-        self.assertIn("Outra Empresa — Maringá", content)
-        # As duas unidades homônimas precisam estar visualmente distintas —
-        # "Maringá" sozinho (sem o cliente na frente) não pode aparecer
-        # como TEXTO COMPLETO de uma opção (checagem por ">Maringá<" exato,
-        # não substring — "...— Maringá</option>" contém "Maringá<" mas
-        # não ">Maringá<").
-        self.assertNotIn(">Maringá<", content)
+        self.assertIn("Modema Automóveis — Filial Londrina", content)
+        # O outro cliente continua com uma unidade só — segue sem sufixo.
+        self.assertIn(">Outra Empresa<", content)
+        self.assertNotIn("Outra Empresa — Maringá", content)
 
     def test_non_client_destination_keeps_plain_name(self):
         response = self.client.get(f"/operacao/movimentar/{self.equipment.patrimonio}/")
@@ -124,7 +149,12 @@ class DestinationFilteredByMovementTypeTest(MovementDestinationSelectionTestBase
         )
         response = self.client.post(
             f"/operacao/movimentar/{self.equipment.patrimonio}/",
-            {"movement_type": MovementType.RETIRADA, "destination_location": self.estoque.pk, "reason": ""},
+            {
+                "submission_token": self._movement_token(),
+                "movement_type": MovementType.RETIRADA,
+                "destination_location": self.estoque.pk,
+                "reason": "",
+            },
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Movement.objects.filter(movement_type=MovementType.RETIRADA).exists())
@@ -138,6 +168,65 @@ class DestinationFilteredByMovementTypeTest(MovementDestinationSelectionTestBase
         self.assertEqual(response.status_code, 200)
         self.assertIn("destination_location", response.context["form"].errors)
         self.assertFalse(Movement.objects.exists())
+
+
+class MaintenanceDestinationAvailabilityTest(MovementDestinationSelectionTestBase):
+    """
+    2º reteste manual (item 2): "Envio para manutenção" com select vazio.
+    Neste repositório a migration 0003 semeia "Manutenção Locus"
+    (type=MANUTENCAO, client=NULL) e o queryset a retorna — estes testes
+    provam o caminho ponta a ponta (HTML do GET com o data-type que o JS
+    filtra + queryset do POST + movimentação completa), garantindo que a
+    única forma de o select ficar vazio é o banco não ter recebido as
+    migrações (`manage.py migrate` pendente no ambiente).
+    """
+
+    def test_get_page_renders_seeded_manutencao_location_with_data_type(self):
+        response = self.client.get(f"/operacao/movimentar/{self.equipment.patrimonio}/")
+        content = response.content.decode()
+        # A opção existe no HTML e carrega o data-type que o filtro JS usa
+        # para exibi-la quando "Envio para manutenção" é selecionado.
+        self.assertIn("Manutenção Locus", content)
+        self.assertIn('data-type="MANUTENCAO"', content)
+        self.assertIn("Estoque Locus", content)
+        self.assertIn('data-type="ESTOQUE"', content)
+
+    def test_envio_manutencao_queryset_offers_only_manutencao_locations(self):
+        response = self.client.post(
+            f"/operacao/movimentar/{self.equipment.patrimonio}/",
+            {"movement_type": MovementType.ENVIO_MANUTENCAO, "destination_location": "", "reason": ""},
+        )
+        queryset = response.context["form"].fields["destination_location"].queryset
+        self.assertTrue(queryset.exists())
+        self.assertTrue(all(location.type == LocationType.MANUTENCAO for location in queryset))
+        self.assertTrue(queryset.filter(name="Manutenção Locus", client__isnull=True).exists())
+
+    def test_retorno_manutencao_queryset_offers_only_estoque_locations(self):
+        response = self.client.post(
+            f"/operacao/movimentar/{self.equipment.patrimonio}/",
+            {"movement_type": MovementType.RETORNO_MANUTENCAO, "destination_location": "", "reason": ""},
+        )
+        queryset = response.context["form"].fields["destination_location"].queryset
+        self.assertTrue(queryset.exists())
+        self.assertTrue(all(location.type == LocationType.ESTOQUE for location in queryset))
+        self.assertTrue(queryset.filter(name="Estoque Locus", client__isnull=True).exists())
+
+    def test_full_envio_manutencao_flow_to_seeded_location_via_http(self):
+        from apps.operations.models import Location
+
+        manutencao_locus = Location.objects.get(name="Manutenção Locus")
+        response = self.client.post(
+            f"/operacao/movimentar/{self.equipment.patrimonio}/",
+            {
+                "submission_token": self._movement_token(),
+                "movement_type": MovementType.ENVIO_MANUTENCAO,
+                "destination_location": manutencao_locus.pk,
+                "reason": "",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.equipment.refresh_from_db()
+        self.assertEqual(self.equipment.current_location, manutencao_locus)
 
 
 class TransferToSameLocationHttpTest(MovementDestinationSelectionTestBase):
@@ -183,6 +272,7 @@ class TransferToSameLocationHttpTest(MovementDestinationSelectionTestBase):
         response = self.client.post(
             f"/operacao/movimentar/{self.equipment.patrimonio}/",
             {
+                "submission_token": self._movement_token(),
                 "movement_type": MovementType.TRANSFERENCIA,
                 "destination_location": self.unidade_outro_cliente.pk,
                 "reason": "",

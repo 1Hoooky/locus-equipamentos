@@ -178,13 +178,39 @@ class ClientDetailFiscalAndOperationalAddressTest(TestCase):
         response = self.client.get(f"/clientes/{client_obj.pk}/")
         self.assertNotIn(edit_url, response.content.decode())
 
+    def test_client_created_without_unit_name_gets_principal_location_automatically(self):
+        """
+        2º reteste manual (item 3): a unidade não pode ser uma obrigação
+        operacional artificial — o cadastro via formulário, SEM digitar
+        nome de unidade, já resulta na Location principal com o endereço
+        de entrega, pronta para receber instalação de equipamento.
+        """
+        response = self._create_client_via_form(
+            company_name="Cliente Um Endereço LTDA", initial_location_name=""
+        )
+        self.assertEqual(response.status_code, 302)
+
+        client_obj = Client.objects.get(company_name="Cliente Um Endereço LTDA")
+        location = Location.objects.get(client=client_obj)
+        self.assertEqual(location.name, "Unidade principal")
+        # Checkbox "usar fiscal como entrega" marcado no payload padrão —
+        # o endereço da unidade principal nasce copiado do fiscal, mas
+        # como registro Address independente.
+        self.assertEqual(location.address.logradouro, "Rua Fiscal")
+        self.assertNotEqual(client_obj.fiscal_address_id, location.address_id)
+
+        detail = self.client.get(f"/clientes/{client_obj.pk}/").content.decode()
+        self.assertIn("Unidade principal", detail)
+
     def test_additional_unit_created_later_appears_on_client_detail_and_is_editable(self):
         self._create_client_via_form(company_name="Cliente Múltiplas Unidades LTDA")
         client_obj = Client.objects.get(company_name="Cliente Múltiplas Unidades LTDA")
 
+        unit_token = self.client.get("/operacao/unidades/novo/").context["submission_token"]
         response = self.client.post(
             "/operacao/unidades/novo/",
             {
+                "submission_token": unit_token,
                 "name": "Unidade Filial",
                 "type": "CLIENTE",
                 "client": client_obj.pk,

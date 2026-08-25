@@ -10,19 +10,15 @@ o cadastro manual completo funciona exatamente igual, sem nenhuma
 dependência da consulta ter sido usada.
 
 Proteção contra reenvio (bug corrigido: Enter repetido durante a criação
-disparava múltiplos cadastros/duplicatas) — token de sessão de uso único,
-mesmo padrão já usado em `EquipmentBatchConfirmView`
-(`apps/equipment/views.py`): cada exibição do formulário de criação emite
-um token novo guardado em `request.session`; `action=save` só chama
-`create_client()` se o token enviado no POST bater com o da sessão, e o
-consome (`del request.session[...]`) ANTES de chamar o service — uma
-segunda tentativa com o mesmo token (duplo Enter, duplo clique, "voltar" +
-reenviar) não encontra mais nada pendente. Funciona mesmo para cliente sem
-documento, onde a unicidade de `document` (segunda camada de defesa) não
-se aplica.
+disparava múltiplos cadastros/duplicatas) — `SubmissionGuard`
+(`apps.core.submission`): token de sessão de uso único, generalizado no 2º
+reteste manual para valer também para `Location` e `Movement` (o mecanismo
+nasceu aqui e foi extraído para `apps.core` sem mudança de comportamento).
+`action=save` só chama `create_client()` se o token do POST bater com o da
+sessão, e o consome ANTES de chamar o service — uma segunda tentativa com
+o mesmo token (duplo Enter, duplo clique, "voltar" + reenviar) não
+encontra mais nada pendente.
 """
-
-import uuid
 
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
@@ -36,29 +32,9 @@ from apps.clients.models import Client
 from apps.clients.services import ClientUpdateData, NewClientData, create_client, update_client, update_fiscal_address
 from apps.core.forms import AddressForm
 from apps.core.services import AddressData
+from apps.core.submission import SubmissionGuard
 
-SESSION_KEY_CLIENT_CREATE_TOKEN = "client_create_submission_token"
-
-
-def _issue_submission_token(request) -> str:
-    """Emite (e guarda na sessão) um novo token de uso único para o formulário de criação de cliente."""
-    token = uuid.uuid4().hex
-    request.session[SESSION_KEY_CLIENT_CREATE_TOKEN] = token
-    return token
-
-
-def _pending_submission_token(request) -> str:
-    """
-    Token já pendente na sessão para esta exibição do formulário, ou um
-    novo emitido na hora se não houver nenhum (ex.: sessão expirou entre a
-    consulta e o preenchimento). Usado pelo fluxo `action=lookup`, que
-    NUNCA consome o token — só `action=save` bem-sucedido em chegar ao
-    service é que consome.
-    """
-    token = request.session.get(SESSION_KEY_CLIENT_CREATE_TOKEN)
-    if not token:
-        token = _issue_submission_token(request)
-    return token
+_client_create_guard = SubmissionGuard("client_create")
 
 
 def _address_data_from_cleaned(cleaned: dict, prefix: str) -> AddressData:
@@ -136,7 +112,7 @@ class ClientCreateView(RoleRequiredMixin, View):
     allowed_roles = CAN_MANAGE_CLIENTS
 
     def get(self, request):
-        token = _issue_submission_token(request)
+        token = _client_create_guard.issue(request)
         return render(
             request,
             "clients/client_form.html",
@@ -161,7 +137,7 @@ class ClientCreateView(RoleRequiredMixin, View):
         # `action=lookup` nunca cria nada — não consome o token de reenvio,
         # só garante que a tela seguinte (com o resultado da consulta)
         # continua com um token válido para o eventual "Salvar".
-        submission_token = _pending_submission_token(request)
+        submission_token = _client_create_guard.pending(request)
 
         if not lookup_form.is_valid():
             for error in lookup_form.non_field_errors():
@@ -225,34 +201,25 @@ class ClientCreateView(RoleRequiredMixin, View):
             # Erro de validação de campo — não é uma tentativa de reenvio
             # (nada foi criado), então a página seguinte continua
             # utilizável: emite um token novo para o próximo "Salvar".
-            token = _issue_submission_token(request)
+            token = _client_create_guard.issue(request)
             return render(
                 request,
                 "clients/client_form.html",
                 {"form": form, "is_new": True, "submission_token": token},
             )
 
-        submitted_token = request.POST.get("submission_token", "")
-        expected_token = request.session.get(SESSION_KEY_CLIENT_CREATE_TOKEN)
-        if not expected_token or submitted_token != expected_token:
+        if not _client_create_guard.consume_if_valid(request):
             # Reenvio do mesmo formulário (Enter repetido, duplo clique em
             # "Salvar", "voltar" + reenviar, ou uma segunda requisição
-            # concorrente que já consumiu o token) — bug corrigido: nada é
-            # criado nesta tentativa, ao contrário de depender só de
-            # desabilitar o botão no navegador. Funciona mesmo sem
-            # documento informado.
+            # concorrente que já consumiu o token) — nada é criado nesta
+            # tentativa, ao contrário de depender só de desabilitar o
+            # botão no navegador.
             messages.info(
                 request,
                 "Este formulário já havia sido enviado. Se o cadastro não aparece na lista de clientes, "
                 "tente novamente.",
             )
             return redirect("clients:list")
-
-        # Consumido ANTES de chamar o service — uso único (mesmo padrão de
-        # EquipmentBatchConfirmView.post, apps/equipment/views.py): uma
-        # segunda tentativa com o MESMO token não encontra mais nada
-        # pendente na sessão.
-        del request.session[SESSION_KEY_CLIENT_CREATE_TOKEN]
 
         cleaned = form.cleaned_data
         fiscal_address = _address_data_from_cleaned(cleaned, "fiscal")
@@ -281,7 +248,7 @@ class ClientCreateView(RoleRequiredMixin, View):
             # Falha de negócio (ex.: documento duplicado) — o token já foi
             # consumido acima; emite um novo para a tentativa de correção
             # seguinte não ser barrada como "reenvio".
-            token = _issue_submission_token(request)
+            token = _client_create_guard.issue(request)
             return render(
                 request,
                 "clients/client_form.html",

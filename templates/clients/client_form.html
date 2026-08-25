@@ -51,10 +51,16 @@
   </section>
 
   <section class="border-t border-gray-100 pt-4">
-    <h2 class="text-sm font-semibold text-gray-700 mb-3">Unidade inicial (opcional)</h2>
+    <h2 class="text-sm font-semibold text-gray-700 mb-1">Endereço de entrega / unidade principal</h2>
+    <p class="text-xs text-gray-500 mb-3">
+      A unidade principal do cliente é criada automaticamente com este endereço — não é preciso
+      cadastrar uma unidade depois para movimentar equipamentos. Unidades adicionais (filiais etc.)
+      são opcionais e podem ser criadas depois em "Nova unidade".
+    </p>
     <div class="mb-3">
       <label class="block text-sm font-medium mb-1" for="{{ form.initial_location_name.id_for_label }}">{{ form.initial_location_name.label }}</label>
       {{ form.initial_location_name }}
+      <p class="text-xs text-gray-500 mt-1">Opcional — em branco, a unidade é criada como "Unidade principal".</p>
     </div>
     <label class="flex items-center gap-2 text-sm mb-3">
       {{ form.use_fiscal_as_operational }}

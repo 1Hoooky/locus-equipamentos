@@ -26,6 +26,7 @@ Dois bugs corrigidos em `MovementForm.destination_location`:
 """
 
 from django import forms
+from django.db.models import Count, Q
 
 from apps.clients.models import Client
 from apps.operations.models import Location, LocationType, MovementType
@@ -55,12 +56,31 @@ class DestinationLocationSelect(forms.Select):
 
 def _destination_label(location: Location) -> str:
     """
-    Bug corrigido: o select mostrava só `location.name` (ex.: "Maringá"),
-    insuficiente quando clientes diferentes têm unidades com o mesmo nome
-    — unidades do tipo Cliente agora aparecem como "Cliente — Unidade".
+    Rótulo do destino no select de movimentação — duas decisões do usuário
+    combinadas:
+
+    1. (1º reteste) O select mostrava só `location.name` (ex.: "Maringá"),
+       insuficiente quando clientes diferentes têm unidades homônimas —
+       unidades do tipo Cliente são qualificadas pelo cliente.
+    2. (2º reteste) Cliente com UMA ÚNICA unidade não pode ganhar um
+       sufixo artificial tipo "Cliente X — Unidade principal": a unidade
+       principal criada automaticamente no cadastro não acrescenta
+       informação nesse caso, então exibe só "Cliente X". O sufixo
+       "Cliente X — Nome da unidade" só aparece quando o cliente tem
+       unidades adicionais (aí ele realmente distingue uma da outra).
+
+    `active_sibling_count` vem da annotation de `_destination_queryset`;
+    o fallback via query (para uma `Location` avulsa fora daquele
+    queryset) mantém a função correta em qualquer contexto.
     """
     if location.type == LocationType.CLIENTE and location.client_id:
-        return f"{location.client.display_name()} — {location.name}"
+        client_name = location.client.display_name()
+        sibling_count = getattr(location, "active_sibling_count", None)
+        if sibling_count is None:
+            sibling_count = Location.objects.filter(client_id=location.client_id, is_active=True).count()
+        if sibling_count <= 1:
+            return client_name
+        return f"{client_name} — {location.name}"
     return location.name
 
 
@@ -72,8 +92,22 @@ def _destination_queryset(movement_type: str | None, *, exclude_location_id: int
     todos os destinos ativos, já que ainda não há como saber qual tipo
     será escolhido; o JS de conveniência re-filtra no navegador assim que
     o usuário escolhe, e o bind em POST sempre filtra de verdade.
+
+    `active_sibling_count` (quantas unidades ativas o MESMO cliente tem)
+    alimenta `_destination_label`: 1 → exibe só o cliente; >1 → exibe
+    "Cliente — Unidade". Annotation única, sem N+1 por opção do select.
     """
-    queryset = Location.objects.filter(is_active=True).select_related("client")
+    queryset = (
+        Location.objects.filter(is_active=True)
+        .select_related("client")
+        .annotate(
+            active_sibling_count=Count(
+                "client__locations",
+                filter=Q(client__locations__is_active=True),
+                distinct=True,
+            )
+        )
+    )
     required_type = _REQUIRED_DESTINATION_TYPE.get(movement_type)
     if required_type:
         queryset = queryset.filter(type=required_type)
