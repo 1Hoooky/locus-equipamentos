@@ -26,7 +26,8 @@
     <dt class="text-gray-500">Cliente atual</dt>
     <dd>{{ equipment.current_client|default:"—" }}</dd>
 
-    {% if user.is_administrativo_ou_superior %}
+    {# can_view_acquisition_value vem da view (CAN_VIEW_ACQUISITION_VALUE, apps/accounts/permissions.py) — não é só este "if" que protege o dado: para quem não tem a permissão, a própria consulta ao banco em EquipmentDetailView já não traz supplier/acquisition_date/acquisition_value (auditoria final da Fase 1, 25/08/2026). #}
+    {% if can_view_acquisition_value %}
     <dt class="text-gray-500">Fornecedor</dt>
     <dd>{{ equipment.supplier|default:"—" }}</dd>
 

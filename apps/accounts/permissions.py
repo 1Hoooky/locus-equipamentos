@@ -57,14 +57,41 @@ class RoleRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 # Grupos de perfis reaproveitados nas views (espelham a matriz da seção 11)
 CAN_MANAGE_USERS = (Role.ADMIN,)
 CAN_MANAGE_CATALOG = (Role.ADMIN, Role.ADMINISTRATIVO)
-CAN_EDIT_LOCKED_MODEL_CODE = (Role.ADMIN,)
 CAN_RECLASSIFY_EQUIPMENT_MODEL = (Role.ADMIN,)
 CAN_MANAGE_EQUIPMENT = (Role.ADMIN, Role.ADMINISTRATIVO)
 CAN_VIEW_ACQUISITION_VALUE = (Role.ADMIN, Role.ADMINISTRATIVO)
 CAN_REGISTER_OPERATIONS = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL)  # manutenção/higienização/movimentação — Fase 2
 CAN_CHANGE_STATUS_CONDITION = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL)
-CAN_ADD_PHOTOS = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL)
-CAN_VIEW_EQUIPMENT = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA)
+CAN_ADD_PHOTOS = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL)  # fotos/anexos de equipamento — Fase 2/3 (apps.attachments ainda é esqueleto vazio)
 CAN_EXPORT_DATA = (Role.ADMIN, Role.ADMINISTRATIVO)
 CAN_IMPORT_LEGACY_SPREADSHEET = (Role.ADMIN,)
-CAN_SUPERSEDE_EQUIPMENT = (Role.ADMIN,)  # reemissão excepcional de patrimônio — mesma linha da matriz de CAN_EDIT_LOCKED_MODEL_CODE
+CAN_SUPERSEDE_EQUIPMENT = (Role.ADMIN,)  # reemissão excepcional de patrimônio (especificação, seção 8/13-C)
+
+# Revisão de 25/08/2026 (auditoria final da Fase 1 — fechamento de
+# inconsistências): duas constantes foram removidas por não corresponderem
+# a nenhum comportamento real do sistema.
+#
+# - CAN_EDIT_LOCKED_MODEL_CODE existia sugerindo que Administrador tinha um
+#   caminho excepcional para editar `EquipmentModel.code` depois que o
+#   modelo já tem equipamento vinculado. Não existe: o campo é travado
+#   incondicionalmente para TODOS os perfis (inclusive Admin e
+#   superusuário) em três camadas independentes — `EquipmentModelForm`
+#   (apps/catalog/forms.py, desabilita o campo), `EquipmentModelAdmin`
+#   (apps/catalog/admin.py, mesma trava no Django admin) e, na camada que
+#   de fato garante a regra, `EquipmentModel.clean()`
+#   (apps/catalog/models.py) — que levanta `ValidationError` para
+#   qualquer tentativa de mudança de `code` com equipamento vinculado,
+#   sem checar `role` nenhum. Corrigir um código errado depois desse
+#   ponto é, por design (especificação, seção 8), um procedimento fora do
+#   CRUD comum — não há e não deve ser inventado aqui um fluxo de
+#   bypass só para "usar" a constante.
+# - CAN_VIEW_EQUIPMENT existia para "consultar equipamento e histórico",
+#   mas nunca foi referenciada em nenhuma view: `EquipmentListView` e o
+#   ramo autenticado de `EquipmentDetailView` já usam apenas
+#   `request.user.is_authenticated`, o que hoje é idêntico a
+#   "todos os 4 perfis", já que não existe (ainda) nenhum perfil
+#   autenticado sem acesso de consulta. Não há distinção de papel real
+#   para essa ação hoje, então não há necessidade de uma constante
+#   dedicada — se isso mudar no futuro (um 5º perfil sem acesso de
+#   consulta, por exemplo), a constante volta a fazer sentido e pode ser
+#   reintroduzida naquele momento.

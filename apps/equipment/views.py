@@ -18,6 +18,7 @@ from apps.accounts.permissions import (
     CAN_MANAGE_EQUIPMENT,
     CAN_RECLASSIFY_EQUIPMENT_MODEL,
     CAN_SUPERSEDE_EQUIPMENT,
+    CAN_VIEW_ACQUISITION_VALUE,
     RoleRequiredMixin,
 )
 from apps.catalog.models import Category, EquipmentModel
@@ -297,10 +298,28 @@ class EquipmentDetailView(View):
     """
 
     def get(self, request, patrimonio: str):
-        equipment = get_object_or_404(
-            Equipment.objects.select_related("model", "category", "current_client", "current_location"),
-            patrimonio=patrimonio,
+        # Fornecedor/data/valor de aquisição (seção 11: "Ver valor de
+        # aquisição / dados financeiros" — Admin e Administrativo, não
+        # Operacional nem Consulta) só devem sair do banco quando o
+        # usuário tem CAN_VIEW_ACQUISITION_VALUE. Corrigido na auditoria
+        # final da Fase 1 (25/08/2026): antes, esses três campos eram
+        # sempre carregados no objeto `equipment` e a proteção dependia
+        # só do template esconder o bloco (`{% if
+        # user.is_administrativo_ou_superior %}`) — correto na tela, mas
+        # sem nenhuma garantia de que o dado não estava disponível no
+        # contexto/consulta para quem não deveria vê-lo. Usar
+        # `.defer(...)` aqui garante que, para quem não tem a permissão, a
+        # própria consulta ao banco nunca traz esses três campos — não é
+        # só uma questão de o template não renderizar.
+        can_view_acquisition_value = request.user.is_authenticated and (
+            request.user.is_superuser or request.user.role in CAN_VIEW_ACQUISITION_VALUE
         )
+
+        queryset = Equipment.objects.select_related("model", "category", "current_client", "current_location")
+        if not can_view_acquisition_value:
+            queryset = queryset.defer("supplier", "acquisition_date", "acquisition_value")
+
+        equipment = get_object_or_404(queryset, patrimonio=patrimonio)
 
         if not request.user.is_authenticated:
             return render(
@@ -319,5 +338,6 @@ class EquipmentDetailView(View):
                 # `detail_public.html` não tem como exibir o histórico
                 # mesmo por engano.
                 "history_events": get_equipment_history_timeline(equipment),
+                "can_view_acquisition_value": can_view_acquisition_value,
             },
         )
