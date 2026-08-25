@@ -11,7 +11,8 @@
 </head>
 <body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
   <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-    <a href="{% if user.is_authenticated %}{% url 'equipment:list' %}{% else %}/{% endif %}" class="font-semibold text-lg">
+    {# Anônimo -> login, não "/": não existe rota raiz registrada em config/urls.py (auditoria final da Fase 1, 2026-08-25) — "/" resultava em 404 no logo do cabeçalho em toda página pública/de login. #}
+    <a href="{% if user.is_authenticated %}{% url 'equipment:list' %}{% else %}{% url 'accounts:login' %}{% endif %}" class="font-semibold text-lg">
       Locus Locações — Estoque
     </a>
     {% if user.is_authenticated %}

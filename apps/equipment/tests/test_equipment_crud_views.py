@@ -305,5 +305,20 @@ class EquipmentListFiltersTest(TestCase):
     def test_list_context_has_filter_options(self):
         response = self.client.get("/equipamentos/")
         self.assertIn(self.category_a, list(response.context["categories"]))
+
+    def test_non_numeric_category_filter_is_ignored_not_500(self):
+        """Regressão (auditoria final da Fase 1, 2026-08-25): category/model
+        são filtros por PK (FK) — um valor não numérico levantava ValueError
+        dentro do ORM (500) em vez de ser ignorado como um filtro inválido."""
+        response = self.client.get("/equipamentos/?category=abc")
+        self.assertEqual(response.status_code, 200)
+        equipment_list = list(response.context["equipment_list"])
+        self.assertCountEqual(equipment_list, [self.eq_a, self.eq_b])
+
+    def test_non_numeric_model_filter_is_ignored_not_500(self):
+        response = self.client.get("/equipamentos/?model=xyz")
+        self.assertEqual(response.status_code, 200)
+        equipment_list = list(response.context["equipment_list"])
+        self.assertCountEqual(equipment_list, [self.eq_a, self.eq_b])
         self.assertIn(self.model_a, list(response.context["models"]))
         self.assertEqual(dict(response.context["status_choices"]).keys().__len__(), 4)

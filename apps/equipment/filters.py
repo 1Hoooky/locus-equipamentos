@@ -15,9 +15,20 @@ def filter_equipment_queryset(queryset: QuerySet, params: QueryDict) -> QuerySet
     if q:
         queryset = queryset.filter(Q(patrimonio__icontains=q) | Q(serial_number__icontains=q))
 
+    # "category" e "model" filtram por chave primária (FK). Um valor não
+    # numérico (ex.: "?category=abc", vindo de uma URL adulterada à mão)
+    # faz o ORM levantar ValueError ao tentar preparar o lookup — 500 em
+    # vez de simplesmente ignorar um filtro inválido. "status"/"condition"
+    # não têm esse problema (são CharField de escolhas: valor inválido só
+    # resulta em zero linhas). Corrigido na auditoria final da Fase 1
+    # (2026-08-25): ignora silenciosamente category/model não numéricos,
+    # em vez de propagar o erro.
     for field in ("status", "condition", "category", "model"):
         value = params.get(field)
-        if value:
-            queryset = queryset.filter(**{field: value})
+        if not value:
+            continue
+        if field in ("category", "model") and not value.isdigit():
+            continue
+        queryset = queryset.filter(**{field: value})
 
     return queryset

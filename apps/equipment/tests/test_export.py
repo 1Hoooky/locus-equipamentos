@@ -86,3 +86,15 @@ class ExportTest(TestCase):
         self.client.login(username="exporter_consulta", password="senha-forte-123")
         response = self.client.get("/equipamentos/exportar/?format=csv")
         self.assertEqual(response.status_code, 403)
+
+    def test_non_numeric_model_filter_is_ignored_not_500(self):
+        """Regressão (auditoria final da Fase 1, 2026-08-25): mesmo bug de
+        test_equipment_crud_views.EquipmentListFiltersTest, mas alcançável
+        também via EquipmentExportView, que usa o mesmo filter_equipment_queryset."""
+        self.client.login(username="exporter_admin", password="senha-forte-123")
+        response = self.client.get("/equipamentos/exportar/?format=csv&model=xyz")
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        rows = list(csv.reader(io.StringIO(content)))
+        self.assertEqual(len(rows), 3)  # header + eq1 + eq2 (filtro inválido ignorado)
