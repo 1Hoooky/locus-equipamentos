@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Diagnóstico — Locations duplicadas — Locus{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-1">Diagnóstico: Locations duplicadas</h1>
+<p class="text-sm text-gray-500 mb-4">
+  Ferramenta interna TEMPORÁRIA, somente-leitura, restrita a Administrador — equivalente ao comando
+  <code class="bg-gray-100 px-1 rounded">python manage.py report_duplicate_locations</code>, usada onde não há acesso a
+  Shell (Render Free). Esta tela não apaga, não edita e não consolida nada; a limpeza continua sendo decidida
+  manualmente, caso a caso, fora daqui. Remover esta tela depois que os dados de teste forem limpos.
+</p>
+
+<div class="mb-4 rounded-md bg-amber-50 text-amber-800 px-4 py-2 text-sm">
+  "Duplicata" aqui = mesmo nome + tipo + cliente, com mais de uma unidade ativa. Unidades homônimas de clientes
+  DIFERENTES são legítimas por decisão de projeto e não aparecem nesta lista.
+</div>
+
+{% if not groups %}
+<div class="bg-white border border-gray-200 rounded-lg p-6 text-sm text-gray-600">
+  Nenhuma Location duplicada encontrada.
+</div>
+{% else %}
+<p class="text-sm text-gray-600 mb-4">{{ groups|length }} grupo(s) de duplicatas encontrados.</p>
+
+{% for group in groups %}
+<div class="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
+  <div class="bg-gray-100 px-4 py-2 text-sm font-medium">
+    Grupo: “{{ group.name }}” · tipo={{ group.type }} · cliente={{ group.owner_label }}
+  </div>
+  <table class="w-full text-sm">
+    <thead class="text-gray-600 text-left border-b border-gray-100">
+      <tr>
+        <th class="px-3 py-2">ID</th>
+        <th class="px-3 py-2">Nome</th>
+        <th class="px-3 py-2">Tipo</th>
+        <th class="px-3 py-2">Cliente</th>
+        <th class="px-3 py-2">Criada em</th>
+        <th class="px-3 py-2">Movements como origem</th>
+        <th class="px-3 py-2">Movements como destino</th>
+        <th class="px-3 py-2">Referências</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in group.entries %}
+      <tr class="border-t border-gray-100">
+        <td class="px-3 py-2">#{{ entry.location.pk }}</td>
+        <td class="px-3 py-2">{{ entry.location.name }}</td>
+        <td class="px-3 py-2">{{ entry.location.get_type_display }}</td>
+        <td class="px-3 py-2">{{ group.owner_label }}</td>
+        <td class="px-3 py-2">{{ entry.location.created_at|date:"d/m/Y H:i" }}</td>
+        <td class="px-3 py-2">{{ entry.movements_as_origin }}</td>
+        <td class="px-3 py-2">{{ entry.movements_as_destination }}</td>
+        <td class="px-3 py-2">
+          {% if entry.has_references %}
+            <span class="inline-block rounded-full bg-red-100 text-red-800 px-2 py-0.5 text-xs font-medium">COM REFERÊNCIAS</span>
+          {% else %}
+            <span class="inline-block rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-xs font-medium">SEM REFERÊNCIAS</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+
+<p class="text-sm text-gray-500">
+  Nada foi apagado. Locations “SEM REFERÊNCIAS” são candidatas à limpeza; as “COM REFERÊNCIAS” precisam de decisão
+  caso a caso (o histórico de movimentações aponta para elas).
+</p>
+{% endif %}
+{% endblock %}

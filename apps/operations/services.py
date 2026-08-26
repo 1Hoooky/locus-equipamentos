@@ -8,9 +8,10 @@ view/form, nem qualquer caminho paralelo que altere
 `Equipment.current_location`/`current_client` fora de `create_movement()`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.db import transaction
+from django.db.models import Count
 
 from apps.accounts.models import User
 from apps.clients.models import Client
@@ -291,3 +292,82 @@ def create_movement(data: NewMovementData) -> Movement:
     equipment.save(update_fields=["current_location", "current_client", "updated_at"])
 
     return movement
+
+
+# ---------------------------------------------------------------------------
+# Diagnóstico — Locations duplicadas (ferramenta TEMPORÁRIA: management
+# command `report_duplicate_locations` e a tela somente-leitura
+# `apps.operations.views.DuplicateLocationsReportView`, ambos criados para
+# investigar/limpar as unidades repetidas deixadas pelos testes manuais de
+# double-submit no Render Free — sem acesso a Shell lá, a tela é o único
+# jeito de rodar esta consulta em produção). ÚNICA fonte da regra de
+# "duplicata": os dois chamadores reaproveitam esta função — nunca uma
+# cópia divergente. Não apaga, não edita, não consolida nada; é só leitura.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DuplicateLocationEntry:
+    location: Location
+    movements_as_origin: int
+    movements_as_destination: int
+
+    @property
+    def has_references(self) -> bool:
+        return bool(self.movements_as_origin or self.movements_as_destination)
+
+
+@dataclass
+class DuplicateLocationGroup:
+    name: str
+    type: str
+    client: Client | None
+    owner_label: str
+    entries: list["DuplicateLocationEntry"] = field(default_factory=list)
+
+
+def find_duplicate_location_groups() -> list[DuplicateLocationGroup]:
+    """
+    "Duplicata" = mesmo (name, type, client) com mais de uma `Location`
+    ATIVA. Unidades homônimas de clientes DIFERENTES são legítimas por
+    decisão de projeto (sem UNIQUE(name)) e não entram no resultado.
+
+    Para cada `Location` do grupo, conta quantos `Movement` a referenciam
+    como origem e como destino — quem chama decide como exibir/rotular
+    "SEM REFERÊNCIAS"/"COM REFERÊNCIAS" (`DuplicateLocationEntry.has_references`).
+    """
+    raw_groups = (
+        Location.objects.filter(is_active=True)
+        .values("name", "type", "client")
+        .annotate(quantidade=Count("id"))
+        .filter(quantidade__gt=1)
+        .order_by("name")
+    )
+
+    groups: list[DuplicateLocationGroup] = []
+    for raw in raw_groups:
+        locations = (
+            Location.objects.filter(is_active=True, name=raw["name"], type=raw["type"], client_id=raw["client"])
+            .select_related("client")
+            .order_by("pk")
+        )
+        first = locations.first()
+        owner_label = first.client.display_name() if first.client_id else "(interna, sem cliente)"
+        entries = [
+            DuplicateLocationEntry(
+                location=location,
+                movements_as_origin=Movement.objects.filter(origin_location=location).count(),
+                movements_as_destination=Movement.objects.filter(destination_location=location).count(),
+            )
+            for location in locations
+        ]
+        groups.append(
+            DuplicateLocationGroup(
+                name=raw["name"],
+                type=raw["type"],
+                client=first.client,
+                owner_label=owner_label,
+                entries=entries,
+            )
+        )
+    return groups

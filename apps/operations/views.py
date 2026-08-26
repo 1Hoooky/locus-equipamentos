@@ -10,7 +10,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 from django.views.generic import ListView
 
-from apps.accounts.permissions import CAN_MANAGE_LOCATIONS, CAN_REGISTER_OPERATIONS, CAN_VIEW_CLIENTS, RoleRequiredMixin
+from apps.accounts.permissions import (
+    CAN_MANAGE_LOCATIONS,
+    CAN_REGISTER_OPERATIONS,
+    CAN_VIEW_CLIENTS,
+    CAN_VIEW_DIAGNOSTICS,
+    RoleRequiredMixin,
+)
 from apps.core.forms import AddressForm
 from apps.core.services import AddressData
 from apps.core.submission import SubmissionGuard
@@ -23,6 +29,7 @@ from apps.operations.services import (
     NewMovementData,
     create_location,
     create_movement,
+    find_duplicate_location_groups,
     update_location,
     update_location_address,
 )
@@ -281,3 +288,32 @@ class MovementCreateView(RoleRequiredMixin, View):
             request, f"Movimentação registrada: {movement.get_movement_type_display()} — {equipment.patrimonio}."
         )
         return redirect("equipment:detail", patrimonio=equipment.patrimonio)
+
+
+class DuplicateLocationsReportView(RoleRequiredMixin, View):
+    """
+    Ferramenta TEMPORÁRIA de diagnóstico (não faz parte da especificação de
+    Fase 2) — criada porque o Render Free não dá acesso a Shell, e sem
+    Shell não há como rodar `python manage.py report_duplicate_locations`
+    em produção. Existe só para permitir localizar, sem apagar nada, as
+    Locations duplicadas deixadas pelos testes manuais de double-submit.
+
+    Somente-leitura em todos os sentidos: só aceita GET, não expõe nenhum
+    link/botão/form de apagar, editar ou consolidar, e reaproveita
+    `find_duplicate_location_groups()` — a MESMA função usada pelo
+    management command, nunca uma cópia divergente da regra. Apagar/editar
+    duplicatas continua sendo decisão manual, caso a caso, fora desta tela.
+
+    Acesso restrito a Administrador (`CAN_VIEW_DIAGNOSTICS`, não
+    `CAN_MANAGE_LOCATIONS`): é uma ferramenta de diagnóstico interno, não
+    uma tela operacional do dia a dia da equipe administrativa.
+
+    Remover esta view (+ a entrada em urls.py + o template) depois que os
+    dados de teste forem limpos — não é infraestrutura permanente.
+    """
+
+    allowed_roles = CAN_VIEW_DIAGNOSTICS
+
+    def get(self, request):
+        groups = find_duplicate_location_groups()
+        return render(request, "operations/duplicate_locations_report.html", {"groups": groups})

@@ -12,44 +12,38 @@ Uso:
 "Duplicata" aqui = mesmo (name, type, client) com mais de uma linha ativa.
 Unidades homônimas de clientes DIFERENTES são legítimas por decisão de
 projeto (sem UNIQUE(name)) e não aparecem no relatório.
+
+A lógica de agrupamento/contagem mora em
+`apps.operations.services.find_duplicate_location_groups()` — reaproveitada
+tal como está também pela tela somente-leitura
+`apps.operations.views.DuplicateLocationsReportView` (criada para quando não
+há acesso a Shell, ex.: Render Free), para nunca haver duas cópias
+divergentes da mesma regra. Este comando só formata a mesma informação para
+stdout.
 """
 
 from django.core.management.base import BaseCommand
-from django.db.models import Count
 
-from apps.operations.models import Location, Movement
+from apps.operations.services import find_duplicate_location_groups
 
 
 class Command(BaseCommand):
     help = "Lista Locations duplicadas (mesmo name+type+client, ativas) e quais têm Movement referenciando. Não apaga nada."
 
     def handle(self, *args, **options):
-        duplicate_groups = (
-            Location.objects.filter(is_active=True)
-            .values("name", "type", "client")
-            .annotate(quantidade=Count("id"))
-            .filter(quantidade__gt=1)
-            .order_by("name")
-        )
+        groups = find_duplicate_location_groups()
 
-        if not duplicate_groups:
+        if not groups:
             self.stdout.write(self.style.SUCCESS("Nenhuma Location duplicada encontrada."))
             return
 
-        self.stdout.write(self.style.WARNING(f"{len(duplicate_groups)} grupo(s) de duplicatas encontrados:\n"))
-        for group in duplicate_groups:
-            locations = Location.objects.filter(
-                is_active=True, name=group["name"], type=group["type"], client_id=group["client"]
-            ).select_related("client").order_by("pk")
-            first = locations.first()
-            owner = first.client.display_name() if first.client_id else "(interna, sem cliente)"
-            self.stdout.write(f"Grupo: {group['name']!r} · tipo={group['type']} · cliente={owner}")
-            for location in locations:
-                as_destination = Movement.objects.filter(destination_location=location).count()
-                as_origin = Movement.objects.filter(origin_location=location).count()
-                equipment_here = location.equipment_set.count() if hasattr(location, "equipment_set") else None
-                refs = f"movimentos: {as_destination} como destino, {as_origin} como origem"
-                marker = "COM REFERÊNCIAS" if (as_destination or as_origin) else "sem referências"
+        self.stdout.write(self.style.WARNING(f"{len(groups)} grupo(s) de duplicatas encontrados:\n"))
+        for group in groups:
+            self.stdout.write(f"Grupo: {group.name!r} · tipo={group.type} · cliente={group.owner_label}")
+            for entry in group.entries:
+                location = entry.location
+                refs = f"movimentos: {entry.movements_as_destination} como destino, {entry.movements_as_origin} como origem"
+                marker = "COM REFERÊNCIAS" if entry.has_references else "sem referências"
                 self.stdout.write(f"  - Location #{location.pk} (criada em {location.created_at:%d/%m/%Y %H:%M}) — {refs} → {marker}")
             self.stdout.write("")
 

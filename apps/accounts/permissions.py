@@ -66,6 +66,7 @@ CAN_ADD_PHOTOS = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL)  # fotos/an
 CAN_EXPORT_DATA = (Role.ADMIN, Role.ADMINISTRATIVO)
 CAN_IMPORT_LEGACY_SPREADSHEET = (Role.ADMIN,)
 CAN_SUPERSEDE_EQUIPMENT = (Role.ADMIN,)  # reemissão excepcional de patrimônio (especificação, seção 8/13-C)
+CAN_VIEW_DIAGNOSTICS = (Role.ADMIN,)  # telas internas de diagnóstico somente-leitura (ex.: relatório de Locations duplicadas), Admin apenas
 
 # Fase 2 — Operação (arquitetura aprovada v1.0, seção 11). `CAN_REGISTER_OPERATIONS`
 # não é redefinida aqui — já existe acima desde a Fase 1, reservada exatamente
