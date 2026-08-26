@@ -24,12 +24,14 @@ from apps.equipment.models import Equipment
 from apps.operations.forms import LocationForm, LocationUpdateForm, MovementForm
 from apps.operations.models import Location, LocationType
 from apps.operations.services import (
+    DUPLICATE_CLEANUP_BATCH_SIZE,
     LocationUpdateData,
     NewLocationData,
     NewMovementData,
+    count_duplicate_location_cleanup_processed_total,
     create_location,
     create_movement,
-    execute_duplicate_location_cleanup,
+    execute_duplicate_location_cleanup_batch,
     find_duplicate_location_groups,
     plan_duplicate_location_cleanup,
     update_location,
@@ -339,53 +341,76 @@ class DuplicateLocationsReportView(RoleRequiredMixin, View):
 class DuplicateLocationsCleanupView(RoleRequiredMixin, View):
     """
     Ação de escrita TEMPORÁRIA — "Limpar duplicatas sem referências", pedida
-    explicitamente porque o Render Free não dá Shell (sem Shell não há
-    como rodar uma limpeza manual em produção). Continuação direta de
-    `DuplicateLocationsReportView`: só apaga (`is_active=False`, mesma
+    explicitamente porque o Render Free não dá Shell. Continuação direta
+    de `DuplicateLocationsReportView`: só apaga (`is_active=False`, mesma
     convenção de SoftDeleteModel do resto do projeto — nunca DELETE
-    físico) Locations dos grupos "TESTE"/"TESTE3"/"teste2" que NÃO têm
-    nenhum Movement referenciando, revalidado individualmente e dentro de
-    uma única transação (`execute_duplicate_location_cleanup`).
+    físico) Locations dos grupos "TESTE"/"TESTE3"/"teste2" sem nenhum
+    Movement referenciando.
 
-    Fluxo em duas etapas, obrigatório:
-      1. GET — mostra a tela de confirmação com os IDs EXATOS que seriam
-         removidos agora (`plan_duplicate_location_cleanup()`), sem apagar
-         nada, e emite o token de confirmação.
-      2. POST — só executa se o token bater (mesmo `SubmissionGuard` usado
-         em toda escrita deste app); um POST direto, sem ter passado pela
-         etapa 1, não tem token válido e é bloqueado sem apagar nada.
+    Processamento em LOTES pequenos, nunca tudo de uma vez: cada POST
+    processa no máximo `DUPLICATE_CLEANUP_BATCH_SIZE` (5) Locations, numa
+    transação curta e independente (`execute_duplicate_location_cleanup_batch`)
+    — abre, revalida, desativa, comita e responde imediatamente. Nenhuma
+    transação fica aberta entre lotes, e o servidor NUNCA chama
+    `time.sleep()`: quem espaça os lotes (1-2s) é o CLIENTE — o botão
+    "Processar próximos 5" (sempre funciona, mesmo sem JS) ou, se o
+    Administrador marcar "continuar automaticamente", um `setTimeout` no
+    template que reenvia o mesmo form.
 
-    Depois da execução, mostra o relatório: quantos foram removidos,
-    quais foram preservados (tinham referência desde o início — nunca
-    foram candidatos) e quais foram pulados por terem ganhado uma
-    referência entre a confirmação e a execução (proteção contra corrida).
+    Fluxo por lote, sempre com confirmação antes de executar:
+      1. GET (ou a resposta do POST anterior) — mostra os IDs EXATOS do
+         PRÓXIMO lote (até 5) antes de apagar qualquer coisa, e emite um
+         token novo.
+      2. POST — só executa o lote se o token bater (mesmo `SubmissionGuard`
+         usado em toda escrita deste app); um POST direto, sem ter
+         passado por uma etapa 1 válida, é bloqueado sem apagar nada.
+
+    Progresso mostrado a cada resposta: "Processadas" (cumulativo desde
+    sempre, via histórico — nunca zera entre lotes/requisições),
+    "Restantes" (candidatas que ainda faltam) e "Preservadas" (têm
+    referência, nunca tocadas). Se um lote falhar no meio
+    (`execute_duplicate_location_cleanup_batch` é `@transaction.atomic`),
+    só ELE é revertido — lotes anteriores, já commitados em requisições
+    passadas, continuam concluídos, e o Administrador simplesmente tenta
+    de novo depois.
 
     Acesso: `CAN_VIEW_DIAGNOSTICS` — Administrador apenas, igual à tela de
-    diagnóstico. Remover esta view (+ rota + botão no template) junto com
-    o resto da ferramenta temporária, depois da limpeza.
+    diagnóstico. Remover esta view (+ rota + template) junto com o resto
+    da ferramenta temporária, depois da limpeza.
     """
 
     allowed_roles = CAN_VIEW_DIAGNOSTICS
 
     def get(self, request):
-        plan = plan_duplicate_location_cleanup()
-        token = _duplicate_cleanup_guard.issue(request)
-        return render(
-            request,
-            "operations/duplicate_locations_cleanup_confirm.html",
-            {"plan": plan, "submission_token": token},
-        )
+        return self._render_progress(request)
 
     def post(self, request):
         if not _duplicate_cleanup_guard.consume_if_valid(request):
-            # Sem token válido (POST direto, reenvio, ou token expirado/de
-            # outra sessão) — bloqueado, nada é apagado. Reemite um token
-            # novo para o Administrador confirmar de novo, se quiser.
+            # Sem token válido (POST direto sem GET prévio, reenvio, token
+            # expirado/de outra sessão) — bloqueado, nada é apagado NESTE
+            # lote. Lotes anteriores já commitados não são afetados.
             messages.error(
                 request,
-                "Confirmação inválida ou expirada — nada foi apagado. Revise a lista e confirme novamente.",
+                "Confirmação inválida ou expirada — nenhum lote foi processado. Revise a lista e confirme novamente.",
             )
             return redirect("operations:duplicate_locations_cleanup")
 
-        report = execute_duplicate_location_cleanup(performed_by=request.user)
-        return render(request, "operations/duplicate_locations_cleanup_result.html", {"report": report})
+        batch_report = execute_duplicate_location_cleanup_batch(performed_by=request.user)
+        auto_continue = request.POST.get("auto_continue") == "1"
+        return self._render_progress(request, batch_report=batch_report, auto_continue=auto_continue)
+
+    def _render_progress(self, request, *, batch_report=None, auto_continue=False):
+        plan = plan_duplicate_location_cleanup()
+        token = _duplicate_cleanup_guard.issue(request)
+        context = {
+            "next_batch": plan.to_remove[:DUPLICATE_CLEANUP_BATCH_SIZE],
+            "remaining_count": len(plan.to_remove),
+            "preserved": plan.preserved_with_references,
+            "preserved_count": len(plan.preserved_with_references),
+            "processed_total": count_duplicate_location_cleanup_processed_total(),
+            "submission_token": token,
+            "batch_report": batch_report,
+            "auto_continue": auto_continue,
+            "batch_size": DUPLICATE_CLEANUP_BATCH_SIZE,
+        }
+        return render(request, "operations/duplicate_locations_cleanup.html", context)

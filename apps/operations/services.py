@@ -389,15 +389,29 @@ def find_duplicate_location_groups() -> list[DuplicateLocationGroup]:
 # apagada, e é reversível manualmente (reativar a linha) se necessário.
 # ---------------------------------------------------------------------------
 
-# Únicos nomes de grupo elegíveis — ampliar esta lista é uma decisão
-# humana deliberada (editar o código), nunca inferida automaticamente a
-# partir do relatório.
+# Únicos nomes elegíveis — ampliar esta lista é uma decisão humana
+# deliberada (editar o código), nunca inferida automaticamente a partir
+# do relatório.
 DUPLICATE_CLEANUP_TARGET_GROUP_NAMES = ("TESTE", "TESTE3", "teste2")
 
 # Segunda camada de proteção, redundante com o allowlist acima só por
-# segurança: mesmo que um desses nomes de grupo algum dia colida com uma
-# Location interna de verdade, ela nunca é candidata a remoção.
+# segurança: mesmo que um desses nomes algum dia colida com uma Location
+# interna de verdade, ela nunca é candidata a remoção.
 _DUPLICATE_CLEANUP_PROTECTED_NAMES = ("Estoque Locus", "Manutenção Locus")
+
+# Prefixo fixo gravado em `_change_reason` (django-simple-history) a cada
+# remoção desta ferramenta — é a MESMA string usada para contar quantas
+# Locations já foram processadas no total (`count_duplicate_location_cleanup_processed_total`),
+# então nunca muda sem atualizar as duas pontas juntas.
+_DUPLICATE_CLEANUP_CHANGE_REASON_PREFIX = "Limpeza de duplicata de teste (lote)"
+
+# No máximo 5 Locations por lote/requisição (pedido explícito do
+# usuário): cada POST processa um lote pequeno numa transação curta e
+# responde imediatamente — nunca `time.sleep()` no servidor para
+# "espaçar" nada. Quem decide esperar 1-2s entre lotes é o CLIENTE
+# (JS/HTMX no template, ou o Administrador clicando de novo), nunca o
+# backend.
+DUPLICATE_CLEANUP_BATCH_SIZE = 5
 
 
 @dataclass
@@ -410,9 +424,9 @@ class DuplicateLocationCleanupCandidate:
 class DuplicateLocationCleanupPlan:
     """
     O que a limpeza REMOVERIA se executada agora — calculado sem apagar
-    nada. Usado tanto pela tela de confirmação (mostra os IDs exatos antes
-    de qualquer escrita) quanto, revalidado individualmente linha a linha,
-    pela execução de fato (`execute_duplicate_location_cleanup`).
+    nada. Usado tanto para mostrar os IDs exatos do PRÓXIMO lote antes de
+    qualquer escrita quanto, revalidado individualmente linha a linha,
+    pela execução de fato (`execute_duplicate_location_cleanup_batch`).
     """
 
     to_remove: list[DuplicateLocationCleanupCandidate]
@@ -421,63 +435,123 @@ class DuplicateLocationCleanupPlan:
 
 def plan_duplicate_location_cleanup() -> DuplicateLocationCleanupPlan:
     """
-    Restrita aos grupos de duplicatas cujo nome está em
-    `DUPLICATE_CLEANUP_TARGET_GROUP_NAMES` — os únicos identificados pelo
-    usuário como dados de teste. Dentro desses grupos: Location sem
-    NENHUM Movement referenciando (origem OU destino) → candidata a
-    remoção; com referência (ex.: #2 "TESTE") → preservada, nunca
-    candidata.
+    Universo = TODAS as Locations ATIVAS cujo nome está em
+    `DUPLICATE_CLEANUP_TARGET_GROUP_NAMES` (os únicos grupos identificados
+    manualmente pelo usuário como dados de teste).
+
+    Deliberadamente NÃO reaproveita `find_duplicate_location_groups()`
+    aqui (que só considera "duplicata" um grupo com >1 linha ATIVA): à
+    medida que a limpeza em lotes processa um grupo, o número de
+    sobreviventes cai — quando só sobra 1 linha (ex.: a única Location
+    "TESTE" com Movement referenciando, preservada), aquele grupo deixa
+    de ter `quantidade > 1` e sumiria de `find_duplicate_location_groups()`,
+    fazendo o contador "Preservadas" oscilar/cair sem nada ter mudado de
+    fato. Filtrar direto pelo NOME evita esse efeito colateral e mantém o
+    progresso estável ao longo de qualquer número de lotes.
+
+    Dentro do universo: Location sem NENHUM Movement referenciando
+    (origem OU destino) → candidata a remoção; com referência (ex.: a
+    Location "TESTE" citada pelo usuário) → preservada, nunca candidata.
+    Ordenado por (name, pk) para que "os próximos N" seja determinístico
+    e estável entre a tela de confirmação de um lote e a execução dele.
     """
     to_remove: list[DuplicateLocationCleanupCandidate] = []
     preserved: list[DuplicateLocationCleanupCandidate] = []
 
-    for group in find_duplicate_location_groups():
-        if group.name not in DUPLICATE_CLEANUP_TARGET_GROUP_NAMES:
-            continue
-        for entry in group.entries:
-            if entry.location.name in _DUPLICATE_CLEANUP_PROTECTED_NAMES:
-                continue
-            candidate = DuplicateLocationCleanupCandidate(location=entry.location, group_name=group.name)
-            if entry.has_references:
-                preserved.append(candidate)
-            else:
-                to_remove.append(candidate)
+    candidates = (
+        Location.objects.filter(is_active=True, name__in=DUPLICATE_CLEANUP_TARGET_GROUP_NAMES)
+        .exclude(name__in=_DUPLICATE_CLEANUP_PROTECTED_NAMES)
+        .select_related("client")
+        .order_by("name", "pk")
+    )
+    for location in candidates:
+        has_reference = (
+            Movement.objects.filter(origin_location_id=location.pk).exists()
+            or Movement.objects.filter(destination_location_id=location.pk).exists()
+        )
+        candidate = DuplicateLocationCleanupCandidate(location=location, group_name=location.name)
+        if has_reference:
+            preserved.append(candidate)
+        else:
+            to_remove.append(candidate)
 
     return DuplicateLocationCleanupPlan(to_remove=to_remove, preserved_with_references=preserved)
 
 
+def count_duplicate_location_cleanup_processed_total() -> int:
+    """
+    Contagem cumulativa de "Processadas" que sobrevive a reload de
+    página, troca de aba/navegador e reinício do servidor — em vez de
+    depender de estado em sessão (que se perderia entre lotes numa
+    ferramenta pensada para ser retomada "depois"), conta direto no
+    histórico (`django-simple-history`) quantas Locations distintas já
+    foram inativadas por ESTA ferramenta (`_change_reason` com o prefixo
+    fixo `_DUPLICATE_CLEANUP_CHANGE_REASON_PREFIX`). Fonte da verdade
+    única: o próprio banco, não um contador paralelo que poderia
+    dessincronizar.
+    """
+    HistoricalLocation = Location.history.model
+    return (
+        HistoricalLocation.objects.filter(
+            is_active=False, history_change_reason__startswith=_DUPLICATE_CLEANUP_CHANGE_REASON_PREFIX
+        )
+        .values("id")
+        .distinct()
+        .count()
+    )
+
+
 @dataclass
-class DuplicateLocationCleanupReport:
+class DuplicateLocationCleanupBatchReport:
     removed: list[Location]
-    preserved_with_references: list[Location]
     skipped_race: list[Location]
+    remaining_count: int  # candidatas que ainda restam para o(s) próximo(s) lote(s), recalculado após este lote
+    preserved_count: int  # preservadas agora (têm referência), recalculado após este lote
+    processed_total: int  # cumulativo desde sempre, via histórico — não zera entre lotes/requisições
+    batch_size: int
 
 
 @transaction.atomic
-def execute_duplicate_location_cleanup(*, performed_by: User) -> DuplicateLocationCleanupReport:
+def execute_duplicate_location_cleanup_batch(
+    *, performed_by: User, batch_size: int = DUPLICATE_CLEANUP_BATCH_SIZE
+) -> DuplicateLocationCleanupBatchReport:
     """
-    Execução de fato da limpeza — só chamada depois da tela de
-    confirmação ter mostrado os IDs exatos ao Administrador. Tudo dentro
-    de UMA transação: se qualquer erro inesperado ocorrer no meio do
-    laço, o Django reverte a transação inteira — nenhuma remoção parcial
-    fica gravada (ver `test_rollback_...` em
-    `apps.operations.tests.test_duplicate_locations_cleanup`).
+    Processa NO MÁXIMO `batch_size` Locations candidatas — pensado para
+    ser chamado UMA VEZ por requisição HTTP (a view faz exatamente uma
+    chamada por POST). Uma única transação CURTA por lote: abre, revalida
+    e desativa cada candidata do lote individualmente, e comita ao
+    retornar — nunca mantém uma transação aberta entre lotes/requisições,
+    e nunca chama `time.sleep()` (o espaçamento de 1-2s entre lotes é
+    decisão do CLIENTE — botão "Processar próximos 5" ou auto-continuação
+    via JS no template — nunca do servidor).
 
-    Revalidação individual, imediatamente antes de CADA remoção: nunca
-    reaproveita a contagem já calculada em `plan_duplicate_location_cleanup()`
-    — o plano pode estar desatualizado (uma Movement pode ter sido
-    registrada para uma dessas Locations entre a tela de confirmação e o
-    clique em confirmar). Uma Location que virou "com referência" nesse
-    intervalo é pulada e registrada no relatório, nunca apagada. Sem bulk
-    delete: cada linha é revalidada e desativada individualmente, uma de
-    cada vez, nunca um `.update()`/`.delete()` em massa.
+    Cada chamada é independente e idempotente: "o próximo lote" é sempre
+    recalculado do zero a partir do estado ATUAL do banco
+    (`plan_duplicate_location_cleanup()`) — não existe cursor/página
+    salvo em lugar nenhum. Por isso, se uma chamada anterior falhar no
+    meio (ver `test_...rollback...`), o que ELA já tinha revalidado e
+    desativado com sucesso ANTES da falha simulada não é desfeito (já foi
+    commitado); e o que ela não chegou a processar continua disponível,
+    intacto, para a PRÓXIMA chamada — o usuário só precisa clicar de novo
+    (ou deixar a auto-continuação tentar de novo). Erro DENTRO deste lote
+    reverte só ESTE lote (via `@transaction.atomic`), nunca lotes
+    anteriores já commitados em chamadas passadas.
+
+    Revalidação individual, imediatamente antes de CADA remoção deste
+    lote: nunca reaproveita a contagem já calculada no plano — uma
+    Movement pode ter sido registrada para uma dessas Locations entre o
+    cálculo do plano e a revalidação. Uma Location que virou "com
+    referência" nesse intervalo é pulada e registrada, nunca apagada. Sem
+    bulk delete: cada linha é revalidada e desativada individualmente,
+    uma de cada vez, nunca um `.update()`/`.delete()` em massa.
     """
     plan = plan_duplicate_location_cleanup()
+    batch = plan.to_remove[:batch_size]
 
     removed: list[Location] = []
     skipped_race: list[Location] = []
 
-    for candidate in plan.to_remove:
+    for candidate in batch:
         location = candidate.location
 
         # Revalida do zero, contra o banco, não contra o snapshot do plano.
@@ -491,15 +565,23 @@ def execute_duplicate_location_cleanup(*, performed_by: User) -> DuplicateLocati
             continue
 
         location._change_reason = (
-            f"Limpeza de duplicata de teste (grupo {candidate.group_name!r}), sem Movement referenciando. "
-            f"Executada por {performed_by}."
+            f"{_DUPLICATE_CLEANUP_CHANGE_REASON_PREFIX} — grupo {candidate.group_name!r}, "
+            f"sem Movement referenciando. Executado por {performed_by}."
         )
         location.is_active = False
         location.save(update_fields=["is_active", "updated_at"])
         removed.append(location)
 
-    return DuplicateLocationCleanupReport(
+    # Recalculado DEPOIS do lote, dentro da mesma transação — reflete o
+    # estado real pós-lote (inclui os efeitos de `skipped_race`, que
+    # deixam de aparecer em `to_remove` e passam a `preserved_with_references`
+    # na próxima leitura, sem nenhuma contabilidade manual aqui).
+    updated_plan = plan_duplicate_location_cleanup()
+    return DuplicateLocationCleanupBatchReport(
         removed=removed,
-        preserved_with_references=[c.location for c in plan.preserved_with_references],
         skipped_race=skipped_race,
+        remaining_count=len(updated_plan.to_remove),
+        preserved_count=len(updated_plan.preserved_with_references),
+        processed_total=count_duplicate_location_cleanup_processed_total(),
+        batch_size=batch_size,
     )
