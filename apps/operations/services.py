@@ -371,3 +371,135 @@ def find_duplicate_location_groups() -> list[DuplicateLocationGroup]:
             )
         )
     return groups
+
+
+# ---------------------------------------------------------------------------
+# Limpeza de Locations duplicadas SEM referências — ferramenta TEMPORÁRIA,
+# continuação direta do relatório de diagnóstico acima. Depois de olhar o
+# relatório manualmente, o usuário identificou que só os grupos "TESTE",
+# "TESTE3" e "teste2" são dados de teste (não decisão automática) e que, de
+# tudo isso, só a Location #2 "TESTE" tem Movement referenciando — por
+# isso o escopo é restrito a esses três nomes de grupo, nunca "qualquer
+# duplicata sem referência" (o que arrastaria dados legítimos de outros
+# clientes/futuros grupos).
+#
+# "Apagar" aqui segue a MESMA convenção do resto do projeto — SoftDeleteModel
+# (`is_active=False`), nunca `DELETE` físico: preserva o histórico
+# (`HistoricalRecords`), não deixa `Address`/`Client` referenciando uma FK
+# apagada, e é reversível manualmente (reativar a linha) se necessário.
+# ---------------------------------------------------------------------------
+
+# Únicos nomes de grupo elegíveis — ampliar esta lista é uma decisão
+# humana deliberada (editar o código), nunca inferida automaticamente a
+# partir do relatório.
+DUPLICATE_CLEANUP_TARGET_GROUP_NAMES = ("TESTE", "TESTE3", "teste2")
+
+# Segunda camada de proteção, redundante com o allowlist acima só por
+# segurança: mesmo que um desses nomes de grupo algum dia colida com uma
+# Location interna de verdade, ela nunca é candidata a remoção.
+_DUPLICATE_CLEANUP_PROTECTED_NAMES = ("Estoque Locus", "Manutenção Locus")
+
+
+@dataclass
+class DuplicateLocationCleanupCandidate:
+    location: Location
+    group_name: str
+
+
+@dataclass
+class DuplicateLocationCleanupPlan:
+    """
+    O que a limpeza REMOVERIA se executada agora — calculado sem apagar
+    nada. Usado tanto pela tela de confirmação (mostra os IDs exatos antes
+    de qualquer escrita) quanto, revalidado individualmente linha a linha,
+    pela execução de fato (`execute_duplicate_location_cleanup`).
+    """
+
+    to_remove: list[DuplicateLocationCleanupCandidate]
+    preserved_with_references: list[DuplicateLocationCleanupCandidate]
+
+
+def plan_duplicate_location_cleanup() -> DuplicateLocationCleanupPlan:
+    """
+    Restrita aos grupos de duplicatas cujo nome está em
+    `DUPLICATE_CLEANUP_TARGET_GROUP_NAMES` — os únicos identificados pelo
+    usuário como dados de teste. Dentro desses grupos: Location sem
+    NENHUM Movement referenciando (origem OU destino) → candidata a
+    remoção; com referência (ex.: #2 "TESTE") → preservada, nunca
+    candidata.
+    """
+    to_remove: list[DuplicateLocationCleanupCandidate] = []
+    preserved: list[DuplicateLocationCleanupCandidate] = []
+
+    for group in find_duplicate_location_groups():
+        if group.name not in DUPLICATE_CLEANUP_TARGET_GROUP_NAMES:
+            continue
+        for entry in group.entries:
+            if entry.location.name in _DUPLICATE_CLEANUP_PROTECTED_NAMES:
+                continue
+            candidate = DuplicateLocationCleanupCandidate(location=entry.location, group_name=group.name)
+            if entry.has_references:
+                preserved.append(candidate)
+            else:
+                to_remove.append(candidate)
+
+    return DuplicateLocationCleanupPlan(to_remove=to_remove, preserved_with_references=preserved)
+
+
+@dataclass
+class DuplicateLocationCleanupReport:
+    removed: list[Location]
+    preserved_with_references: list[Location]
+    skipped_race: list[Location]
+
+
+@transaction.atomic
+def execute_duplicate_location_cleanup(*, performed_by: User) -> DuplicateLocationCleanupReport:
+    """
+    Execução de fato da limpeza — só chamada depois da tela de
+    confirmação ter mostrado os IDs exatos ao Administrador. Tudo dentro
+    de UMA transação: se qualquer erro inesperado ocorrer no meio do
+    laço, o Django reverte a transação inteira — nenhuma remoção parcial
+    fica gravada (ver `test_rollback_...` em
+    `apps.operations.tests.test_duplicate_locations_cleanup`).
+
+    Revalidação individual, imediatamente antes de CADA remoção: nunca
+    reaproveita a contagem já calculada em `plan_duplicate_location_cleanup()`
+    — o plano pode estar desatualizado (uma Movement pode ter sido
+    registrada para uma dessas Locations entre a tela de confirmação e o
+    clique em confirmar). Uma Location que virou "com referência" nesse
+    intervalo é pulada e registrada no relatório, nunca apagada. Sem bulk
+    delete: cada linha é revalidada e desativada individualmente, uma de
+    cada vez, nunca um `.update()`/`.delete()` em massa.
+    """
+    plan = plan_duplicate_location_cleanup()
+
+    removed: list[Location] = []
+    skipped_race: list[Location] = []
+
+    for candidate in plan.to_remove:
+        location = candidate.location
+
+        # Revalida do zero, contra o banco, não contra o snapshot do plano.
+        if not Location.objects.filter(pk=location.pk, is_active=True).exists():
+            continue  # já desativada (ex.: outra execução concorrente) — nada a fazer
+
+        origin_count = Movement.objects.filter(origin_location_id=location.pk).count()
+        destination_count = Movement.objects.filter(destination_location_id=location.pk).count()
+        if origin_count != 0 or destination_count != 0:
+            skipped_race.append(location)
+            continue
+
+        location._change_reason = (
+            f"Limpeza de duplicata de teste (grupo {candidate.group_name!r}), sem Movement referenciando. "
+            f"Executada por {performed_by}."
+        )
+        location.is_active = False
+        location.save(update_fields=["is_active", "updated_at"])
+        removed.append(location)
+
+    return DuplicateLocationCleanupReport(
+        removed=removed,
+        preserved_with_references=[c.location for c in plan.preserved_with_references],
+        skipped_race=skipped_race,
+    )

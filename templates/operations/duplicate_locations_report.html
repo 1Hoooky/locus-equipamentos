@@ -3,16 +3,30 @@
 {% block content %}
 <h1 class="text-xl font-semibold mb-1">Diagnóstico: Locations duplicadas</h1>
 <p class="text-sm text-gray-500 mb-4">
-  Ferramenta interna TEMPORÁRIA, somente-leitura, restrita a Administrador — equivalente ao comando
+  Ferramenta interna TEMPORÁRIA, restrita a Administrador — equivalente ao comando
   <code class="bg-gray-100 px-1 rounded">python manage.py report_duplicate_locations</code>, usada onde não há acesso a
-  Shell (Render Free). Esta tela não apaga, não edita e não consolida nada; a limpeza continua sendo decidida
-  manualmente, caso a caso, fora daqui. Remover esta tela depois que os dados de teste forem limpos.
+  Shell (Render Free). A listagem abaixo é só leitura; a única ação de escrita desta ferramenta é o botão “Limpar
+  duplicatas sem referências”, restrito aos grupos de teste identificados manualmente, sempre atrás de uma tela de
+  confirmação. Remover esta tela (e a de limpeza) depois que os dados de teste forem limpos.
 </p>
 
 <div class="mb-4 rounded-md bg-amber-50 text-amber-800 px-4 py-2 text-sm">
   "Duplicata" aqui = mesmo nome + tipo + cliente, com mais de uma unidade ativa. Unidades homônimas de clientes
   DIFERENTES são legítimas por decisão de projeto e não aparecem nesta lista.
 </div>
+
+{% if cleanup_plan.to_remove or cleanup_plan.preserved_with_references %}
+<div class="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 flex items-center justify-between">
+  <p class="text-sm text-gray-600">
+    {{ cleanup_plan.to_remove|length }} Location(s) sem referência elegível(is) para limpeza nos grupos de teste
+    (TESTE / TESTE3 / teste2); {{ cleanup_plan.preserved_with_references|length }} preservada(s) por ter referência.
+  </p>
+  <a href="{% url 'operations:duplicate_locations_cleanup' %}"
+     class="bg-red-600 text-white rounded-md px-4 py-1.5 text-sm font-medium hover:bg-red-700 whitespace-nowrap">
+    Limpar duplicatas sem referências
+  </a>
+</div>
+{% endif %}
 
 {% if not groups %}
 <div class="bg-white border border-gray-200 rounded-lg p-6 text-sm text-gray-600">

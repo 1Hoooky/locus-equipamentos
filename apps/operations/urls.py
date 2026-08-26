@@ -19,4 +19,9 @@ urlpatterns = [
         views.DuplicateLocationsReportView.as_view(),
         name="duplicate_locations_report",
     ),
+    path(
+        "diagnostico/locations-duplicadas/limpar/",
+        views.DuplicateLocationsCleanupView.as_view(),
+        name="duplicate_locations_cleanup",
+    ),
 ]

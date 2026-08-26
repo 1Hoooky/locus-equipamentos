@@ -29,7 +29,9 @@ from apps.operations.services import (
     NewMovementData,
     create_location,
     create_movement,
+    execute_duplicate_location_cleanup,
     find_duplicate_location_groups,
+    plan_duplicate_location_cleanup,
     update_location,
     update_location_address,
 )
@@ -46,6 +48,14 @@ def _movement_guard(patrimonio: str) -> SubmissionGuard:
     # abas diferentes não pode fazer um formulário invalidar o token do
     # outro (mesma sessão, formulários independentes).
     return SubmissionGuard(f"movement_create:{patrimonio}")
+
+
+# Mesmo mecanismo de proteção contra reenvio já usado em toda escrita
+# deste app — aqui protege contra a AÇÃO em si (a limpeza só pode
+# executar depois de uma tela de confirmação ter emitido o token; um POST
+# direto, sem ter passado pelo GET de confirmação, nunca tem token válido
+# e é bloqueado).
+_duplicate_cleanup_guard = SubmissionGuard("duplicate_locations_cleanup")
 
 
 class LocationListView(RoleRequiredMixin, ListView):
@@ -298,11 +308,13 @@ class DuplicateLocationsReportView(RoleRequiredMixin, View):
     em produção. Existe só para permitir localizar, sem apagar nada, as
     Locations duplicadas deixadas pelos testes manuais de double-submit.
 
-    Somente-leitura em todos os sentidos: só aceita GET, não expõe nenhum
-    link/botão/form de apagar, editar ou consolidar, e reaproveita
-    `find_duplicate_location_groups()` — a MESMA função usada pelo
-    management command, nunca uma cópia divergente da regra. Apagar/editar
-    duplicatas continua sendo decisão manual, caso a caso, fora desta tela.
+    Esta view em si só aceita GET e reaproveita `find_duplicate_location_groups()`
+    — a MESMA função usada pelo management command, nunca uma cópia
+    divergente da regra. A única ação de escrita da ferramenta
+    (`DuplicateLocationsCleanupView`, abaixo) vive numa view separada,
+    sempre atrás de uma tela de confirmação própria — esta tela nunca
+    apaga/edita/consolida nada sozinha, só mostra um link para lá quando
+    há algo elegível para limpeza.
 
     Acesso restrito a Administrador (`CAN_VIEW_DIAGNOSTICS`, não
     `CAN_MANAGE_LOCATIONS`): é uma ferramenta de diagnóstico interno, não
@@ -316,4 +328,64 @@ class DuplicateLocationsReportView(RoleRequiredMixin, View):
 
     def get(self, request):
         groups = find_duplicate_location_groups()
-        return render(request, "operations/duplicate_locations_report.html", {"groups": groups})
+        cleanup_plan = plan_duplicate_location_cleanup()
+        return render(
+            request,
+            "operations/duplicate_locations_report.html",
+            {"groups": groups, "cleanup_plan": cleanup_plan},
+        )
+
+
+class DuplicateLocationsCleanupView(RoleRequiredMixin, View):
+    """
+    Ação de escrita TEMPORÁRIA — "Limpar duplicatas sem referências", pedida
+    explicitamente porque o Render Free não dá Shell (sem Shell não há
+    como rodar uma limpeza manual em produção). Continuação direta de
+    `DuplicateLocationsReportView`: só apaga (`is_active=False`, mesma
+    convenção de SoftDeleteModel do resto do projeto — nunca DELETE
+    físico) Locations dos grupos "TESTE"/"TESTE3"/"teste2" que NÃO têm
+    nenhum Movement referenciando, revalidado individualmente e dentro de
+    uma única transação (`execute_duplicate_location_cleanup`).
+
+    Fluxo em duas etapas, obrigatório:
+      1. GET — mostra a tela de confirmação com os IDs EXATOS que seriam
+         removidos agora (`plan_duplicate_location_cleanup()`), sem apagar
+         nada, e emite o token de confirmação.
+      2. POST — só executa se o token bater (mesmo `SubmissionGuard` usado
+         em toda escrita deste app); um POST direto, sem ter passado pela
+         etapa 1, não tem token válido e é bloqueado sem apagar nada.
+
+    Depois da execução, mostra o relatório: quantos foram removidos,
+    quais foram preservados (tinham referência desde o início — nunca
+    foram candidatos) e quais foram pulados por terem ganhado uma
+    referência entre a confirmação e a execução (proteção contra corrida).
+
+    Acesso: `CAN_VIEW_DIAGNOSTICS` — Administrador apenas, igual à tela de
+    diagnóstico. Remover esta view (+ rota + botão no template) junto com
+    o resto da ferramenta temporária, depois da limpeza.
+    """
+
+    allowed_roles = CAN_VIEW_DIAGNOSTICS
+
+    def get(self, request):
+        plan = plan_duplicate_location_cleanup()
+        token = _duplicate_cleanup_guard.issue(request)
+        return render(
+            request,
+            "operations/duplicate_locations_cleanup_confirm.html",
+            {"plan": plan, "submission_token": token},
+        )
+
+    def post(self, request):
+        if not _duplicate_cleanup_guard.consume_if_valid(request):
+            # Sem token válido (POST direto, reenvio, ou token expirado/de
+            # outra sessão) — bloqueado, nada é apagado. Reemite um token
+            # novo para o Administrador confirmar de novo, se quiser.
+            messages.error(
+                request,
+                "Confirmação inválida ou expirada — nada foi apagado. Revise a lista e confirme novamente.",
+            )
+            return redirect("operations:duplicate_locations_cleanup")
+
+        report = execute_duplicate_location_cleanup(performed_by=request.user)
+        return render(request, "operations/duplicate_locations_cleanup_result.html", {"report": report})
