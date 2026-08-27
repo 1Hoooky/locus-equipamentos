@@ -134,7 +134,12 @@ class Maintenance(TimeStampedModel, SoftDeleteModel):
         blank=True,
         on_delete=models.PROTECT,
         related_name="maintenance_as_departure",
-        help_text="Movement ENVIO_MANUTENCAO associado, quando a manutenção envolveu saída física do equipamento.",
+        help_text=(
+            "Movement ENVIO_MANUTENCAO associado, quando a manutenção envolveu saída física do equipamento. "
+            "Validação completa (mesmo equipamento, tipo, não reclamado por outra ficha, coerência cronológica) "
+            "é responsabilidade de apps.maintenance.services._validate_departure_movement() — nunca confiar só "
+            "neste campo/OneToOneField para integridade de domínio."
+        ),
     )
     return_movement = models.OneToOneField(
         Movement,
@@ -142,7 +147,13 @@ class Maintenance(TimeStampedModel, SoftDeleteModel):
         blank=True,
         on_delete=models.PROTECT,
         related_name="maintenance_as_return",
-        help_text="Movement de retorno (RETORNO_MANUTENCAO ou RETORNO_ESTOQUE) associado, quando houver.",
+        help_text=(
+            "Movement de retorno (RETORNO_MANUTENCAO ou RETORNO_ESTOQUE) associado, quando houver. Validação "
+            "completa (mesmo equipamento, tipo, não reclamado por outra ficha, posterior à abertura e ao "
+            "departure_movement, RETORNO_MANUTENCAO exige departure_movement) é responsabilidade de "
+            "apps.maintenance.services._validate_return_movement() — nunca confiar só neste campo/OneToOneField "
+            "para integridade de domínio."
+        ),
     )
 
     responsible = models.ForeignKey(User, on_delete=models.PROTECT, related_name="maintenances_responsible")
@@ -246,7 +257,11 @@ class Cleaning(TimeStampedModel, SoftDeleteModel):
         blank=True,
         on_delete=models.PROTECT,
         related_name="cleanings",
-        help_text="Movement associado, quando a higienização coincidiu com uma movimentação física relevante.",
+        help_text=(
+            "Movement associado, quando a higienização coincidiu com uma movimentação física relevante. Qualquer "
+            "MovementType é aceito (não há regra de domínio que restrinja o tipo) — só o vínculo de equipamento é "
+            "obrigatório: apps.maintenance.services.create_cleaning() rejeita um Movement de outro equipamento."
+        ),
     )
 
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="cleanings_created")

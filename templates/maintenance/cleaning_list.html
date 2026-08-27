@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% load pagination_tags %}
+{% block title %}Higienizações — Locus{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Higienizações</h1>
+    <p class="page-subtitle">Registros de higienização por equipamento.</p>
+  </div>
+  {% if user.is_operacional_ou_superior %}
+  <a href="{% url 'maintenance:cleaning_create' %}" class="btn-primary">Registrar higienização</a>
+  {% endif %}
+</div>
+
+<form method="get" class="flex flex-wrap gap-2 mb-4 items-end">
+  <div class="flex-1 min-w-[220px]">
+    <label class="field-label">Patrimônio ou modelo</label>
+    <input type="text" name="q" value="{{ selected_q }}" placeholder="Patrimônio ou modelo" class="filter-input w-full">
+  </div>
+  <button type="submit" class="btn-neutral">Filtrar</button>
+  {% if request.GET %}
+  <a href="{% url 'maintenance:cleaning_list' %}" class="text-sm text-gray-600 hover:underline px-2 py-2">Limpar</a>
+  {% endif %}
+</form>
+
+<div class="table-wrap">
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Patrimônio</th>
+        <th>Equipamento</th>
+        <th>Realizada em</th>
+        <th>Responsável</th>
+        <th>Próxima higienização</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for cleaning in cleanings %}
+      <tr>
+        <td>
+          <a href="{% url 'maintenance:cleaning_detail' cleaning.pk %}" class="link">
+            {{ cleaning.equipment.patrimonio }}
+          </a>
+        </td>
+        <td>{{ cleaning.equipment.model.name }}</td>
+        <td>{{ cleaning.performed_at|date:"d/m/Y H:i" }}</td>
+        <td>{{ cleaning.responsible }}</td>
+        <td>{{ cleaning.next_due_at|date:"d/m/Y"|default:"—" }}</td>
+        <td>
+          {% if cleaning.is_active %}
+            <span class="badge-success">Ativa</span>
+          {% else %}
+            <span class="badge-neutral">Cancelada</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="empty-state">Nenhuma higienização encontrada.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if is_paginated %}
+<div class="flex gap-3 mt-4 text-sm items-center">
+  {% if page_obj.has_previous %}
+    <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link">Anterior</a>
+  {% endif %}
+  <span class="text-gray-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+  {% if page_obj.has_next %}
+    <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link">Próxima</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Manutenção — {{ maintenance.equipment.patrimonio }} — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'maintenance:maintenance_list' %}" class="text-sm link">&larr; Voltar</a>
+
+<div class="mt-3 card-pad">
+  <div class="page-header !mb-3">
+    <div>
+      <p class="page-subtitle">{{ maintenance.equipment.category.name }} · {{ maintenance.equipment.model.name }}</p>
+      <h1 class="page-title">
+        <a href="{% url 'equipment:detail' maintenance.equipment.patrimonio %}" class="hover:underline">{{ maintenance.equipment.patrimonio }}</a>
+      </h1>
+    </div>
+    <div>
+      {% if maintenance.status == "ABERTA" %}
+        <span class="badge-warning">Aberta</span>
+      {% elif maintenance.status == "CONCLUIDA" %}
+        <span class="badge-success">Concluída</span>
+      {% else %}
+        <span class="badge-neutral">Cancelada</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-y-3 text-sm">
+    <dt class="text-gray-500">Tipo</dt>
+    <dd>{{ maintenance.get_maintenance_type_display }}</dd>
+
+    <dt class="text-gray-500">Responsável</dt>
+    <dd>{{ maintenance.responsible }}</dd>
+
+    <dt class="text-gray-500">Abertura</dt>
+    <dd>{{ maintenance.created_at|date:"d/m/Y H:i" }}</dd>
+
+    <dt class="text-gray-500">Encerramento</dt>
+    <dd>{{ maintenance.closed_at|date:"d/m/Y H:i"|default:"—" }}</dd>
+
+    <dt class="text-gray-500">Condição antes</dt>
+    <dd>{{ maintenance.get_condition_before_display|default:"—" }}</dd>
+
+    <dt class="text-gray-500">Condição depois</dt>
+    <dd>{{ maintenance.get_condition_after_display|default:"—" }}</dd>
+
+    <dt class="text-gray-500">Próxima manutenção</dt>
+    <dd>{{ maintenance.next_due_at|date:"d/m/Y"|default:"—" }}</dd>
+
+    <dt class="text-gray-500">Registrado por</dt>
+    <dd>{{ maintenance.created_by }}</dd>
+  </dl>
+
+  {% if maintenance.diagnosis %}
+  <div class="mt-4 border-t border-gray-100 pt-3">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Diagnóstico</p>
+    <p class="text-sm text-gray-700 whitespace-pre-line">{{ maintenance.diagnosis }}</p>
+  </div>
+  {% endif %}
+
+  {% if maintenance.service_performed %}
+  <div class="mt-4 border-t border-gray-100 pt-3">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Serviço executado</p>
+    <p class="text-sm text-gray-700 whitespace-pre-line">{{ maintenance.service_performed }}</p>
+  </div>
+  {% endif %}
+
+  {% if maintenance.notes %}
+  <div class="mt-4 border-t border-gray-100 pt-3">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Observações</p>
+    <p class="text-sm text-gray-700 whitespace-pre-line">{{ maintenance.notes }}</p>
+  </div>
+  {% endif %}
+</div>
+
+<div class="mt-4 card-pad">
+  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Movimentações vinculadas</h2>
+  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-y-3 text-sm">
+    <dt class="text-gray-500">Envio para manutenção</dt>
+    <dd>
+      {% if maintenance.departure_movement %}
+        {{ maintenance.departure_movement.get_movement_type_display }} —
+        {{ maintenance.departure_movement.origin_location_name|default:"—" }} &rarr;
+        {{ maintenance.departure_movement.destination_location_name|default:"—" }}
+        <span class="text-gray-500">({{ maintenance.departure_movement.created_at|date:"d/m/Y H:i" }})</span>
+      {% else %}
+        <span class="text-gray-500">Sem envio físico — manutenção realizada no próprio local.</span>
+      {% endif %}
+    </dd>
+
+    <dt class="text-gray-500">Retorno</dt>
+    <dd>
+      {% if maintenance.return_movement %}
+        {{ maintenance.return_movement.get_movement_type_display }} —
+        {{ maintenance.return_movement.origin_location_name|default:"—" }} &rarr;
+        {{ maintenance.return_movement.destination_location_name|default:"—" }}
+        <span class="text-gray-500">({{ maintenance.return_movement.created_at|date:"d/m/Y H:i" }})</span>
+      {% else %}
+        <span class="text-gray-500">Ainda sem retorno registrado.</span>
+      {% endif %}
+    </dd>
+  </dl>
+</div>
+
+{% if maintenance.status == "ABERTA" and user.is_operacional_ou_superior %}
+<div class="mt-4 flex flex-wrap gap-3">
+  <a href="{% url 'maintenance:maintenance_close' maintenance.pk %}" class="btn-primary">Concluir manutenção</a>
+  <a href="{% url 'maintenance:maintenance_cancel' maintenance.pk %}" class="btn-danger">Cancelar manutenção</a>
+</div>
+{% endif %}
+{% endblock %}

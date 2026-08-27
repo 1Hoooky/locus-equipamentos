@@ -309,8 +309,15 @@ class DuplicateLocationsReportViewContentTest(TestCase):
         self.assertIn("SEM REFERÊNCIAS", content)
         # A explicação textual no rodapé da página menciona "COM REFERÊNCIAS"
         # em prosa mesmo quando nenhuma Location do grupo tem referência —
-        # o que importa é que o BADGE vermelho (bg-red-100) não apareça.
-        self.assertNotIn("bg-red-100", content)
+        # o que importa é que o BADGE vermelho (bg-red-100) não apareça no
+        # CONTEÚDO da página. Restrito a partir de "<main" (revisão visual
+        # de 27/08/2026): a biblioteca de componentes reutilizáveis agora
+        # vive no <head> de TODA página (base.html) e legitimamente contém
+        # a string "bg-red-100" na definição de `.badge-danger`/
+        # `.alert-error` — isso não é um badge vermelho renderizado nesta
+        # tela, então o <head> fica de fora desta checagem.
+        main_content = content.split("<main", 1)[1]
+        self.assertNotIn("bg-red-100", main_content)
 
     def test_referenced_location_shows_com_referencias_marker_and_counts(self):
         admin = User.objects.get(username="diag_content_admin")
@@ -357,7 +364,10 @@ class DuplicateLocationsReportViewContentTest(TestCase):
         # ação oferecida ao usuário nesta página.
         for forbidden in ("Apagar", "Excluir", "Deletar", "Editar", "Consolidar"):
             self.assertNotIn(forbidden, content)
-        self.assertEqual(content.count("<button"), 1)  # só o botão "Sair" do cabeçalho global
+        # "Sair" + o botão de alternar o menu mobile (revisão visual de
+        # 27/08/2026, base.html) — os dois são chrome global não-destrutivo,
+        # nenhum dos dois pertence ao conteúdo desta tela de diagnóstico.
+        self.assertEqual(content.count("<button"), 2)
 
 
 class DuplicateLocationsReportRegressionTest(TestCase):

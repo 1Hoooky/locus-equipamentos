@@ -16,6 +16,7 @@ urlpatterns = [
     path("equipamentos/", include("apps.equipment.urls")),
     path("clientes/", include("apps.clients.urls")),
     path("operacao/", include("apps.operations.urls")),
+    path("manutencao/", include("apps.maintenance.urls")),
 ]
 
 if settings.DEBUG:

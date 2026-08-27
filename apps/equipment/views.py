@@ -458,6 +458,21 @@ class EquipmentDetailView(View):
                 {"equipment": equipment},
             )
 
+        # Import local — mesmo padrão já usado no bloco de Movement dentro
+        # de `get_equipment_history_timeline()`: evita subir uma
+        # dependência de apps.maintenance para o topo deste módulo só por
+        # causa de uma seção de leitura da ficha. Só quem tem
+        # CAN_VIEW_MAINTENANCE vê a seção (checado no template, mesmo
+        # padrão de `can_view_acquisition_value` acima — a ação de
+        # ESCREVER (abrir/registrar) continua protegida de verdade no
+        # backend por `CAN_REGISTER_OPERATIONS`, em
+        # `apps.maintenance.views`, nunca só aqui).
+        from apps.accounts.permissions import CAN_VIEW_MAINTENANCE
+        from apps.maintenance.services import get_equipment_maintenance_summary
+
+        can_view_maintenance = request.user.is_superuser or request.user.role in CAN_VIEW_MAINTENANCE
+        maintenance_summary = get_equipment_maintenance_summary(equipment) if can_view_maintenance else None
+
         return render(
             request,
             "equipment/detail_private.html",
@@ -469,5 +484,7 @@ class EquipmentDetailView(View):
                 # mesmo por engano.
                 "history_events": get_equipment_history_timeline(equipment),
                 "can_view_acquisition_value": can_view_acquisition_value,
+                "can_view_maintenance": can_view_maintenance,
+                "maintenance_summary": maintenance_summary,
             },
         )

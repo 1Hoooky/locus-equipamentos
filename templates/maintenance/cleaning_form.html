@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Registrar higienização — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'maintenance:cleaning_list' %}" class="text-sm link">&larr; Voltar</a>
+
+<h1 class="page-title mt-3 mb-1">Registrar higienização</h1>
+<p class="page-subtitle mb-4">Usa exclusivamente create_cleaning().</p>
+
+{% if form.non_field_errors %}
+<div class="alert-error">
+  {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" class="card-pad max-w-2xl space-y-4">
+  {% csrf_token %}
+  <input type="hidden" name="submission_token" value="{{ submission_token }}">
+
+  <div>
+    <label class="field-label" for="{{ form.equipment.id_for_label }}">{{ form.equipment.label }}</label>
+    <input type="search" id="equipment-search" placeholder="Pesquisar por patrimônio ou modelo…" autocomplete="off" class="field-input mb-1">
+    {{ form.equipment }}
+    {% for error in form.equipment.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.performed_at.id_for_label }}">{{ form.performed_at.label }}</label>
+    {{ form.performed_at }}
+    <p class="field-hint">{{ form.performed_at.help_text }}</p>
+    {% for error in form.performed_at.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.responsible.id_for_label }}">{{ form.responsible.label }}</label>
+    {{ form.responsible }}
+    {% for error in form.responsible.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>
+    {{ form.notes }}
+    {% for error in form.notes.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.next_due_at.id_for_label }}">{{ form.next_due_at.label }}</label>
+    {{ form.next_due_at }}
+    {% for error in form.next_due_at.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.movement.id_for_label }}">{{ form.movement.label }}</label>
+    {{ form.movement }}
+    <p class="field-hint">{{ form.movement.help_text }}</p>
+    {% for error in form.movement.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="btn-primary">Registrar higienização</button>
+    <a href="{% url 'maintenance:cleaning_list' %}" class="btn-neutral">Cancelar</a>
+  </div>
+</form>
+
+<script>
+  (function () {
+    var search = document.getElementById("equipment-search");
+    var select = document.getElementById("{{ form.equipment.id_for_label }}");
+    if (!search || !select) return;
+    var options = Array.prototype.map.call(select.options, function (opt) {
+      return {value: opt.value, text: opt.text, search: (opt.getAttribute("data-search") || opt.text.toLowerCase())};
+    });
+    function normalize(text) { return text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+    search.addEventListener("input", function () {
+      var term = normalize(search.value.trim());
+      var previousValue = select.value;
+      select.innerHTML = "";
+      options.forEach(function (opt) {
+        if (opt.value && term && normalize(opt.search).indexOf(term) === -1) return;
+        var el = document.createElement("option");
+        el.value = opt.value; el.textContent = opt.text;
+        select.appendChild(el);
+      });
+      var stillPresent = Array.prototype.some.call(select.options, function (o) { return o.value === previousValue; });
+      if (stillPresent) select.value = previousValue;
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,6 @@
+<select name="departure_movement" id="id_departure_movement" class="field-input">
+  <option value="">---------</option>
+  {% for m in movements %}
+  <option value="{{ m.pk }}">{{ m.get_movement_type_display }} — {{ m.created_at|date:"d/m/Y H:i" }} ({{ m.destination_location_name|default:"—" }})</option>
+  {% endfor %}
+</select>

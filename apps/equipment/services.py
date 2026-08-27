@@ -386,6 +386,65 @@ def get_equipment_history_timeline(equipment: Equipment) -> list[dict]:
             }
         )
 
+    # Quarto bloco (auditoria de 27/08/2026): Maintenance/Cleaning
+    # (`apps.maintenance`) — mesmo raciocínio do bloco de Movement acima
+    # (import local, nenhum campo/tabela nova, dicts no mesmo formato
+    # comum). `Maintenance` produz até dois eventos (abertura sempre;
+    # conclusão/cancelamento só se `closed_at` estiver preenchido) — nunca
+    # um terceiro; `Cleaning` produz sempre exatamente um.
+    from apps.maintenance.models import Cleaning, Maintenance, MaintenanceStatus
+
+    for m in equipment.maintenances.filter(is_active=True).select_related("responsible").all():
+        events.append(
+            {
+                "event_type": "manutencao_aberta",
+                "event_type_label": "Manutenção aberta",
+                "old_value_display": "—",
+                "new_value_display": m.get_maintenance_type_display(),
+                "reason": m.diagnosis,
+                "changed_by": m.responsible,
+                "changed_at": m.created_at,
+            }
+        )
+        if m.closed_at is not None:
+            if m.status == MaintenanceStatus.CONCLUIDA:
+                events.append(
+                    {
+                        "event_type": "manutencao_concluida",
+                        "event_type_label": "Manutenção concluída",
+                        "old_value_display": "Aberta",
+                        "new_value_display": "Concluída",
+                        "reason": m.service_performed,
+                        "changed_by": m.responsible,
+                        "changed_at": m.closed_at,
+                    }
+                )
+            elif m.status == MaintenanceStatus.CANCELADA:
+                events.append(
+                    {
+                        "event_type": "manutencao_cancelada",
+                        "event_type_label": "Manutenção cancelada",
+                        "old_value_display": "Aberta",
+                        "new_value_display": "Cancelada",
+                        "reason": m.notes,
+                        "changed_by": m.responsible,
+                        "changed_at": m.closed_at,
+                    }
+                )
+
+    for c in equipment.cleanings.filter(is_active=True).select_related("responsible").all():
+        events.append(
+            {
+                "event_type": "higienizacao",
+                "event_type_label": "Higienização realizada",
+                "old_value_display": "—",
+                "new_value_display": "Realizada",
+                "reason": c.notes,
+                "changed_by": c.responsible,
+                "changed_at": c.performed_at,
+            }
+        )
+
     # `StatusHistory`/`ConditionHistory` já vêm ordenados (`-changed_at`)
     # individualmente pelo Meta de cada model, mas a fusão dos dois
     # precisa de uma reordenação explícita para o conjunto combinado.

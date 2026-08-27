@@ -7,45 +7,234 @@
   {# TODO (Fase 1, próxima etapa): trocar o CDN por Tailwind compilado via #}
   {# build step (django-tailwind ou equivalente) antes de ir para produção. #}
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Identidade visual Locus Locações (auditoria de 27/08/2026 — ver
+    // IDENTIDADE_VISUAL_MANUTENCAO_HIGIENIZACAO.md): extraída via inspeção
+    // do site institucional (www.locuslocacoes.com.br) — fundo preto/quase
+    // preto, dourado como cor de marca (CTAs/logo), cards escuros com
+    // borda sutil (sem sombra), botões com raio ~8px, fonte do sistema
+    // (Segoe UI/Tahoma/Verdana — o site não usa nenhuma webfont custom).
+    //
+    // Adaptação DELIBERADA para uso administrativo (o site é vitrine
+    // comercial, este é um sistema operacional de uso prolongado): o
+    // dourado/preto vira identidade de MARCA (cabeçalho, ações primárias,
+    // foco, destaques), mas a área de conteúdo (tabelas/formulários dos
+    // quais a operação depende o dia inteiro) permanece clara — preto
+    // total como fundo de conteúdo prejudicaria leitura de tabela densa e
+    // contraste prolongado. `brand-black`/`brand-charcoal` são os tons do
+    // site; `brand-gold`/`brand-gold-dark` são o dourado do site ajustado
+    // para um tom levemente mais escuro que o #ffd700 puro do site,
+    // mantendo contraste AA com texto preto por cima em botões maiores.
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              black: "#0a0a0a",
+              charcoal: "#171717",
+              gold: "#eab308",
+              "gold-dark": "#b45309",
+              "gold-light": "#fef3c7",
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <style type="text/tailwindcss">
+    @layer components {
+      /* ---------------------------------------------------------------
+       * Componentes reutilizáveis — centralizados aqui para não repetir
+       * dezenas de classes Tailwind em cada template (auditoria de
+       * 27/08/2026). Equipment/Clientes/Unidades/Movimentações podem
+       * migrar para estas mesmas classes depois, sem retrabalho.
+       * --------------------------------------------------------------- */
+
+      /* Botões */
+      .btn {
+        @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
+      }
+      .btn-primary {
+        @apply btn bg-brand-gold text-brand-black hover:bg-brand-gold-dark hover:text-white;
+      }
+      .btn-secondary {
+        @apply btn border border-brand-gold text-brand-gold-dark bg-white hover:bg-brand-gold-light;
+      }
+      .btn-neutral {
+        @apply btn border border-gray-300 text-gray-700 bg-white hover:bg-gray-50;
+      }
+      .btn-danger {
+        @apply btn border border-red-300 text-red-700 bg-white hover:bg-red-50;
+      }
+      .btn-sm {
+        @apply px-3 py-1.5 text-xs;
+      }
+      .link {
+        @apply text-brand-gold-dark hover:underline font-medium;
+      }
+
+      /* Cards / superfícies */
+      .card {
+        @apply bg-white border border-gray-200 rounded-lg shadow-sm;
+      }
+      .card-pad {
+        @apply card p-4 sm:p-6;
+      }
+
+      /* Cabeçalho de página (título + ações) */
+      .page-header {
+        @apply flex flex-wrap items-center justify-between gap-3 mb-5;
+      }
+      .page-title {
+        @apply text-xl sm:text-2xl font-bold tracking-tight text-brand-charcoal;
+      }
+      .page-subtitle {
+        @apply text-sm text-gray-500;
+      }
+
+      /* Badges de status — tons semânticos, nunca dourado (reservado p/ marca/ação) */
+      .badge {
+        @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
+      }
+      .badge-success { @apply badge bg-green-100 text-green-800; }
+      .badge-warning { @apply badge bg-amber-100 text-amber-800; }
+      .badge-danger { @apply badge bg-red-100 text-red-800; }
+      .badge-info { @apply badge bg-blue-100 text-blue-800; }
+      .badge-neutral { @apply badge bg-gray-100 text-gray-700; }
+
+      /* Formulários */
+      .field-label {
+        @apply block text-sm font-medium text-brand-charcoal mb-1;
+      }
+      .field-hint {
+        @apply text-xs text-gray-500 mt-1;
+      }
+      .field-error {
+        @apply text-xs text-red-600 mt-1;
+      }
+      .field-input,
+      input[type="text"].field-input,
+      select.field-input,
+      textarea.field-input {
+        @apply border border-gray-300 rounded-lg px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-brand-gold;
+      }
+      .filter-input {
+        @apply border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-brand-gold;
+      }
+
+      /* Tabelas de listagem */
+      .table-wrap {
+        @apply card overflow-x-auto;
+      }
+      .table-base {
+        @apply w-full text-sm;
+      }
+      .table-base thead {
+        @apply bg-gray-50 text-gray-600 text-left uppercase tracking-wide text-xs;
+      }
+      .table-base th {
+        @apply px-3 py-2.5 font-semibold;
+      }
+      .table-base td {
+        @apply px-3 py-2.5;
+      }
+      .table-base tbody tr {
+        @apply border-t border-gray-100 hover:bg-amber-50/40 transition-colors;
+      }
+
+      /* Estado vazio */
+      .empty-state {
+        @apply text-center text-sm text-gray-500 py-10;
+      }
+
+      /* Timeline unificada (ficha do equipamento) */
+      .timeline-item {
+        @apply border-l-2 border-gray-200 pl-3;
+      }
+
+      /* Alertas / mensagens do framework de messages */
+      .alert {
+        @apply mb-3 rounded-lg px-4 py-2.5 text-sm border;
+      }
+      .alert-success { @apply alert bg-green-50 text-green-800 border-green-200; }
+      .alert-error { @apply alert bg-red-50 text-red-800 border-red-200; }
+      .alert-warning { @apply alert bg-amber-50 text-amber-800 border-amber-200; }
+      .alert-info { @apply alert bg-blue-50 text-blue-800 border-blue-200; }
+    }
+  </style>
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
 <body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
-  <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-    {# Anônimo -> login, não "/": não existe rota raiz registrada em config/urls.py (auditoria final da Fase 1, 2026-08-25) — "/" resultava em 404 no logo do cabeçalho em toda página pública/de login. #}
-    <a href="{% if user.is_authenticated %}{% url 'equipment:list' %}{% else %}{% url 'accounts:login' %}{% endif %}" class="font-semibold text-lg">
-      Locus Locações — Estoque
-    </a>
-    {% if user.is_authenticated %}
-      <nav class="flex items-center gap-4 text-sm">
-        <a href="{% url 'equipment:list' %}" class="text-gray-600 hover:text-gray-900">Equipamentos</a>
-        <a href="{% url 'clients:list' %}" class="text-gray-600 hover:text-gray-900">Clientes</a>
-        <a href="{% url 'operations:location_list' %}" class="text-gray-600 hover:text-gray-900">Unidades</a>
+  <header class="bg-brand-black text-white px-4 py-3">
+    <div class="max-w-6xl mx-auto w-full flex items-center justify-between gap-3">
+      {# Anônimo -> login, não "/": não existe rota raiz registrada em config/urls.py (auditoria final da Fase 1, 2026-08-25) — "/" resultava em 404 no logo do cabeçalho em toda página pública/de login. #}
+      <a href="{% if user.is_authenticated %}{% url 'equipment:list' %}{% else %}{% url 'accounts:login' %}{% endif %}"
+         class="font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark shrink-0">
+        LOCUS <span class="text-white font-normal">Equipamentos</span>
+      </a>
+
+      {% if user.is_authenticated %}
+      <button type="button" id="nav-toggle" aria-expanded="false" aria-controls="main-nav"
+              class="sm:hidden text-white p-1.5 rounded-md hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
+        <span class="sr-only">Abrir menu</span>
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+
+      <nav id="main-nav" class="hidden sm:flex sm:items-center gap-x-4 gap-y-2 text-sm flex-wrap w-full sm:w-auto">
+        <a href="{% url 'equipment:list' %}" class="text-gray-300 hover:text-brand-gold">Equipamentos</a>
+        <a href="{% url 'maintenance:maintenance_list' %}" class="text-gray-300 hover:text-brand-gold">Manutenções</a>
+        <a href="{% url 'maintenance:cleaning_list' %}" class="text-gray-300 hover:text-brand-gold">Higienizações</a>
+        <a href="{% url 'clients:list' %}" class="text-gray-300 hover:text-brand-gold">Clientes</a>
+        <a href="{% url 'operations:location_list' %}" class="text-gray-300 hover:text-brand-gold">Unidades</a>
         {% if user.is_administrativo_ou_superior or user.is_superuser %}
-          <a href="{% url 'catalog:category_list' %}" class="text-gray-600 hover:text-gray-900">Categorias</a>
-          <a href="{% url 'catalog:model_list' %}" class="text-gray-600 hover:text-gray-900">Modelos</a>
+          <a href="{% url 'catalog:category_list' %}" class="text-gray-300 hover:text-brand-gold">Categorias</a>
+          <a href="{% url 'catalog:model_list' %}" class="text-gray-300 hover:text-brand-gold">Modelos</a>
         {% endif %}
         {% if user.is_admin or user.is_superuser %}
-          <a href="{% url 'equipment:import_upload' %}" class="text-gray-600 hover:text-gray-900">Importar planilha</a>
-          <a href="{% url 'accounts:user_list' %}" class="text-gray-600 hover:text-gray-900">Usuários</a>
+          <a href="{% url 'equipment:import_upload' %}" class="text-gray-300 hover:text-brand-gold">Importar planilha</a>
+          <a href="{% url 'accounts:user_list' %}" class="text-gray-300 hover:text-brand-gold">Usuários</a>
         {% endif %}
-        <span class="text-gray-600">{{ user }} · {{ user.get_role_display }}</span>
-        <form method="post" action="{% url 'accounts:logout' %}">
+        <span class="text-gray-400 sm:ml-2">{{ user }} · {{ user.get_role_display }}</span>
+        <form method="post" action="{% url 'accounts:logout' %}" class="inline">
           {% csrf_token %}
-          <button type="submit" class="text-blue-600 hover:underline">Sair</button>
+          <button type="submit" class="text-brand-gold hover:text-brand-gold-dark hover:underline">Sair</button>
         </form>
       </nav>
-    {% endif %}
+      {% endif %}
+    </div>
   </header>
 
-  <main class="flex-1 px-4 py-6 max-w-5xl mx-auto w-full">
+  <main class="flex-1 px-4 py-6 max-w-6xl mx-auto w-full">
     {% for message in messages %}
-      <div class="mb-4 rounded-md bg-blue-50 text-blue-800 px-4 py-2 text-sm">{{ message }}</div>
+      <div class="alert-{% if 'error' in message.tags %}error{% elif 'warning' in message.tags %}warning{% elif 'success' in message.tags %}success{% else %}info{% endif %}">
+        {{ message }}
+      </div>
     {% endfor %}
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="text-center text-xs text-gray-400 py-4">
+  <footer class="text-center text-xs text-gray-400 py-4 border-t border-gray-200 bg-white">
     Locus Locações · Sistema de Gestão de Equipamentos
   </footer>
+
+  {% if user.is_authenticated %}
+  <script>
+    // Alternância do menu mobile — só front-end de conveniência, mesma
+    // disciplina de outros scripts inline do projeto (ex.:
+    // operations/movement_form.html): não afeta nenhuma regra de
+    // permissão/segurança, que continua 100% no backend.
+    (function () {
+      var toggle = document.getElementById("nav-toggle");
+      var nav = document.getElementById("main-nav");
+      if (!toggle || !nav) return;
+      toggle.addEventListener("click", function () {
+        var isHidden = nav.classList.toggle("hidden");
+        toggle.setAttribute("aria-expanded", String(!isHidden));
+      });
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>

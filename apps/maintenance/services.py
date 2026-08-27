@@ -18,8 +18,15 @@ usada por `ENVIO_MANUTENCAO` em `apps.operations.services._TRANSITION_RULES`,
 por consistência (não inventa um terceiro conjunto de status válidos).
 
 Precondição de abertura COM `departure_movement`: nenhuma precondição de
-status é validada por `open_maintenance()` — o `Movement` ENVIO_MANUTENCAO
-já validou e já mudou o status antes; `Maintenance` só registra o vínculo.
+status "de entrada" no sentido de `_OPEN_WITHOUT_MOVEMENT_STATUSES` — o
+`Movement` ENVIO_MANUTENCAO já validou e já mudou o status antes;
+`Maintenance` só registra o vínculo. Mas (endurecido em 27/08/2026, ver
+"AUDITORIA DE VÍNCULOS" no fim deste docstring) `open_maintenance()` EXIGE
+`equipment.status == MANUTENCAO` no momento da abertura quando
+`departure_movement` é informado — coerência cronológica: se o status já
+não é mais MANUTENCAO, a viagem física daquele Movement já foi encerrada
+por um retorno, e vincular um `departure_movement` "velho" a uma ficha
+nova seria uma manutenção sobre uma viagem que já terminou.
 
 Linha A — Manutenção em ESTOQUE, sem Movement (conserto no próprio pátio):
     status anterior:  DISPONIVEL
@@ -225,12 +232,111 @@ os dois models desta fundação — não é uma mudança estrutural em nenhum
 dos dois, por isso não bloqueou a implementação.
 
 =============================================================================
+AUDITORIA DE VÍNCULOS Maintenance/Cleaning × Movement (27/08/2026)
+=============================================================================
+
+Fortalecimento das validações de `departure_movement`/`return_movement`/
+`Cleaning.movement` — nenhuma delas confiava em nada além do
+`OneToOneField`/`ForeignKey` para garantir integridade referencial; o
+resto (equipamento certo, tipo certo, não reclamado por outra ficha,
+coerência cronológica) sempre foi responsabilidade do service, e esta
+auditoria adiciona o que faltava sem duplicar nenhum dado.
+
+`_validate_departure_movement()` — checagens, nesta ordem:
+    1. `movement.pk is not None` — precisa ser um Movement JÁ REGISTRADO
+       (nunca uma instância em memória não salva).
+    2. `movement.equipment_id == equipment.pk`.
+    3. `movement.movement_type == ENVIO_MANUTENCAO`.
+    4. Não reclamado por outra `Maintenance` (`OneToOneField` já garante
+       isso no banco — checagem aqui é só para uma mensagem clara, dupla
+       camada de sempre).
+    5. NOVO: `equipment.status == MANUTENCAO` — coerência cronológica
+       (ver acima na Matriz 1).
+
+`_validate_return_movement()` — agora recebe também `maintenance` (não só
+`movement`/`equipment`), checagens nesta ordem:
+    1. `movement.pk is not None`.
+    2. `movement.equipment_id == equipment.pk`.
+    3. `movement.movement_type in (RETORNO_MANUTENCAO, RETORNO_ESTOQUE)`
+       — os DOIS continuam aceitos, DELIBERADAMENTE (não restrito só a
+       RETORNO_MANUTENCAO): os dois são formas fisicamente legítimas de
+       trazer o equipamento de volta — `_TRANSITION_RULES`
+       (`apps.operations.services`) já aceita MANUTENCAO como status de
+       origem para os dois, e nenhuma regra de negócio deste projeto
+       distingue "retorno de manutenção" de "retorno ao estoque vindo de
+       manutenção" além do rótulo. Restringir a só RETORNO_MANUTENCAO
+       bloquearia um caso real: equipamento consertado, mas o time decide
+       levá-lo direto ao estoque em vez de devolvê-lo à mesma
+       origem — já coberto pela Matriz 2 desde 27/08/2026 (checagem 1).
+    4. Não reclamado por outra `Maintenance` (mesma dupla camada).
+    5. NOVO: `movement.created_at > maintenance.created_at` — o retorno
+       precisa ter acontecido DEPOIS da abertura da ficha (um Movement
+       "do passado" não pode ser o retorno de uma ficha aberta depois
+       dele).
+    6. NOVO, só quando `departure_movement` existe:
+       `movement.created_at > departure_movement.created_at` — o retorno
+       precisa vir depois do envio, nunca antes/simultâneo.
+    7. NOVO: se `departure_movement` é `None` E
+       `movement.movement_type == RETORNO_MANUTENCAO`, REJEITADO — "retorno
+       da manutenção" pressupõe um envio físico que, para esta ficha (sem
+       `departure_movement`, manutenção em campo), nunca aconteceu.
+       `RETORNO_ESTOQUE` continua aceito nesse caso (não presume nenhuma
+       viagem específica, só "foi levado ao estoque"), então a ficha pode
+       legitimamente terminar com o equipamento indo para o estoque
+       mesmo tendo sido uma manutenção só em campo.
+
+Cenário conceitualmente impossível (item 3 da revisão, "return_movement
+não pode existir sozinho"): confirmado que a única forma de
+`return_movement` existir sem `departure_movement` de maneira INCOERENTE
+era exatamente a checagem 7 acima (RETORNO_MANUTENCAO sem envio
+correspondente) — agora bloqueada. `RETORNO_ESTOQUE` sem
+`departure_movement` continua válido porque é uma combinação real e
+coerente (manutenção em campo que termina com o equipamento indo ao
+estoque).
+
+`status_before` só é usado para restauração quando `departure_movement is
+None` (`_restore_status_if_owned()`, inalterado nesta auditoria — já
+garantia isso desde a implementação original).
+
+`Cleaning.movement` — SEM restrição de tipo, deliberadamente: não existe
+regra de negócio que torne algum `MovementType` incompatível com uma
+higienização (higienizar antes de instalar, ao retirar, ao transferir, ao
+voltar ao estoque ou da manutenção, ou até um `OUTRO` anotado — todos são
+combinações reais). Só o vínculo de equipamento é obrigatório quando
+`movement` é informado — mantido exatamente como estava.
+
+CONCORRÊNCIA — por que NENHUM lock novo em `Movement` foi necessário:
+`departure_movement`/`return_movement` são sempre validados como
+pertencentes ao MESMO `equipment` que já está sob `select_for_update()`
+(primeiro lock, sempre) em `open_maintenance()`/`close_maintenance()`.
+Como um `Movement` só pode pertencer a UM equipamento, a ÚNICA forma de
+duas transações disputarem o mesmo `departure_movement`/`return_movement`
+é as duas operarem sobre o MESMO `equipment` — e nesse caso as duas já
+disputam o MESMO lock de `Equipment` primeiro. Sob READ COMMITTED
+(padrão do Django/PostgreSQL), a transação que perde a corrida pelo lock
+de `Equipment` só executa sua leitura de `Maintenance`
+(`filter(departure_movement=...)`/`filter(return_movement=...)`) DEPOIS
+de a vencedora já ter comitado — vendo o vínculo já reivindicado e
+falhando com a mensagem clara, nunca com uma condição de corrida. Para
+`return_movement` a garantia é ainda mais forte: só pode existir UMA
+`Maintenance` `ABERTA` por equipamento (`UniqueConstraint`), então nunca
+há duas fichas do mesmo equipamento disputando fechamento ao mesmo tempo.
+
+Mesmo com essa garantia por ordenação de lock, `open_maintenance()`/
+`close_maintenance()` agora capturam `IntegrityError` ao salvar e
+convertem para `ValueError` com mensagem de domínio — defesa adicional
+explícita (não porque a corrida analisada acima seja alcançável hoje, mas
+para nunca deixar um `IntegrityError` cru vazar até uma view futura, por
+exemplo se um caminho novo de chamada for adicionado sem preservar a
+mesma ordem de locks).
+
+=============================================================================
 """
 
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.accounts.models import User
@@ -292,12 +398,24 @@ def has_open_maintenance(equipment: Equipment) -> bool:
 
 
 def _validate_departure_movement(*, movement: Movement, equipment: Equipment) -> None:
+    """Auditoria de 27/08/2026 — ver "AUDITORIA DE VÍNCULOS" no topo deste módulo para a lista completa e a ordem."""
+    if movement.pk is None:
+        raise ValueError("A movimentação de envio informada precisa já estar registrada.")
     if movement.equipment_id != equipment.pk:
         raise ValueError("A movimentação de envio informada não pertence a este equipamento.")
     if movement.movement_type != MovementType.ENVIO_MANUTENCAO:
         raise ValueError("A movimentação de envio precisa ser do tipo 'Envio para manutenção'.")
     if Maintenance.objects.filter(departure_movement=movement).exists():
         raise ValueError("Esta movimentação de envio já está vinculada a outra manutenção.")
+    if equipment.status != Status.MANUTENCAO:
+        # Coerência cronológica: se o status já não é mais MANUTENCAO, a
+        # viagem física deste Movement já foi encerrada por um retorno —
+        # vincular um departure_movement "velho" a uma ficha nova seria
+        # uma manutenção sobre uma viagem que já terminou.
+        raise ValueError(
+            "Esta movimentação de envio não representa mais uma manutenção em andamento — o equipamento já "
+            f"retornou (status atual: '{equipment.get_status_display()}'). Verifique se é o Movement correto."
+        )
 
 
 @transaction.atomic
@@ -356,11 +474,25 @@ def open_maintenance(data: NewMaintenanceData) -> Maintenance:
         created_by=data.created_by,
     )
     maintenance._change_reason = "Manutenção aberta."
-    maintenance.save()
+    try:
+        maintenance.save()
+    except IntegrityError as exc:
+        # Defesa adicional (ver "AUDITORIA DE VÍNCULOS" no topo do módulo)
+        # — a ordenação de locks já deveria impedir isto na prática; isto
+        # é só para nunca deixar um IntegrityError cru vazar até uma view
+        # futura caso um caminho de chamada novo não preserve a mesma
+        # ordem de locks.
+        raise ValueError(
+            "Não foi possível registrar esta manutenção — verifique se já não existe outra manutenção aberta "
+            "para este equipamento ou se a movimentação de envio já não foi reivindicada por outra ficha."
+        ) from exc
     return maintenance
 
 
-def _validate_return_movement(*, movement: Movement, equipment: Equipment) -> None:
+def _validate_return_movement(*, movement: Movement, equipment: Equipment, maintenance: Maintenance) -> None:
+    """Auditoria de 27/08/2026 — ver "AUDITORIA DE VÍNCULOS" no topo deste módulo para a lista completa e a ordem."""
+    if movement.pk is None:
+        raise ValueError("A movimentação de retorno informada precisa já estar registrada.")
     if movement.equipment_id != equipment.pk:
         raise ValueError("A movimentação de retorno informada não pertence a este equipamento.")
     if movement.movement_type not in _RETURN_MOVEMENT_TYPES:
@@ -369,6 +501,24 @@ def _validate_return_movement(*, movement: Movement, equipment: Equipment) -> No
         )
     if Maintenance.objects.filter(return_movement=movement).exists():
         raise ValueError("Esta movimentação de retorno já está vinculada a outra manutenção.")
+    if movement.created_at <= maintenance.created_at:
+        # Coerência cronológica: o retorno precisa ter acontecido DEPOIS da
+        # abertura desta ficha — um Movement "do passado" não pode ser o
+        # retorno de uma manutenção aberta depois dele.
+        raise ValueError("A movimentação de retorno é anterior à abertura desta manutenção.")
+    if maintenance.departure_movement_id is not None:
+        if movement.created_at <= maintenance.departure_movement.created_at:
+            raise ValueError("A movimentação de retorno é anterior (ou simultânea) à movimentação de envio.")
+    elif movement.movement_type == MovementType.RETORNO_MANUTENCAO:
+        # Cenário conceitualmente impossível (revisão de 27/08/2026): sem
+        # `departure_movement`, esta ficha nunca registrou um envio físico
+        # — "retorno da manutenção" pressupõe exatamente esse envio.
+        # RETORNO_ESTOQUE continua aceito neste caso (não presume nenhuma
+        # viagem específica).
+        raise ValueError(
+            "Esta manutenção não tem movimentação de envio associada — 'Retorno da manutenção' pressupõe um "
+            "envio físico prévio. Use 'Retorno ao estoque' se o equipamento foi levado ao estoque diretamente."
+        )
 
 
 def _restore_status_if_owned(*, maintenance: Maintenance, equipment: Equipment, changed_by: User, event_label: str) -> None:
@@ -420,7 +570,7 @@ def close_maintenance(*, maintenance: Maintenance, data: CloseMaintenanceData) -
     equipment = Equipment.objects.select_for_update().get(pk=maintenance.equipment_id)
 
     if data.return_movement is not None:
-        _validate_return_movement(movement=data.return_movement, equipment=equipment)
+        _validate_return_movement(movement=data.return_movement, equipment=equipment, maintenance=maintenance)
         maintenance.return_movement = data.return_movement
 
     if data.condition_after:
@@ -441,7 +591,15 @@ def close_maintenance(*, maintenance: Maintenance, data: CloseMaintenanceData) -
     maintenance.condition_after = data.condition_after
     maintenance.closed_at = timezone.now()
     maintenance._change_reason = "Manutenção concluída."
-    maintenance.save()
+    try:
+        maintenance.save()
+    except IntegrityError as exc:
+        # Mesma defesa adicional de `open_maintenance()` — ver "AUDITORIA
+        # DE VÍNCULOS" no topo do módulo.
+        raise ValueError(
+            "Não foi possível concluir esta manutenção — verifique se a movimentação de retorno já não foi "
+            "reivindicada por outra ficha."
+        ) from exc
     return maintenance
 
 
@@ -491,6 +649,11 @@ def create_cleaning(data: NewCleaningData) -> Cleaning:
     equipment = Equipment.objects.get(pk=data.equipment_id)
 
     if data.movement is not None and data.movement.equipment_id != equipment.pk:
+        # Único vínculo exigido (auditoria de 27/08/2026, ver "AUDITORIA DE
+        # VÍNCULOS" no topo do módulo): o Movement precisa pertencer ao
+        # MESMO equipamento. Nenhuma restrição de MovementType — não existe
+        # regra de domínio que torne algum tipo incompatível com uma
+        # higienização.
         raise ValueError("A movimentação informada não pertence a este equipamento.")
 
     return Cleaning.objects.create(
@@ -515,3 +678,42 @@ def cancel_cleaning(*, cleaning: Cleaning) -> Cleaning:
     cleaning.is_active = False
     cleaning.save(update_fields=["is_active", "updated_at"])
     return cleaning
+
+
+# ---------------------------------------------------------------------------
+# Leitura — ficha do equipamento (UI, Fase 2, 27/08/2026)
+# ---------------------------------------------------------------------------
+
+
+def get_equipment_maintenance_summary(equipment: Equipment, limit: int = 5) -> dict:
+    """
+    Resumo COMPACTO para a seção "Manutenção e higienização" da ficha
+    autenticada do equipamento — deliberadamente distinto da timeline
+    unificada completa (`apps.equipment.services.get_equipment_history_timeline()`):
+    aqui só os eventos mais recentes de CADA tipo, com link direto para o
+    detalhe, não a timeline inteira. Nenhuma escrita, nenhuma regra de
+    domínio — só leitura.
+
+    Duas queries fixas (uma por model), sem N+1: `limit` é aplicado no
+    banco (`[:limit]`), nunca em Python sobre uma queryset maior.
+    """
+    open_maintenance_qs = Maintenance.objects.filter(
+        equipment=equipment, status=MaintenanceStatus.ABERTA, is_active=True
+    ).select_related("responsible").first()
+
+    recent_maintenances = list(
+        Maintenance.objects.filter(equipment=equipment, is_active=True)
+        .select_related("responsible")
+        .order_by("-created_at")[:limit]
+    )
+    recent_cleanings = list(
+        Cleaning.objects.filter(equipment=equipment, is_active=True)
+        .select_related("responsible")
+        .order_by("-performed_at")[:limit]
+    )
+
+    return {
+        "open_maintenance": open_maintenance_qs,
+        "recent_maintenances": recent_maintenances,
+        "recent_cleanings": recent_cleanings,
+    }

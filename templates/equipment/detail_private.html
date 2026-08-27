@@ -54,10 +54,6 @@
   {% if equipment.notes %}
     <p class="mt-4 text-sm text-gray-600 border-t border-gray-100 pt-3">{{ equipment.notes }}</p>
   {% endif %}
-
-  <p class="mt-6 text-xs text-gray-400">
-    Ações rápidas de manutenção completa/higienização chegam numa próxima etapa da Fase 2.
-  </p>
 </div>
 
 {% if user.is_operacional_ou_superior %}
@@ -65,12 +61,64 @@
   <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="text-blue-600 hover:underline">Registrar movimentação</a>
   <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="text-blue-600 hover:underline">Alterar status</a>
   <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="text-blue-600 hover:underline">Alterar condição</a>
+  {% if not maintenance_summary.open_maintenance %}
+  <a href="{% url 'maintenance:maintenance_open' %}?equipment={{ equipment.pk }}" class="text-blue-600 hover:underline">Abrir manutenção</a>
+  {% endif %}
+  <a href="{% url 'maintenance:cleaning_create' %}?equipment={{ equipment.pk }}" class="text-blue-600 hover:underline">Registrar higienização</a>
   {% if user.is_administrativo_ou_superior %}
   <a href="{% url 'equipment:update' equipment.patrimonio %}" class="text-blue-600 hover:underline">Editar dados</a>
   {% endif %}
   {% if user.is_admin %}
   <a href="{% url 'equipment:reclassify' equipment.patrimonio %}" class="text-blue-600 hover:underline">Reclassificar modelo</a>
   <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="text-red-600 hover:underline">Reemitir patrimônio</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% comment %}
+  Seção resumida (auditoria de 27/08/2026, item 7): eventos técnicos
+  RECENTES de Maintenance/Cleaning, com link para o detalhe — não a
+  timeline inteira (essa continua abaixo, "Histórico do equipamento").
+  `maintenance_summary` só chega no contexto quando o usuário tem
+  CAN_VIEW_MAINTENANCE (EquipmentDetailView) — Consulta também vê esta
+  seção (tem permissão de leitura), mas os links de ação acima só
+  aparecem para quem tem CAN_REGISTER_OPERATIONS.
+{% endcomment %}
+{% if maintenance_summary %}
+<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4">
+  <h2 class="text-sm font-semibold text-gray-700 mb-3">Manutenção e higienização</h2>
+
+  {% if maintenance_summary.open_maintenance %}
+  <div class="mb-3 rounded-md bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 text-sm">
+    Manutenção em aberto desde {{ maintenance_summary.open_maintenance.created_at|date:"d/m/Y" }} —
+    <a href="{% url 'maintenance:maintenance_detail' maintenance_summary.open_maintenance.pk %}" class="underline font-medium">ver ficha</a>
+  </div>
+  {% endif %}
+
+  {% if maintenance_summary.recent_maintenances or maintenance_summary.recent_cleanings %}
+  <ul class="space-y-2 text-sm">
+    {% for m in maintenance_summary.recent_maintenances %}
+    <li class="flex items-center justify-between gap-2 border-b border-gray-50 pb-2">
+      <span>
+        Manutenção {{ m.get_maintenance_type_display|lower }} —
+        {% if m.status == "ABERTA" %}aberta{% elif m.status == "CONCLUIDA" %}concluída{% else %}cancelada{% endif %}
+        <span class="text-gray-400">({{ m.created_at|date:"d/m/Y" }})</span>
+      </span>
+      <a href="{% url 'maintenance:maintenance_detail' m.pk %}" class="text-blue-600 hover:underline shrink-0">Ver</a>
+    </li>
+    {% endfor %}
+    {% for c in maintenance_summary.recent_cleanings %}
+    <li class="flex items-center justify-between gap-2 border-b border-gray-50 pb-2">
+      <span>
+        Higienização realizada
+        <span class="text-gray-400">({{ c.performed_at|date:"d/m/Y" }})</span>
+      </span>
+      <a href="{% url 'maintenance:cleaning_detail' c.pk %}" class="text-blue-600 hover:underline shrink-0">Ver</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-gray-500">Nenhuma manutenção ou higienização registrada ainda.</p>
   {% endif %}
 </div>
 {% endif %}

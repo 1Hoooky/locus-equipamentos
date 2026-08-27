@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Cancelar higienização — {{ cleaning.equipment.patrimonio }} — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'maintenance:cleaning_detail' cleaning.pk %}" class="text-sm link">&larr; Voltar</a>
+
+<h1 class="page-title mt-3 mb-1">Cancelar registro de higienização</h1>
+<p class="page-subtitle mb-4">{{ cleaning.equipment.patrimonio }} — {{ cleaning.equipment.model.name }}</p>
+
+<div class="alert-warning max-w-2xl">
+  Esta ação marca o registro como inativo — não é possível reativá-lo depois. O registro permanece no histórico
+  (nada é excluído). Para corrigir um dado incorreto, cancele este registro e crie um novo, correto.
+</div>
+
+{% if form.non_field_errors %}
+<div class="alert-error">
+  {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" class="card-pad max-w-2xl space-y-4">
+  {% csrf_token %}
+  <input type="hidden" name="submission_token" value="{{ submission_token }}">
+
+  <div class="flex items-start gap-2">
+    {{ form.confirm }}
+    <label class="text-sm text-gray-700" for="{{ form.confirm.id_for_label }}">{{ form.confirm.label }}</label>
+  </div>
+  {% for error in form.confirm.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="btn-danger">Confirmar cancelamento</button>
+    <a href="{% url 'maintenance:cleaning_detail' cleaning.pk %}" class="btn-neutral">Voltar sem cancelar</a>
+  </div>
+</form>
+{% endblock %}

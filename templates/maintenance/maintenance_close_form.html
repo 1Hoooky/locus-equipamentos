@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Concluir manutenção — {{ maintenance.equipment.patrimonio }} — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'maintenance:maintenance_detail' maintenance.pk %}" class="text-sm link">&larr; Voltar</a>
+
+<h1 class="page-title mt-3 mb-1">Concluir manutenção</h1>
+<p class="page-subtitle mb-4">{{ maintenance.equipment.patrimonio }} — {{ maintenance.equipment.model.name }}</p>
+
+{% if form.non_field_errors %}
+<div class="alert-error">
+  {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" class="card-pad max-w-2xl space-y-4">
+  {% csrf_token %}
+  <input type="hidden" name="submission_token" value="{{ submission_token }}">
+
+  <div>
+    <label class="field-label" for="{{ form.service_performed.id_for_label }}">{{ form.service_performed.label }}</label>
+    {{ form.service_performed }}
+    {% for error in form.service_performed.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.condition_after.id_for_label }}">{{ form.condition_after.label }}</label>
+    {{ form.condition_after }}
+    {% for error in form.condition_after.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.return_movement.id_for_label }}">{{ form.return_movement.label }}</label>
+    {{ form.return_movement }}
+    <p class="field-hint">{{ form.return_movement.help_text }}</p>
+    {% for error in form.return_movement.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="btn-primary">Concluir manutenção</button>
+    <a href="{% url 'maintenance:maintenance_detail' maintenance.pk %}" class="btn-neutral">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

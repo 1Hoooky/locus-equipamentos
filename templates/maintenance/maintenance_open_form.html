@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Abrir manutenção — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'maintenance:maintenance_list' %}" class="text-sm link">&larr; Voltar</a>
+
+<h1 class="page-title mt-3 mb-1">Abrir manutenção</h1>
+<p class="page-subtitle mb-4">Registra uma nova ficha técnica de manutenção — usa exclusivamente open_maintenance().</p>
+
+{% if form.non_field_errors %}
+<div class="alert-error">
+  {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" class="card-pad max-w-2xl space-y-4">
+  {% csrf_token %}
+  <input type="hidden" name="submission_token" value="{{ submission_token }}">
+
+  <div>
+    <label class="field-label" for="{{ form.equipment.id_for_label }}">{{ form.equipment.label }}</label>
+    <input type="search" id="equipment-search" placeholder="Pesquisar por patrimônio ou modelo…" autocomplete="off" class="field-input mb-1">
+    {{ form.equipment }}
+    {% for error in form.equipment.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.maintenance_type.id_for_label }}">{{ form.maintenance_type.label }}</label>
+    {{ form.maintenance_type }}
+    {% for error in form.maintenance_type.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.diagnosis.id_for_label }}">{{ form.diagnosis.label }}</label>
+    {{ form.diagnosis }}
+    {% for error in form.diagnosis.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.responsible.id_for_label }}">{{ form.responsible.label }}</label>
+    {{ form.responsible }}
+    {% for error in form.responsible.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div>
+    <label class="field-label" for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>
+    {{ form.notes }}
+    {% for error in form.notes.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div id="departure-movement-field">
+    <label class="field-label" for="{{ form.departure_movement.id_for_label }}">{{ form.departure_movement.label }}</label>
+    {{ form.departure_movement }}
+    <p class="field-hint">{{ form.departure_movement.help_text }}</p>
+    {% for error in form.departure_movement.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="btn-primary">Abrir manutenção</button>
+    <a href="{% url 'maintenance:maintenance_list' %}" class="btn-neutral">Cancelar</a>
+  </div>
+</form>
+
+<script>
+  (function () {
+    // Pesquisa incremental do equipamento — mesma técnica já usada em
+    // operations/movement_form.html (filtra opções já carregadas; a
+    // segurança real é a queryset do form no backend).
+    var search = document.getElementById("equipment-search");
+    var select = document.getElementById("{{ form.equipment.id_for_label }}");
+    if (search && select) {
+      var options = Array.prototype.map.call(select.options, function (opt) {
+        return {value: opt.value, text: opt.text, search: (opt.getAttribute("data-search") || opt.text.toLowerCase())};
+      });
+      function normalize(text) { return text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+      search.addEventListener("input", function () {
+        var term = normalize(search.value.trim());
+        var previousValue = select.value;
+        select.innerHTML = "";
+        options.forEach(function (opt) {
+          if (opt.value && term && normalize(opt.search).indexOf(term) === -1) return;
+          var el = document.createElement("option");
+          el.value = opt.value; el.textContent = opt.text;
+          select.appendChild(el);
+        });
+        var stillPresent = Array.prototype.some.call(select.options, function (o) { return o.value === previousValue; });
+        if (stillPresent) select.value = previousValue;
+      });
+    }
+
+    // Atualiza as opções de "movimentação de envio" via htmx sempre que o
+    // equipamento muda — a filtragem que REALMENTE importa é a queryset
+    // do backend (DepartureMovementOptionsView), esta troca é só UX;
+    // com JS desabilitado o campo simplesmente não se atualiza (fica
+    // vazio ou com o pré-selecionado da ficha), o service continua sendo
+    // a autoridade final em qualquer um dos dois casos.
+    if (select && window.htmx) {
+      select.setAttribute("hx-get", "{% url 'maintenance:departure_movement_options' %}");
+      select.setAttribute("hx-trigger", "change");
+      select.setAttribute("hx-target", "#{{ form.departure_movement.id_for_label }}");
+      select.setAttribute("hx-swap", "outerHTML");
+      select.setAttribute("hx-include", "this");
+      select.setAttribute("hx-vals", "js:{equipment: document.getElementById('{{ form.equipment.id_for_label }}').value}");
+      htmx.process(select);
+    }
+  })();
+</script>
+{% endblock %}
