@@ -295,12 +295,16 @@ def create_movement(data: NewMovementData) -> Movement:
 
 
 # ---------------------------------------------------------------------------
-# Diagnóstico — Locations duplicadas (ferramenta TEMPORÁRIA: management
-# command `report_duplicate_locations` e a tela somente-leitura
-# `apps.operations.views.DuplicateLocationsReportView`, ambos criados para
-# investigar/limpar as unidades repetidas deixadas pelos testes manuais de
-# double-submit no Render Free — sem acesso a Shell lá, a tela é o único
-# jeito de rodar esta consulta em produção). ÚNICA fonte da regra de
+# Diagnóstico — Locations duplicadas (ferramenta PERMANENTE, somente
+# leitura: management command `report_duplicate_locations` e a tela
+# `apps.operations.views.DuplicateLocationsReportView`. Criados
+# originalmente para investigar as unidades repetidas deixadas pelos
+# testes manuais de double-submit — a LIMPEZA daqueles dados já foi
+# encerrada por data migration (0005_deactivate_test_duplicate_locations)
+# e não depende mais desta ferramenta. A ferramenta em si foi mantida de
+# propósito, como diagnóstico contínuo para detectar duplicatas
+# semelhantes no futuro — sem acesso a Shell no Render Free, a tela é o
+# único jeito de rodar esta consulta em produção). ÚNICA fonte da regra de
 # "duplicata": os dois chamadores reaproveitam esta função — nunca uma
 # cópia divergente. Não apaga, não edita, não consolida nada; é só leitura.
 # ---------------------------------------------------------------------------
