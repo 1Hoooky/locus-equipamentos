@@ -61,6 +61,7 @@ LOCAL_APPS = [
     "apps.equipment",
     "apps.clients",
     "apps.operations",
+    "apps.maintenance",
     "apps.attachments",
     "apps.qrcodes",
     "apps.dashboard",

@@ -77,6 +77,20 @@ CAN_MANAGE_CLIENTS = (Role.ADMIN, Role.ADMINISTRATIVO)
 CAN_MANAGE_LOCATIONS = (Role.ADMIN, Role.ADMINISTRATIVO)
 CAN_VIEW_MOVEMENTS = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA)
 
+# Fundação de Manutenção/Higienização (arquitetura aprovada em 27/08/2026,
+# decisão 7). Constante própria, semanticamente distinta de
+# CAN_VIEW_MOVEMENTS mesmo com os mesmos 4 perfis hoje — os dois domínios
+# são conceitualmente separados (apps.maintenance != apps.operations) e
+# podem divergir de perfis no futuro sem precisar desacoplar depois.
+# Ainda sem view nenhuma consumindo isto nesta etapa (só a fundação de
+# domínio foi implementada) — reservada com antecedência, mesmo padrão já
+# usado para CAN_ADD_PHOTOS antes de apps.attachments existir de verdade.
+CAN_VIEW_MAINTENANCE = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA)
+# Escrita (abrir/concluir/cancelar Maintenance, registrar Cleaning):
+# reaproveita CAN_REGISTER_OPERATIONS — já reservada desde a Fase 1
+# exatamente para "manutenção/higienização/movimentação" (ver comentário
+# na constante acima), nenhuma constante nova necessária.
+
 # Revisão de 25/08/2026 (auditoria final da Fase 1 — fechamento de
 # inconsistências): duas constantes foram removidas por não corresponderem
 # a nenhum comportamento real do sistema.
