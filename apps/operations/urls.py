@@ -11,17 +11,14 @@ urlpatterns = [
     path("unidades/<int:pk>/editar/", views.LocationUpdateView.as_view(), name="location_update"),
     path("unidades/<int:pk>/endereco/", views.LocationAddressUpdateView.as_view(), name="location_address_update"),
     path("movimentar/<str:patrimonio>/", views.MovementCreateView.as_view(), name="movement_create"),
-    # Ferramenta TEMPORÁRIA (ver DuplicateLocationsReportView) — remover
-    # esta rota junto com a view/template depois da limpeza dos dados de
-    # teste.
+    # Diagnóstico somente-leitura, mantido (ver DuplicateLocationsReportView).
+    # A rota de ESCRITA que existia aqui (.../limpar/) foi removida — a
+    # limpeza dos dados de teste agora é feita por data migration
+    # (apps.operations.migrations.0005_deactivate_test_duplicate_locations),
+    # não mais disparável pelo navegador.
     path(
         "diagnostico/locations-duplicadas/",
         views.DuplicateLocationsReportView.as_view(),
         name="duplicate_locations_report",
-    ),
-    path(
-        "diagnostico/locations-duplicadas/limpar/",
-        views.DuplicateLocationsCleanupView.as_view(),
-        name="duplicate_locations_cleanup",
     ),
 ]
