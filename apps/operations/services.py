@@ -11,7 +11,7 @@ view/form, nem qualquer caminho paralelo que altere
 from dataclasses import dataclass, field
 
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 
 from apps.accounts.models import User
 from apps.clients.models import Client
@@ -335,31 +335,90 @@ def find_duplicate_location_groups() -> list[DuplicateLocationGroup]:
     Para cada `Location` do grupo, conta quantos `Movement` a referenciam
     como origem e como destino — quem chama decide como exibir/rotular
     "SEM REFERÊNCIAS"/"COM REFERÊNCIAS" (`DuplicateLocationEntry.has_references`).
+
+    Causa raiz de um 502 em produção (Render + Neon/Postgres remoto): a
+    versão anterior desta função fazia, por Location, duas queries
+    `Movement.objects.filter(...).count()` dentro de um loop — um N+1
+    clássico. Com latência de rede real até o banco (Neon não é
+    localhost), cada round-trip soma, e o worker do Gunicorn estourava o
+    timeout preso em consultas SQL sequenciais (não OOM — o traceback
+    mostrava o worker bloqueado em SQL, o "Perhaps out of memory" do
+    Gunicorn é só a mensagem genérica do SIGKILL por timeout, não um
+    diagnóstico de memória confirmado).
+
+    Reescrita para NÚMERO DE QUERIES CONSTANTE — sempre exatamente 2,
+    não importa quantos grupos ou quantas Locations existam:
+
+      1. A agregação `GROUP BY (name, type, client) HAVING count > 1` de
+         sempre (já era 1 query só).
+      2. UMA ÚNICA query trazendo TODAS as Locations membras de QUALQUER
+         grupo duplicado de uma vez, com as contagens de `Movement` como
+         origem/destino calculadas via `annotate(Count(..., distinct=True))`
+         — agregação no próprio banco, não em Python, e sem carregar
+         nenhum `Movement` inteiro em memória (só os `COUNT()` agregados
+         voltam). `distinct=True` em CADA `Count` evita o "fan-out"
+         clássico de combinar duas relações reversas (`movements_from`/
+         `movements_to`) na mesma query (o JOIN duplo multiplicaria as
+         linhas sem isso — padrão documentado do próprio Django para
+         "Combining multiple aggregations").
+
+    O agrupamento em `DuplicateLocationGroup`/ordenação dentro de cada
+    grupo continuam EXATAMENTE como antes — só a forma de buscar os dados
+    mudou, o resultado e o formato são idênticos.
     """
-    raw_groups = (
+    raw_groups = list(
         Location.objects.filter(is_active=True)
         .values("name", "type", "client")
         .annotate(quantidade=Count("id"))
         .filter(quantidade__gt=1)
         .order_by("name")
     )
+    if not raw_groups:
+        return []
+
+    # OR de um Q por grupo — o universo é só "as Locations que pertencem
+    # a algum dos grupos já identificados acima", nunca "todas as
+    # Locations com um desses nomes" (dois clientes diferentes podem
+    # compartilhar nome sem formar duplicata — cada Q trava name+type+client
+    # juntos, exatamente a chave do grupo).
+    group_filter = Q()
+    for raw in raw_groups:
+        group_filter |= Q(name=raw["name"], type=raw["type"], client_id=raw["client"])
+
+    locations = (
+        Location.objects.filter(is_active=True)
+        .filter(group_filter)
+        .select_related("client")
+        .annotate(
+            movements_as_origin=Count("movements_from", distinct=True),
+            movements_as_destination=Count("movements_to", distinct=True),
+        )
+        .order_by("pk")
+    )
+
+    # Uma única passada em Python (sem query nenhuma) para reagrupar por
+    # (name, type, client) — o `entries` de cada grupo sai na mesma ordem
+    # de antes (pk crescente) porque `locations` já vem ordenada por pk.
+    members_by_key: dict[tuple[str, str, int | None], list[Location]] = {}
+    for location in locations:
+        key = (location.name, location.type, location.client_id)
+        members_by_key.setdefault(key, []).append(location)
 
     groups: list[DuplicateLocationGroup] = []
     for raw in raw_groups:
-        locations = (
-            Location.objects.filter(is_active=True, name=raw["name"], type=raw["type"], client_id=raw["client"])
-            .select_related("client")
-            .order_by("pk")
-        )
-        first = locations.first()
+        key = (raw["name"], raw["type"], raw["client"])
+        members = members_by_key.get(key, [])
+        if not members:
+            continue  # defensivo: não deveria acontecer (mesmo filtro dos dois lados)
+        first = members[0]
         owner_label = first.client.display_name() if first.client_id else "(interna, sem cliente)"
         entries = [
             DuplicateLocationEntry(
                 location=location,
-                movements_as_origin=Movement.objects.filter(origin_location=location).count(),
-                movements_as_destination=Movement.objects.filter(destination_location=location).count(),
+                movements_as_origin=location.movements_as_origin,
+                movements_as_destination=location.movements_as_destination,
             )
-            for location in locations
+            for location in members
         ]
         groups.append(
             DuplicateLocationGroup(

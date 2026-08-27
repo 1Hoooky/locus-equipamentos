@@ -20,7 +20,9 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
 
+from apps.catalog.models import Category, EquipmentModel
 from apps.clients.models import Client
+from apps.equipment.services import NewEquipmentData, create_equipment
 from apps.operations.models import Location, LocationType, MovementType
 from apps.operations.services import (
     NewLocationData,
@@ -31,6 +33,13 @@ from apps.operations.services import (
 )
 
 User = get_user_model()
+
+
+def _equipment(created_by):
+    n = Category.objects.count()
+    category = Category.objects.create(name=f"Categoria {n}")
+    model = EquipmentModel.objects.create(category=category, name=f"Modelo {n}", code=f"MD{n}")
+    return create_equipment(NewEquipmentData(model_id=model.pk, created_by=created_by))
 
 
 class FindDuplicateLocationGroupsTest(TestCase):
@@ -106,6 +115,117 @@ class FindDuplicateLocationGroupsTest(TestCase):
         self.assertEqual(com_ref_entry.movements_as_destination, 1)
         self.assertEqual(com_ref_entry.movements_as_origin, 0)
         self.assertTrue(com_ref_entry.has_references)
+
+
+class FindDuplicateLocationGroupsQueryCountTest(TestCase):
+    """
+    Guarda contra regressão do N+1 que causou o 502 em produção (Render +
+    Neon): a versão anterior fazia duas queries `.count()` POR Location
+    dentro de um loop — com N locations, N crescia o número de queries.
+    A versão atual usa `annotate(Count(..., distinct=True))` numa única
+    query para todas as Locations de uma vez; o total é sempre 2 queries
+    (a agregação dos grupos + a busca com as contagens), não importa
+    quantos grupos/Locations existam.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(username="qcount_admin", password="senha-forte-123", role="ADMIN")
+
+    def _make_group(self, name, size, client=None):
+        return [create_location(NewLocationData(name=name, type=LocationType.CLIENTE, client=client)) for _ in range(size)]
+
+    def test_query_count_stays_at_two_for_a_single_small_group(self):
+        cliente = Client.objects.create(company_name="Cliente QCount Pequeno LTDA")
+        self._make_group("Duplicata Pequena", 2, client=cliente)
+
+        with self.assertNumQueries(2):
+            groups = find_duplicate_location_groups()
+        self.assertEqual(len(groups), 1)
+
+    def test_query_count_does_not_grow_with_more_groups_or_locations(self):
+        """
+        O mesmo número de queries (2) tem que valer para 5 grupos e 15
+        Locations no total — se alguém reintroduzir um loop com
+        `.count()`/`.filter()` por Location, este teste falha porque o
+        número de queries dispara.
+        """
+        for i in range(5):
+            cliente = Client.objects.create(company_name=f"Cliente QCount Grande {i} LTDA")
+            self._make_group(f"Duplicata Grande {i}", 3, client=cliente)
+        self.assertEqual(Location.objects.filter(is_active=True).count(), 15 + 2)  # + Estoque/Manutenção Locus
+
+        with self.assertNumQueries(2):
+            groups = find_duplicate_location_groups()
+        self.assertEqual(len(groups), 5)
+        self.assertEqual(sum(len(g.entries) for g in groups), 15)
+
+    def test_query_count_stays_at_two_even_with_movements_referencing_locations(self):
+        """
+        Adicionar Movements (que é o que a versão antiga consultava dentro
+        do loop) também não pode aumentar o número de queries — as
+        contagens vêm de `annotate()` na mesma query que busca as
+        Locations, não de consultas extras.
+        """
+        cliente = Client.objects.create(company_name="Cliente QCount Movement LTDA")
+        sem_ref, com_ref = self._make_group("Duplicata Com Movement", 2, client=cliente)
+        equipment = _equipment(self.admin)
+        create_movement(
+            NewMovementData(
+                equipment_id=equipment.pk,
+                movement_type=MovementType.INSTALACAO,
+                created_by=self.admin,
+                destination_location=com_ref,
+            )
+        )
+
+        with self.assertNumQueries(2):
+            groups = find_duplicate_location_groups()
+
+        entries_by_pk = {entry.location.pk: entry for entry in groups[0].entries}
+        self.assertTrue(entries_by_pk[com_ref.pk].has_references)
+        self.assertFalse(entries_by_pk[sem_ref.pk].has_references)
+
+    def test_origin_and_destination_counts_are_not_multiplied_by_each_other(self):
+        """
+        Regressão do "fan-out" clássico de combinar duas relações reversas
+        (`movements_from`/`movements_to`) numa mesma query sem
+        `distinct=True`: sem isso, o JOIN duplo multiplicaria as
+        contagens (3 origem × 2 destino apareceria como 6/6, não 3/2).
+        """
+        cliente = Client.objects.create(company_name="Cliente Fan-Out LTDA")
+        hub, _outra = self._make_group("Duplicata Fan-Out", 2, client=cliente)
+        estoque = create_location(NewLocationData(name="Estoque Fan-Out", type=LocationType.ESTOQUE))
+
+        # 3 equipamentos instalados em `hub` (3 Movements com destino=hub).
+        equipments = [_equipment(self.admin) for _ in range(3)]
+        for equipment in equipments:
+            create_movement(
+                NewMovementData(
+                    equipment_id=equipment.pk,
+                    movement_type=MovementType.INSTALACAO,
+                    created_by=self.admin,
+                    destination_location=hub,
+                )
+            )
+        # 2 desses equipamentos saem de `hub` de volta ao estoque (2
+        # Movements com origem=hub — origin vem do current_location
+        # automaticamente, nunca passado explicitamente).
+        for equipment in equipments[:2]:
+            create_movement(
+                NewMovementData(
+                    equipment_id=equipment.pk,
+                    movement_type=MovementType.RETIRADA,
+                    created_by=self.admin,
+                    destination_location=estoque,
+                )
+            )
+
+        with self.assertNumQueries(2):
+            groups = find_duplicate_location_groups()
+
+        entry = next(e for g in groups for e in g.entries if e.location.pk == hub.pk)
+        self.assertEqual(entry.movements_as_destination, 3)
+        self.assertEqual(entry.movements_as_origin, 2)
 
 
 class ReportDuplicateLocationsCommandTest(TestCase):
