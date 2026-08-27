@@ -161,6 +161,29 @@ _REQUIRED_DESTINATION_TYPE: dict[str, str] = {
     MovementType.TRANSFERENCIA: LocationType.CLIENTE,
 }
 
+# Fechamento de 27/08/2026 (decisão 1 sobre a fundação de
+# apps.maintenance): a checagem de status sozinha (_TRANSITION_RULES) não
+# é suficiente para impedir que um equipamento "volte à operação/cliente"
+# enquanto existe uma Maintenance técnica ainda ABERTA — um Movement como
+# RETORNO_ESTOQUE já pode ter trazido o status de volta a DISPONIVEL "por
+# fora" da Maintenance (ver apps.maintenance.services, Matriz 1/2), sem
+# fechar a ficha. Os quatro tipos abaixo são os que levariam o equipamento
+# de volta à operação/cliente ou o enviariam de novo para manutenção — por
+# isso ficam bloqueados enquanto existir Maintenance ABERTA E ATIVA,
+# independente do que o status sozinho permitiria. RETORNO_ESTOQUE/
+# RETORNO_MANUTENCAO/OUTRO ficam FORA deste conjunto de propósito — são os
+# fatos físicos que trazem o equipamento de volta, ou eventos sem efeito
+# de status; nenhum dos dois deve ficar preso atrás de papelada ainda
+# aberta.
+_BLOCKED_BY_OPEN_MAINTENANCE = frozenset(
+    {
+        MovementType.INSTALACAO,
+        MovementType.RETIRADA,
+        MovementType.TRANSFERENCIA,
+        MovementType.ENVIO_MANUTENCAO,
+    }
+)
+
 
 def _validate_transition(*, equipment: Equipment, movement_type: str, destination_location: Location | None) -> str | None:
     """
@@ -181,6 +204,32 @@ def _validate_transition(*, equipment: Equipment, movement_type: str, destinatio
         # tela autorizado nesta etapa (instalação/retirada/transferência/
         # manutenção); existe só porque o enum já previa o valor.
         return None
+
+    if movement_type in _BLOCKED_BY_OPEN_MAINTENANCE:
+        # Import LOCAL, deliberado — não uma gambiarra. `apps.operations`
+        # existe desde a Fase 1 e não deve ganhar uma dependência de
+        # IMPORT-TIME de `apps.maintenance` (introduzido depois, camada
+        # "acima" desta) — isso inverteria a direção de dependência do
+        # projeto e criaria risco real de ciclo assim que
+        # `apps.maintenance` precisar de algo daqui. Hoje não há ciclo de
+        # verdade (nada em apps.maintenance importa este módulo), mas a
+        # direção arquitetural importa mais que o fato de funcionar hoje.
+        # `has_open_maintenance()` é um predicado puro — `apps.operations`
+        # não precisa conhecer `Maintenance`/`MaintenanceStatus`/`is_active`.
+        # Chamado DEPOIS do `select_for_update()` em `equipment` (feito
+        # pelo chamador antes desta função) — mesmo lock que
+        # `open_maintenance()` também toma primeiro, o que serializa as
+        # duas operações e elimina a corrida "checa que não existe
+        # Maintenance → outra request abre Maintenance → Movement
+        # prossegue" (ver Matriz de locking em apps.maintenance.services).
+        from apps.maintenance.services import has_open_maintenance
+
+        if has_open_maintenance(equipment):
+            raise ValueError(
+                f"Não é possível registrar '{MovementType(movement_type).label}' — existe uma manutenção técnica "
+                "ainda aberta para este equipamento. Feche ou cancele a manutenção antes de registrar esta "
+                "movimentação."
+            )
 
     rule = _TRANSITION_RULES[movement_type]
     if equipment.status not in rule.required_statuses:

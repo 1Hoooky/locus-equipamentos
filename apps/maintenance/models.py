@@ -64,13 +64,34 @@ class Maintenance(TimeStampedModel, SoftDeleteModel):
 
     `status_before`/`condition_before` são SNAPSHOTS determinísticos,
     capturados automaticamente por `open_maintenance()` no momento da
-    abertura — nunca preenchidos por adivinhação depois. `status_before`
-    é o dado que permite restaurar `Equipment.status` de forma exata ao
-    fechar uma manutenção aberta SEM movimentação associada (decisão 3:
-    "não implemente restauração baseada em 'provavelmente'"). Ver
-    `apps.maintenance.services._restore_status_if_owned()` para a lógica
-    completa, incluindo o caso de corrida (`Movement` externo já mudou o
-    status enquanto a manutenção seguia aberta).
+    abertura — nunca preenchidos por adivinhação depois.
+
+    SEMÂNTICA EXATA de `status_before` (revisada em 27/08/2026, decisão 5
+    — sem rename, só esclarecimento): é o `Equipment.status` no instante
+    em que ESTA FICHA foi aberta, não "o status antes de qualquer
+    manutenção" em sentido amplo. Isso importa porque os dois casos são
+    diferentes:
+
+    - SEM `departure_movement` (Maintenance é quem muda o status): aqui
+      `status_before` É o valor a restaurar — captura o status genuíno
+      de antes de `change_status(MANUTENCAO)` rodar, dentro da mesma
+      chamada de `open_maintenance()`.
+    - COM `departure_movement` (o Movement ENVIO_MANUTENCAO já rodou
+      antes): `status_before` é só `MANUTENCAO` (o que já valia quando a
+      ficha foi aberta) — não representa "o status antes do envio físico"
+      e NUNCA é usado para restaurar nada nesse caso (ver
+      `_restore_status_if_owned()`, que curto-circuita sempre que
+      `departure_movement_id is not None`). Se algum dia for preciso
+      saber o status genuíno anterior ao envio físico, a fonte correta é
+      `StatusHistory`/`Movement` anteriores a `departure_movement.created_at`
+      — nunca este campo.
+
+    Em outras palavras: `status_before` é "o que capturar na abertura
+    para permitir desfazer, SE for esta ficha quem fez a mudança" — nunca
+    "o histórico verdadeiro de status anterior à manutenção" em geral.
+    Ver `apps.maintenance.services._restore_status_if_owned()` para a
+    lógica completa, incluindo o caso de corrida (`Movement` externo já
+    mudou o status enquanto a manutenção seguia aberta).
     """
 
     equipment = models.ForeignKey(Equipment, on_delete=models.PROTECT, related_name="maintenances")
@@ -90,8 +111,19 @@ class Maintenance(TimeStampedModel, SoftDeleteModel):
     condition_after = models.CharField(max_length=20, choices=Condition.choices, blank=True)
 
     # Snapshot determinístico p/ restauração de status — ver docstring da
-    # classe e `apps.maintenance.services`.
-    status_before = models.CharField(max_length=20, choices=Status.choices, blank=True)
+    # classe (semântica exata, revisada em 27/08/2026) e
+    # `apps.maintenance.services._restore_status_if_owned()`.
+    status_before = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        blank=True,
+        help_text=(
+            "Status do equipamento no instante em que ESTA FICHA foi aberta — usado para restaurar "
+            "só quando departure_movement é nulo (esta ficha é dona da transição). Com "
+            "departure_movement preenchido, este campo vale MANUTENCAO e é apenas informativo "
+            "(o status genuinamente anterior, se precisar, está em StatusHistory/Movement)."
+        ),
+    )
 
     # OneToOneField (não ForeignKey(unique=True)) — a própria semântica é
     # "no máximo uma Maintenance por Movement"; Django recomenda
@@ -150,16 +182,22 @@ class Maintenance(TimeStampedModel, SoftDeleteModel):
                 ),
                 name="maintenance_closed_at_coerente_com_status",
             ),
-            # No máximo UMA manutenção ABERTA por equipamento ao mesmo
-            # tempo — impede o estado impossível de duas fichas abertas
-            # disputando o mesmo `status_before`/restauração. Reforçada
-            # também em `open_maintenance()` para uma mensagem clara,
-            # mesma dupla camada já usada em
-            # `_validate_location_client_matches_type()`.
+            # No máximo UMA manutenção ABERTA E ATIVA por equipamento ao
+            # mesmo tempo — impede o estado impossível de duas fichas
+            # abertas disputando o mesmo `status_before`/restauração.
+            # `is_active=True` é deliberado (ajuste de 27/08/2026,
+            # decisão 4): `Maintenance` herda `SoftDeleteModel`, e uma
+            # ficha inativada (`is_active=False` — ex.: cadastrada por
+            # engano) NUNCA deve prender o equipamento indefinidamente
+            # atrás de uma constraint de banco; só uma ficha ATIVA e
+            # ABERTA conta como "aberta" de verdade. Reforçada também em
+            # `open_maintenance()`/`apps.maintenance.services.has_open_maintenance()`
+            # com a MESMA condição, para uma mensagem clara — mesma dupla
+            # camada já usada em `_validate_location_client_matches_type()`.
             models.UniqueConstraint(
                 fields=["equipment"],
-                condition=models.Q(status=MaintenanceStatus.ABERTA),
-                name="uniq_maintenance_aberta_por_equipamento",
+                condition=models.Q(status=MaintenanceStatus.ABERTA, is_active=True),
+                name="uniq_maintenance_aberta_ativa_por_equipamento",
             ),
         ]
 

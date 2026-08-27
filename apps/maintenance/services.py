@@ -82,42 +82,105 @@ o snapshot). Implementado em `_restore_status_if_owned()`.
 
 Estados impossíveis, todos bloqueados por constraint de banco + validação
 de service (dupla camada, mesmo padrão do resto do projeto):
-    - Duas Maintenance ABERTA para o mesmo equipamento ao mesmo tempo
-      (UniqueConstraint condicional + checagem em open_maintenance()).
+    - Duas Maintenance ABERTA E ATIVA para o mesmo equipamento ao mesmo
+      tempo (UniqueConstraint condicional `is_active=True` + checagem em
+      open_maintenance() — ajuste de 27/08/2026, decisão 4: uma ficha
+      soft-deletada nunca bloqueia nada, ver docstring do model).
     - Maintenance CONCLUIDA sem `service_performed` (CheckConstraint).
     - `closed_at` presente com status ABERTA, ou ausente com status
       CONCLUIDA/CANCELADA (CheckConstraint).
     - `departure_movement`/`return_movement` reclamado por duas
       Maintenance diferentes (unique=True na FK + checagem em service).
     - Fechar/cancelar uma Maintenance que não está ABERTA.
+    - INSTALACAO/RETIRADA/TRANSFERENCIA/ENVIO_MANUTENCAO enquanto existe
+      Maintenance ABERTA E ATIVA para o equipamento — MESMO que
+      `Equipment.status` sozinho já permitisse (ver Matriz 2, revisada em
+      27/08/2026: isto agora É aplicado por `apps.operations.services`).
 
 =============================================================================
-MATRIZ 2 — Maintenance.status (ABERTA) × MovementType
+MATRIZ 2 — Maintenance.status (ABERTA) × MovementType — REVISADA 27/08/2026
 =============================================================================
 
-Nenhuma linha desta matriz precisa de código novo em
-`apps.operations.services` — o resultado já emerge das regras que já
-existem hoje em `_TRANSITION_RULES` (equipment.status precisa estar em
-MANUTENCAO sempre que a Maintenance "dona" o status, ou já está em
-MANUTENCAO por causa de um `departure_movement`). Deliberadamente NENHUMA
-mudança foi feita em `apps.operations.services` para este fechamento —
-Movement continua descentralizado de Maintenance (decisão 4: "Maintenance
-aberta NÃO bloqueia automaticamente qualquer Movement").
+Achado do fechamento anterior (27/08/2026, decisão 1): a versão original
+desta matriz assumia que as regras de `Equipment.status` já existentes em
+`_TRANSITION_RULES` eram suficientes para bloquear os tipos incompatíveis
+— MAS isso só vale enquanto `Equipment.status` continuar MANUTENCAO. Um
+Movement como RETORNO_ESTOQUE pode trazer o status de volta a DISPONIVEL
+"por fora" (ver regra de idempotência acima) SEM fechar a Maintenance —
+nesse instante, `INSTALACAO` (que só exige DISPONIVEL) voltaria a passar
+pela checagem de status antiga, mesmo com uma ficha técnica ainda aberta.
+Corrigido: `apps.operations.services._validate_transition()` agora tem
+uma checagem ADICIONAL, explícita, de "existe Maintenance ABERTA E ATIVA
+para este equipamento?" — não apenas o status. Ver a seção "Arquitetura
+de dependência" abaixo para como isso foi implementado sem inverter a
+direção de dependência entre os dois apps.
 
-    MovementType         | precondição de status (já existente)  | compatível com MANUTENCAO? | efeito com Maintenance ABERTA
-    ----------------------|-----------------------------------------|------------------------------|--------------------------------
-    INSTALACAO            | DISPONIVEL                               | não                          | bloqueado (ValueError já existente)
-    RETIRADA               | EM_OPERACAO                              | não                          | bloqueado
-    TRANSFERENCIA          | EM_OPERACAO                              | não                          | bloqueado
-    RETORNO_ESTOQUE        | EM_OPERACAO ou MANUTENCAO                | sim                          | permitido — muda status p/ DISPONIVEL "por fora"; ver regra de idempotência acima
-    ENVIO_MANUTENCAO       | DISPONIVEL ou EM_OPERACAO                | não                          | bloqueado — evita reenviar um equipamento já em manutenção
-    RETORNO_MANUTENCAO     | MANUTENCAO                                | sim                          | permitido — caminho natural de retorno; se linkado como return_movement ao fechar, sem mudança de status duplicada
-    OUTRO                  | nenhuma                                   | sim (sempre)                 | permitido sempre — evento só anotado, nunca muda status
+    MovementType         | precondição de status (já existente)  | bloqueado por Maintenance ABERTA? | efeito final
+    ----------------------|-----------------------------------------|--------------------------------------|--------------------------------
+    INSTALACAO            | DISPONIVEL                               | SIM (checagem nova)                   | sempre bloqueado com Maintenance aberta, mesmo se status permitisse
+    RETIRADA               | EM_OPERACAO                              | SIM (checagem nova)                   | idem
+    TRANSFERENCIA          | EM_OPERACAO                              | SIM (checagem nova)                   | idem
+    ENVIO_MANUTENCAO       | DISPONIVEL ou EM_OPERACAO                | SIM (checagem nova)                   | idem — evita reenviar/duplicar
+    RETORNO_ESTOQUE        | EM_OPERACAO ou MANUTENCAO                | não                                    | permitido sempre que o status já permitir — traz o equipamento de volta mesmo com a ficha ainda aberta
+    RETORNO_MANUTENCAO     | MANUTENCAO                                | não                                    | idem — caminho natural de retorno
+    OUTRO                  | nenhuma                                   | não                                    | permitido sempre — evento só anotado, nunca muda status
 
-Observação: RETORNO_ESTOQUE e RETORNO_MANUTENCAO continuam permitidos
-"por fora" de uma Maintenance aberta DE PROPÓSITO — alguém pode devolver o
-equipamento fisicamente antes de fechar a ficha de manutenção no sistema.
-Isso não é um bug: é o motivo da regra de idempotência acima existir.
+RETORNO_ESTOQUE/RETORNO_MANUTENCAO continuam DELIBERADAMENTE fora do
+bloqueio — são exatamente os fatos físicos que trazem o equipamento de
+volta; bloqueá-los prenderia o equipamento fisicamente disponível atrás
+de uma ficha de papelada ainda aberta, o oposto do que a decisão 1 pediu
+("fatos físicos necessários para trazer o equipamento de volta continuam
+possíveis"). OUTRO nunca é bloqueado (evento apenas anotado).
+
+Arquitetura de dependência (decisão 2, 27/08/2026): a checagem em
+`apps.operations.services._validate_transition()` usa um IMPORT LOCAL
+(dentro da função, não no topo do módulo) de
+`apps.maintenance.services.has_open_maintenance` — deliberado, não uma
+gambiarra. Hoje isso NÃO forma um ciclo real (nada em `apps.maintenance`
+importa `apps.operations.services`), mas um import de módulo faria
+`apps.operations` — camada mais antiga/mais baixa, existe desde a Fase 1
+— declarar em tempo de import uma dependência de `apps.maintenance` —
+camada introduzida depois, mais alta. Isso inverteria a direção de
+dependência do projeto (domínios "de baixo" não devem conhecer, em
+import-time, domínios "de cima" que os consomem) e criaria risco real de
+ciclo assim que `apps.maintenance` precisar de algo de
+`apps.operations.services` no futuro (bem plausível). O import local
+resolve isso sem custo: adiado para o momento da chamada, dentro da MESMA
+transação/lock já em vigor (ver Matriz de locking abaixo), e o contrato
+exposto por `has_open_maintenance()` é só um predicado booleano — `apps.operations`
+não precisa conhecer `MaintenanceStatus`, `is_active` nem qualquer outro
+detalhe interno de `Maintenance`.
+
+=============================================================================
+MATRIZ DE LOCKING — concorrência entre open_maintenance() e create_movement()
+=============================================================================
+
+Os dois já bloqueavam `Equipment` via `select_for_update()` como primeira
+operação de banco, antes de qualquer leitura/escrita de
+`Maintenance`/`Movement` — isso continua valendo e é o que torna a
+checagem nova segura contra corrida, sem precisar de nenhum lock
+adicional:
+
+    - `open_maintenance()`: lock em Equipment → checa Maintenance ABERTA
+      existente → (grava Maintenance).
+    - `create_movement()` → `_validate_transition()`: lock em Equipment
+      (já feito antes de chamar `_validate_transition()`) → checa
+      Maintenance ABERTA existente (`has_open_maintenance()`) → (grava
+      Movement).
+
+Os dois seguem a MESMA ordem (Equipment primeiro, único lock tomado por
+qualquer um dos dois) — sem risco de deadlock (nunca há duas transações
+esperando lock uma da outra em ordem invertida) e sem janela de corrida:
+como as duas transações disputam o MESMO lock de linha antes de ler
+`Maintenance`, PostgreSQL serializa as duas por completo — quem obtém o
+lock primeiro TERMINA (commit/rollback) antes da outra sequer conseguir
+ler o estado de `Maintenance`. Não existe "checa que não existe
+Maintenance → a outra abre Maintenance → o Movement prossegue" (decisão
+3): as duas leituras cruzadas (`create_movement` lê `Maintenance`;
+`open_maintenance` efetivamente decide com base no `Equipment` já
+travado) só acontecem depois que uma das duas transações já garantiu
+exclusividade sobre o único recurso compartilhado que importa. Teste de
+concorrência real: `apps.maintenance.tests.test_maintenance_movement_concurrency`.
 
 =============================================================================
 MATRIZ 3 — Estratégia de restauração de status (decisão 3)
@@ -204,6 +267,30 @@ class NewMaintenanceData:
     departure_movement: Movement | None = None
 
 
+def has_open_maintenance(equipment: Equipment) -> bool:
+    """
+    Predicado público — só uma `Maintenance` ATIVA (`is_active=True`) E
+    `ABERTA` conta como "aberta" (ajuste de 27/08/2026, decisão 4: uma
+    ficha soft-deletada nunca bloqueia nada; mesma condição da
+    `UniqueConstraint` do model).
+
+    Ponto de integração único e deliberadamente MÍNIMO para
+    `apps.operations.services._validate_transition()` (Matriz 2,
+    revisada em 27/08/2026, decisão 1): `apps.operations` chama esta
+    função via IMPORT LOCAL (dentro da função, não no topo do módulo) —
+    ver a seção "Arquitetura de dependência" no topo deste arquivo para a
+    justificativa completa. `apps.operations` só precisa deste booleano;
+    nunca importa `Maintenance`/`MaintenanceStatus` diretamente.
+
+    Chamar isto FORA de uma transação que já tenha `Equipment` travado
+    (`select_for_update()`) não é seguro contra corrida — ver a Matriz de
+    locking no topo deste arquivo. Todos os chamadores atuais
+    (`open_maintenance()`, `apps.operations.services._validate_transition()`)
+    já garantem isso.
+    """
+    return Maintenance.objects.filter(equipment=equipment, status=MaintenanceStatus.ABERTA, is_active=True).exists()
+
+
 def _validate_departure_movement(*, movement: Movement, equipment: Equipment) -> None:
     if movement.equipment_id != equipment.pk:
         raise ValueError("A movimentação de envio informada não pertence a este equipamento.")
@@ -229,10 +316,11 @@ def open_maintenance(data: NewMaintenanceData) -> Maintenance:
 
     equipment = Equipment.objects.select_for_update().get(pk=data.equipment_id)
 
-    # Dupla camada com a UniqueConstraint condicional do model — mensagem
-    # clara em vez de depender só do IntegrityError (mesmo padrão de
-    # `_validate_location_client_matches_type()`).
-    if Maintenance.objects.filter(equipment=equipment, status=MaintenanceStatus.ABERTA).exists():
+    # Dupla camada com a UniqueConstraint condicional do model (mesma
+    # condição — status=ABERTA E is_active=True) — mensagem clara em vez
+    # de depender só do IntegrityError, mesmo padrão de
+    # `_validate_location_client_matches_type()`.
+    if has_open_maintenance(equipment):
         raise ValueError("Já existe uma manutenção aberta para este equipamento.")
 
     status_before = equipment.status
