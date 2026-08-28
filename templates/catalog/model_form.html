@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{% if is_new %}Novo modelo{% else %}Editar modelo{% endif %} — Locus{% endblock %}
 {% block content %}
-<h1 class="text-xl font-semibold mb-4">{% if is_new %}Novo modelo de equipamento{% else %}Editar modelo — {{ equipment_model }}{% endif %}</h1>
+<h1 class="page-title mb-4">{% if is_new %}Novo modelo de equipamento{% else %}Editar modelo — {{ equipment_model }}{% endif %}</h1>
 
-<form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg space-y-4">
+<form method="post" class="card-pad max-w-lg space-y-4">
   {% csrf_token %}
   {% for field in form %}
     <div>
@@ -13,22 +13,22 @@
           <span>{{ field.label }}</span>
         </label>
       {% else %}
-        <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
         {{ field }}
       {% endif %}
       {% if field.help_text %}
-        <p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>
+        <p class="field-hint">{{ field.help_text }}</p>
       {% endif %}
       {% for error in field.errors %}
-        <p class="text-xs text-red-600 mt-1">{{ error }}</p>
+        <p class="field-error">{{ error }}</p>
       {% endfor %}
     </div>
   {% endfor %}
   <div class="flex items-center gap-3 pt-2">
-    <button type="submit" class="bg-blue-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-blue-700">
+    <button type="submit" class="btn-primary">
       {% if is_new %}Criar{% else %}Salvar{% endif %}
     </button>
-    <a href="{% url 'catalog:model_list' %}" class="text-sm text-gray-600 hover:underline">Cancelar</a>
+    <a href="{% url 'catalog:model_list' %}" class="btn-neutral">Cancelar</a>
   </div>
 </form>
 {% endblock %}

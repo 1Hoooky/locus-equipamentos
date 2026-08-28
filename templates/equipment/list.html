@@ -2,26 +2,26 @@
 {% load pagination_tags %}
 {% block title %}Equipamentos — Locus{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-4">
-  <h1 class="text-xl font-semibold">Equipamentos</h1>
-  <div class="flex gap-3 text-sm">
+<div class="page-header">
+  <h1 class="page-title">Equipamentos</h1>
+  <div class="flex flex-wrap gap-3 text-sm items-center">
     {% if user.is_administrativo_ou_superior %}
-    <a href="{% url 'equipment:create' %}" class="bg-blue-600 text-white rounded-md px-4 py-1.5 font-medium hover:bg-blue-700">
+    <a href="{% url 'equipment:create' %}" class="btn-primary">
       Novo equipamento
     </a>
-    <a href="{% url 'equipment:batch_create' %}" class="text-blue-600 hover:underline">
+    <a href="{% url 'equipment:batch_create' %}" class="link">
       Adicionar equipamentos em lote
     </a>
-    <a href="{% url 'equipment:export' %}?format=csv&{{ request.GET.urlencode }}" class="text-blue-600 hover:underline">
+    <a href="{% url 'equipment:export' %}?format=csv&{{ request.GET.urlencode }}" class="link">
       Exportar CSV
     </a>
-    <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="text-blue-600 hover:underline">
+    <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="link">
       Exportar Excel
     </a>
-    <a href="{% url 'qrcodes:qr_zip' %}" class="text-blue-600 hover:underline">
+    <a href="{% url 'qrcodes:qr_zip' %}" class="link">
       Exportar QR Codes
     </a>
-    <a href="{% url 'qrcodes:label_zip' %}" class="text-blue-600 hover:underline">
+    <a href="{% url 'qrcodes:label_zip' %}" class="link">
       Exportar Etiquetas
     </a>
     {% endif %}
@@ -30,13 +30,12 @@
 
 <form method="get" class="flex flex-wrap gap-2 mb-4 items-end">
   <div class="flex-1 min-w-[200px]">
-    <label class="block text-xs text-gray-500 mb-1">Patrimônio ou serial</label>
-    <input type="text" name="q" value="{{ request.GET.q }}" placeholder="Patrimônio ou serial"
-           class="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full">
+    <label class="field-label">Patrimônio ou serial</label>
+    <input type="text" name="q" value="{{ request.GET.q }}" placeholder="Patrimônio ou serial" class="filter-input w-full">
   </div>
   <div>
-    <label class="block text-xs text-gray-500 mb-1">Status</label>
-    <select name="status" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+    <label class="field-label">Status</label>
+    <select name="status" class="filter-input">
       <option value="">Todos</option>
       {% for value, label in status_choices %}
       <option value="{{ value }}" {% if value == selected_status %}selected{% endif %}>{{ label }}</option>
@@ -44,8 +43,8 @@
     </select>
   </div>
   <div>
-    <label class="block text-xs text-gray-500 mb-1">Condição</label>
-    <select name="condition" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+    <label class="field-label">Condição</label>
+    <select name="condition" class="filter-input">
       <option value="">Todas</option>
       {% for value, label in condition_choices %}
       <option value="{{ value }}" {% if value == selected_condition %}selected{% endif %}>{{ label }}</option>
@@ -53,8 +52,8 @@
     </select>
   </div>
   <div>
-    <label class="block text-xs text-gray-500 mb-1">Categoria</label>
-    <select name="category" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+    <label class="field-label">Categoria</label>
+    <select name="category" class="filter-input">
       <option value="">Todas</option>
       {% for category in categories %}
       <option value="{{ category.pk }}" {% if category.pk|stringformat:"s" == selected_category %}selected{% endif %}>
@@ -64,8 +63,8 @@
     </select>
   </div>
   <div>
-    <label class="block text-xs text-gray-500 mb-1">Modelo</label>
-    <select name="model" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+    <label class="field-label">Modelo</label>
+    <select name="model" class="filter-input">
       <option value="">Todos</option>
       {% for model in models %}
       <option value="{{ model.pk }}" {% if model.pk|stringformat:"s" == selected_model %}selected{% endif %}>
@@ -74,46 +73,55 @@
       {% endfor %}
     </select>
   </div>
-  <button type="submit" class="bg-gray-800 text-white rounded-md px-4 py-1.5 text-sm">Filtrar</button>
+  <button type="submit" class="btn-neutral">Filtrar</button>
   {% if request.GET %}
-  <a href="{% url 'equipment:list' %}" class="text-sm text-gray-600 hover:underline px-2 py-1.5">Limpar</a>
+  <a href="{% url 'equipment:list' %}" class="link text-sm px-2 py-1.5">Limpar</a>
   {% endif %}
 </form>
 
-<div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-100 text-gray-600 text-left">
+<div class="table-wrap">
+  <table class="table-base">
+    <thead>
       <tr>
-        <th class="px-3 py-2">Patrimônio</th>
-        <th class="px-3 py-2">Modelo</th>
-        <th class="px-3 py-2">Categoria</th>
-        <th class="px-3 py-2">Status</th>
-        <th class="px-3 py-2">Condição</th>
-        {% if user.is_administrativo_ou_superior %}<th class="px-3 py-2">QR</th>{% endif %}
+        <th>Patrimônio</th>
+        <th>Modelo</th>
+        <th>Categoria</th>
+        <th>Status</th>
+        <th>Condição</th>
+        {% if user.is_administrativo_ou_superior %}<th>QR</th>{% endif %}
       </tr>
     </thead>
     <tbody>
       {% for equipment in equipment_list %}
-      <tr class="border-t border-gray-100 hover:bg-gray-50">
-        <td class="px-3 py-2">
-          <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-blue-600 hover:underline">
+      <tr>
+        <td>
+          <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="link">
             {{ equipment.patrimonio }}
           </a>
         </td>
-        <td class="px-3 py-2">{{ equipment.model.name }}</td>
-        <td class="px-3 py-2">{{ equipment.category.name }}</td>
-        <td class="px-3 py-2">{{ equipment.get_status_display }}</td>
-        <td class="px-3 py-2">{{ equipment.get_condition_display }}</td>
+        <td>{{ equipment.model.name }}</td>
+        <td>{{ equipment.category.name }}</td>
+        <td>
+          {% if equipment.status == "DISPONIVEL" %}<span class="badge-success">{{ equipment.get_status_display }}</span>
+          {% elif equipment.status == "EM_OPERACAO" %}<span class="badge-info">{{ equipment.get_status_display }}</span>
+          {% elif equipment.status == "MANUTENCAO" %}<span class="badge-warning">{{ equipment.get_status_display }}</span>
+          {% else %}<span class="badge-neutral">{{ equipment.get_status_display }}</span>{% endif %}
+        </td>
+        <td>
+          {% if equipment.condition == "BOM" %}<span class="badge-success">{{ equipment.get_condition_display }}</span>
+          {% elif equipment.condition == "MEDIO" %}<span class="badge-warning">{{ equipment.get_condition_display }}</span>
+          {% else %}<span class="badge-danger">{{ equipment.get_condition_display }}</span>{% endif %}
+        </td>
         {% if user.is_administrativo_ou_superior %}
-        <td class="px-3 py-2 whitespace-nowrap">
-          <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="text-blue-600 hover:underline">QR</a>
+        <td class="whitespace-nowrap">
+          <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="link">QR</a>
           ·
-          <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" target="_blank" class="text-blue-600 hover:underline">Etiqueta</a>
+          <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" target="_blank" class="link">Etiqueta</a>
         </td>
         {% endif %}
       </tr>
       {% empty %}
-      <tr><td class="px-3 py-4 text-gray-500" colspan="6">Nenhum equipamento cadastrado ainda.</td></tr>
+      <tr><td class="empty-state" colspan="6">Nenhum equipamento cadastrado ainda.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -122,11 +130,11 @@
 {% if is_paginated %}
 <div class="flex gap-2 mt-4 text-sm">
   {% if page_obj.has_previous %}
-    <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="text-blue-600 hover:underline">Anterior</a>
+    <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link">Anterior</a>
   {% endif %}
   <span class="text-gray-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
   {% if page_obj.has_next %}
-    <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="text-blue-600 hover:underline">Próxima</a>
+    <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link">Próxima</a>
   {% endif %}
 </div>
 {% endif %}

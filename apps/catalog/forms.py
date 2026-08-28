@@ -11,7 +11,7 @@ from django import forms
 
 from apps.catalog.models import Category, EquipmentModel
 
-TEXT_INPUT_CLASS = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
+TEXT_INPUT_CLASS = "field-input"
 
 
 class CategoryForm(forms.ModelForm):

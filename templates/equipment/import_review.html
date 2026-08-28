@@ -1,40 +1,40 @@
 {% extends "base.html" %}
 {% block title %}Revisar importação — Locus{% endblock %}
 {% block content %}
-<h1 class="text-xl font-semibold mb-2">Revisar importação</h1>
-<p class="text-sm text-gray-600 mb-4">
+<h1 class="page-title mb-2">Revisar importação</h1>
+<p class="page-subtitle mb-4">
   {{ total }} linha(s) encontrada(s), {{ total_with_issues }} com algum ponto de atenção
-  (destacadas em amarelo, aparecem primeiro). Confira o modelo sugerido de cada linha —
+  (destacadas em âmbar, aparecem primeiro). Confira o modelo sugerido de cada linha —
   ou escolha manualmente — e ajuste ou deixe em branco (<em>"não importar"</em>) as que não
   devem virar equipamento agora. Nada é gravado até você confirmar no final.
 </p>
 
 <form method="post">
   {% csrf_token %}
-  <div class="bg-white border border-gray-200 rounded-lg overflow-x-auto mb-4">
-    <table class="w-full text-sm">
-      <thead class="bg-gray-100 text-gray-600 text-left">
+  <div class="table-wrap mb-4">
+    <table class="table-base">
+      <thead>
         <tr>
-          <th class="px-3 py-2">Linha</th>
-          <th class="px-3 py-2">Categoria</th>
-          <th class="px-3 py-2">Subcategoria / Descrição</th>
-          <th class="px-3 py-2">Código legado</th>
-          <th class="px-3 py-2">Fornecedor</th>
-          <th class="px-3 py-2">Modelo a usar</th>
-          <th class="px-3 py-2">Observações</th>
+          <th>Linha</th>
+          <th>Categoria</th>
+          <th>Subcategoria / Descrição</th>
+          <th>Código legado</th>
+          <th>Fornecedor</th>
+          <th>Modelo a usar</th>
+          <th>Observações</th>
         </tr>
       </thead>
       <tbody>
         {% for index, row in rows_with_index %}
-        <tr class="border-t border-gray-100 {% if row.has_issues %}bg-yellow-50{% endif %}">
-          <td class="px-3 py-2 text-gray-500">{{ row.row_number }}</td>
-          <td class="px-3 py-2">{{ row.categoria_pai|default:"—" }}</td>
-          <td class="px-3 py-2">{{ row.subcategoria|default:row.descricao|default:"—" }}</td>
-          <td class="px-3 py-2">{{ row.legacy_code|default:"—" }}</td>
-          <td class="px-3 py-2">{{ row.fornecedor|default:"—" }}</td>
-          <td class="px-3 py-2">
+        <tr class="{% if row.has_issues %}bg-amber-50{% endif %}">
+          <td class="text-gray-500">{{ row.row_number }}</td>
+          <td>{{ row.categoria_pai|default:"—" }}</td>
+          <td>{{ row.subcategoria|default:row.descricao|default:"—" }}</td>
+          <td>{{ row.legacy_code|default:"—" }}</td>
+          <td>{{ row.fornecedor|default:"—" }}</td>
+          <td>
             {% if row.candidate_models %}
-            <select name="model_{{ index }}" class="border border-gray-300 rounded-md px-2 py-1 text-sm">
+            <select name="model_{{ index }}" class="filter-input">
               <option value="">— não importar —</option>
               {% for model_id, model_label in row.candidate_models %}
               <option value="{{ model_id }}" {% if model_id == row.suggested_model_id %}selected{% endif %}>
@@ -46,7 +46,7 @@
             <span class="text-gray-400 text-xs">Nenhum modelo cadastrado nesta categoria</span>
             {% endif %}
           </td>
-          <td class="px-3 py-2 text-xs text-amber-700">
+          <td class="text-xs text-amber-700">
             {% for issue in row.issues %}
               <div>{{ issue }}</div>
             {% endfor %}
@@ -57,9 +57,9 @@
     </table>
   </div>
 
-  <button type="submit" class="bg-blue-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-blue-700">
+  <button type="submit" class="btn-primary">
     Confirmar importação
   </button>
-  <a href="{% url 'equipment:import_upload' %}" class="ml-3 text-sm text-gray-600 hover:underline">Cancelar e enviar outro arquivo</a>
+  <a href="{% url 'equipment:import_upload' %}" class="btn-neutral ml-3">Cancelar e enviar outro arquivo</a>
 </form>
 {% endblock %}

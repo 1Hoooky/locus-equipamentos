@@ -1,32 +1,32 @@
 {% extends "base.html" %}
 {% block title %}Movimentar {{ equipment.patrimonio }} — Locus{% endblock %}
 {% block content %}
-<a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-sm text-blue-600 hover:underline">&larr; Voltar</a>
+<a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-sm link">&larr; Voltar</a>
 
-<h1 class="text-xl font-semibold mb-1 mt-3">Registrar movimentação</h1>
-<p class="text-sm text-gray-500 mb-4">{{ equipment.patrimonio }} — {{ equipment.model.name }} · status atual: {{ equipment.get_status_display }}</p>
+<h1 class="page-title mb-1 mt-3">Registrar movimentação</h1>
+<p class="page-subtitle mb-4">{{ equipment.patrimonio }} — {{ equipment.model.name }} · status atual: {{ equipment.get_status_display }}</p>
 
 {% if form.non_field_errors %}
-<div class="mb-4 rounded-md bg-red-50 text-red-800 px-4 py-2 text-sm">
+<div class="alert-error">
   {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
 </div>
 {% endif %}
 
-<form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-lg space-y-4">
+<form method="post" class="card-pad max-w-lg space-y-4">
   {% csrf_token %}
   <input type="hidden" name="submission_token" value="{{ submission_token }}">
   {% for field in form %}
     <div>
-      <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
       {{ field }}
-      {% for error in field.errors %}<p class="text-xs text-red-600 mt-1">{{ error }}</p>{% endfor %}
+      {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
     </div>
   {% endfor %}
   <div class="flex items-center gap-3 pt-2">
-    <button type="submit" class="bg-blue-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-blue-700">
+    <button type="submit" class="btn-primary">
       Registrar
     </button>
-    <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-sm text-gray-600 hover:underline">Cancelar</a>
+    <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="btn-neutral">Cancelar</a>
   </div>
 </form>
 
@@ -76,7 +76,7 @@
     searchInput.type = "search";
     searchInput.placeholder = "Pesquisar cliente ou unidade…";
     searchInput.autocomplete = "off";
-    searchInput.className = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full mb-1";
+    searchInput.className = "field-input mb-1";
     searchInput.style.display = "none";
     destSelect.parentNode.insertBefore(searchInput, destSelect);
 

@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Novo cliente — Locus{% endblock %}
 {% block content %}
-<h1 class="text-xl font-semibold mb-4">Novo cliente</h1>
+<h1 class="page-title mb-4">Novo cliente</h1>
 
 {% if form.non_field_errors %}
-<div class="mb-4 rounded-md bg-red-50 text-red-800 px-4 py-2 text-sm">
+<div class="alert-error">
   {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
 </div>
 {% endif %}
 
-<form method="post" class="bg-white border border-gray-200 rounded-lg p-6 max-w-2xl space-y-6">
+<form method="post" class="card-pad max-w-2xl space-y-6">
   {% csrf_token %}
   <input type="hidden" name="submission_token" value="{{ submission_token }}">
 
@@ -19,19 +19,18 @@
       {% for field in form %}
         {% if field.name in "client_type,document,company_name,trade_name,registration_status,state_registration,phone,email,contact_name" %}
         <div>
-          <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
           {{ field }}
-          {% for error in field.errors %}<p class="text-xs text-red-600 mt-1">{{ error }}</p>{% endfor %}
+          {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
         </div>
         {% endif %}
       {% endfor %}
     </div>
-    <button type="submit" name="action" value="lookup"
-            class="mt-3 bg-gray-100 text-gray-800 rounded-md px-4 py-1.5 text-sm font-medium hover:bg-gray-200 border border-gray-300">
+    <button type="submit" name="action" value="lookup" class="btn-neutral btn-sm mt-3">
       Consultar CNPJ
     </button>
     <div class="mt-4">
-      <label class="block text-sm font-medium mb-1" for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>
+      <label class="field-label" for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>
       {{ form.notes }}
     </div>
   </section>
@@ -42,7 +41,7 @@
       {% for field in form %}
         {% if field.name in "fiscal_cep,fiscal_logradouro,fiscal_numero,fiscal_complemento,fiscal_bairro,fiscal_cidade,fiscal_uf" %}
         <div>
-          <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
           {{ field }}
         </div>
         {% endif %}
@@ -52,15 +51,15 @@
 
   <section class="border-t border-gray-100 pt-4">
     <h2 class="text-sm font-semibold text-gray-700 mb-1">Endereço de entrega / unidade principal</h2>
-    <p class="text-xs text-gray-500 mb-3">
+    <p class="field-hint mb-3">
       A unidade principal do cliente é criada automaticamente com este endereço — não é preciso
       cadastrar uma unidade depois para movimentar equipamentos. Unidades adicionais (filiais etc.)
       são opcionais e podem ser criadas depois em "Nova unidade".
     </p>
     <div class="mb-3">
-      <label class="block text-sm font-medium mb-1" for="{{ form.initial_location_name.id_for_label }}">{{ form.initial_location_name.label }}</label>
+      <label class="field-label" for="{{ form.initial_location_name.id_for_label }}">{{ form.initial_location_name.label }}</label>
       {{ form.initial_location_name }}
-      <p class="text-xs text-gray-500 mt-1">Opcional — em branco, a unidade é criada como "Unidade principal".</p>
+      <p class="field-hint">Opcional — em branco, a unidade é criada como "Unidade principal".</p>
     </div>
     <label class="flex items-center gap-2 text-sm mb-3">
       {{ form.use_fiscal_as_operational }}
@@ -70,24 +69,24 @@
       {% for field in form %}
         {% if field.name in "operational_cep,operational_logradouro,operational_numero,operational_complemento,operational_bairro,operational_cidade,operational_uf" %}
         <div>
-          <label class="block text-sm font-medium mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
           {{ field }}
         </div>
         {% endif %}
       {% endfor %}
     </div>
     <div class="mt-3">
-      <label class="block text-sm font-medium mb-1" for="{{ form.operational_reference_notes.id_for_label }}">{{ form.operational_reference_notes.label }}</label>
+      <label class="field-label" for="{{ form.operational_reference_notes.id_for_label }}">{{ form.operational_reference_notes.label }}</label>
       {{ form.operational_reference_notes }}
     </div>
   </section>
 
   <div class="flex items-center gap-3 pt-2 border-t border-gray-100">
     <button type="submit" name="action" value="save"
-            class="bg-blue-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-blue-700">
+            class="btn-primary">
       Salvar cliente
     </button>
-    <a href="{% url 'clients:list' %}" class="text-sm text-gray-600 hover:underline">Cancelar</a>
+    <a href="{% url 'clients:list' %}" class="btn-neutral">Cancelar</a>
   </div>
 </form>
 

@@ -1,18 +1,27 @@
 {% extends "base.html" %}
 {% block title %}{{ equipment.patrimonio }} — Locus Equipamentos{% endblock %}
 {% block content %}
-<a href="{% url 'equipment:list' %}" class="text-sm text-blue-600 hover:underline">&larr; Voltar</a>
+<a href="{% url 'equipment:list' %}" class="text-sm link">&larr; Voltar</a>
 
-<div class="mt-3 bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-  <p class="text-sm text-gray-500">{{ equipment.category.name }} · {{ equipment.model.name }}</p>
-  <h1 class="text-2xl font-bold tracking-tight mb-4">{{ equipment.patrimonio }}</h1>
+<div class="mt-3 card-pad">
+  <p class="page-subtitle">{{ equipment.category.name }} · {{ equipment.model.name }}</p>
+  <h1 class="page-title mb-4">{{ equipment.patrimonio }}</h1>
 
   <dl class="grid grid-cols-2 gap-y-3 text-sm">
     <dt class="text-gray-500">Status</dt>
-    <dd>{{ equipment.get_status_display }}</dd>
+    <dd>
+      {% if equipment.status == "DISPONIVEL" %}<span class="badge-success">{{ equipment.get_status_display }}</span>
+      {% elif equipment.status == "EM_OPERACAO" %}<span class="badge-info">{{ equipment.get_status_display }}</span>
+      {% elif equipment.status == "MANUTENCAO" %}<span class="badge-warning">{{ equipment.get_status_display }}</span>
+      {% else %}<span class="badge-neutral">{{ equipment.get_status_display }}</span>{% endif %}
+    </dd>
 
     <dt class="text-gray-500">Condição</dt>
-    <dd>{{ equipment.get_condition_display }}</dd>
+    <dd>
+      {% if equipment.condition == "BOM" %}<span class="badge-success">{{ equipment.get_condition_display }}</span>
+      {% elif equipment.condition == "MEDIO" %}<span class="badge-warning">{{ equipment.get_condition_display }}</span>
+      {% else %}<span class="badge-danger">{{ equipment.get_condition_display }}</span>{% endif %}
+    </dd>
 
     <dt class="text-gray-500">Serial do fabricante</dt>
     <dd>{{ equipment.serial_number|default:"—" }}</dd>
@@ -23,7 +32,7 @@
     <dt class="text-gray-500">Localização atual</dt>
     <dd>
       {% if equipment.current_location %}
-        <a href="{% url 'operations:location_detail' equipment.current_location.pk %}" class="text-blue-600 hover:underline">{{ equipment.current_location }}</a>
+        <a href="{% url 'operations:location_detail' equipment.current_location.pk %}" class="link">{{ equipment.current_location }}</a>
       {% else %}
         Não definida
       {% endif %}
@@ -32,7 +41,7 @@
     <dt class="text-gray-500">Cliente atual</dt>
     <dd>
       {% if equipment.current_client %}
-        <a href="{% url 'clients:detail' equipment.current_client.pk %}" class="text-blue-600 hover:underline">{{ equipment.current_client.display_name }}</a>
+        <a href="{% url 'clients:detail' equipment.current_client.pk %}" class="link">{{ equipment.current_client.display_name }}</a>
       {% else %}
         —
       {% endif %}
@@ -57,20 +66,22 @@
 </div>
 
 {% if user.is_operacional_ou_superior %}
-<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap gap-3 text-sm">
-  <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="text-blue-600 hover:underline">Registrar movimentação</a>
-  <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="text-blue-600 hover:underline">Alterar status</a>
-  <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="text-blue-600 hover:underline">Alterar condição</a>
+<div class="mt-4 card-pad flex flex-wrap gap-3 text-sm">
+  <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="link">Registrar movimentação</a>
+  <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="link">Alterar status</a>
+  <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="link">Alterar condição</a>
   {% if not maintenance_summary.open_maintenance %}
-  <a href="{% url 'maintenance:maintenance_open' %}?equipment={{ equipment.pk }}" class="text-blue-600 hover:underline">Abrir manutenção</a>
+  <a href="{% url 'maintenance:maintenance_open' %}?equipment={{ equipment.pk }}" class="link">Abrir manutenção</a>
   {% endif %}
-  <a href="{% url 'maintenance:cleaning_create' %}?equipment={{ equipment.pk }}" class="text-blue-600 hover:underline">Registrar higienização</a>
+  <a href="{% url 'maintenance:cleaning_create' %}?equipment={{ equipment.pk }}" class="link">Registrar higienização</a>
   {% if user.is_administrativo_ou_superior %}
-  <a href="{% url 'equipment:update' equipment.patrimonio %}" class="text-blue-600 hover:underline">Editar dados</a>
+  <a href="{% url 'equipment:update' equipment.patrimonio %}" class="link">Editar dados</a>
   {% endif %}
   {% if user.is_admin %}
-  <a href="{% url 'equipment:reclassify' equipment.patrimonio %}" class="text-blue-600 hover:underline">Reclassificar modelo</a>
-  <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="text-red-600 hover:underline">Reemitir patrimônio</a>
+  <a href="{% url 'equipment:reclassify' equipment.patrimonio %}" class="link">Reclassificar modelo</a>
+  {# Ação sensível — decisão aprovada (auditoria 28/08/2026): permanece vermelha, mas só #}
+  {# como link de navegação para sua própria tela de confirmação, nunca botão destrutivo inline aqui. #}
+  <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="text-red-600 hover:underline font-medium">Reemitir patrimônio</a>
   {% endif %}
 </div>
 {% endif %}
@@ -85,11 +96,11 @@
   aparecem para quem tem CAN_REGISTER_OPERATIONS.
 {% endcomment %}
 {% if maintenance_summary %}
-<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4">
-  <h2 class="text-sm font-semibold text-gray-700 mb-3">Manutenção e higienização</h2>
+<div class="mt-4 card-pad">
+  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Manutenção e higienização</h2>
 
   {% if maintenance_summary.open_maintenance %}
-  <div class="mb-3 rounded-md bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 text-sm">
+  <div class="alert-warning">
     Manutenção em aberto desde {{ maintenance_summary.open_maintenance.created_at|date:"d/m/Y" }} —
     <a href="{% url 'maintenance:maintenance_detail' maintenance_summary.open_maintenance.pk %}" class="underline font-medium">ver ficha</a>
   </div>
@@ -101,10 +112,10 @@
     <li class="flex items-center justify-between gap-2 border-b border-gray-50 pb-2">
       <span>
         Manutenção {{ m.get_maintenance_type_display|lower }} —
-        {% if m.status == "ABERTA" %}aberta{% elif m.status == "CONCLUIDA" %}concluída{% else %}cancelada{% endif %}
+        {% if m.status == "ABERTA" %}<span class="badge-warning">Aberta</span>{% elif m.status == "CONCLUIDA" %}<span class="badge-success">Concluída</span>{% else %}<span class="badge-neutral">Cancelada</span>{% endif %}
         <span class="text-gray-400">({{ m.created_at|date:"d/m/Y" }})</span>
       </span>
-      <a href="{% url 'maintenance:maintenance_detail' m.pk %}" class="text-blue-600 hover:underline shrink-0">Ver</a>
+      <a href="{% url 'maintenance:maintenance_detail' m.pk %}" class="link shrink-0">Ver</a>
     </li>
     {% endfor %}
     {% for c in maintenance_summary.recent_cleanings %}
@@ -113,7 +124,7 @@
         Higienização realizada
         <span class="text-gray-400">({{ c.performed_at|date:"d/m/Y" }})</span>
       </span>
-      <a href="{% url 'maintenance:cleaning_detail' c.pk %}" class="text-blue-600 hover:underline shrink-0">Ver</a>
+      <a href="{% url 'maintenance:cleaning_detail' c.pk %}" class="link shrink-0">Ver</a>
     </li>
     {% endfor %}
   </ul>
@@ -124,10 +135,10 @@
 {% endif %}
 
 {% if user.is_administrativo_ou_superior %}
-<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap gap-3 text-sm">
-  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="text-blue-600 hover:underline">Ver QR Code</a>
-  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" download="{{ equipment.patrimonio }}-qr.png" class="text-blue-600 hover:underline">Baixar QR Code (PNG)</a>
-  <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="text-blue-600 hover:underline">Baixar etiqueta (PDF)</a>
+<div class="mt-4 card-pad flex flex-wrap gap-3 text-sm">
+  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="link">Ver QR Code</a>
+  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" download="{{ equipment.patrimonio }}-qr.png" class="link">Baixar QR Code (PNG)</a>
+  <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="link">Baixar etiqueta (PDF)</a>
 </div>
 {% endif %}
 
@@ -146,12 +157,12 @@
   entrar nesse mesmo formato em get_equipment_history_timeline — esta
   seção não precisa ser reconstruída.
 {% endcomment %}
-<div class="mt-4 bg-white border border-gray-200 rounded-lg p-4">
-  <h2 class="text-sm font-semibold text-gray-700 mb-3">Histórico do equipamento</h2>
+<div class="mt-4 card-pad">
+  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Histórico do equipamento</h2>
   {% if history_events %}
   <ul class="space-y-4">
     {% for event in history_events %}
-    <li class="border-l-2 border-gray-200 pl-3">
+    <li class="timeline-item">
       <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">{{ event.event_type_label }}</p>
       <p class="text-sm font-medium text-gray-900">{{ event.old_value_display }} &rarr; {{ event.new_value_display }}</p>
       <p class="text-sm text-gray-600">{{ event.reason }}</p>

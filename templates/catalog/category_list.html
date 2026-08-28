@@ -1,41 +1,41 @@
 {% extends "base.html" %}
 {% block title %}Categorias — Locus{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-4">
-  <h1 class="text-xl font-semibold">Categorias</h1>
-  <a href="{% url 'catalog:category_create' %}" class="bg-blue-600 text-white rounded-md px-4 py-1.5 text-sm font-medium hover:bg-blue-700">
+<div class="page-header">
+  <h1 class="page-title">Categorias</h1>
+  <a href="{% url 'catalog:category_create' %}" class="btn-primary">
     Nova categoria
   </a>
 </div>
 
-<div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-100 text-gray-600 text-left">
+<div class="table-wrap">
+  <table class="table-base">
+    <thead>
       <tr>
-        <th class="px-3 py-2">Nome</th>
-        <th class="px-3 py-2">Status</th>
-        <th class="px-3 py-2"></th>
+        <th>Nome</th>
+        <th>Status</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for category in categories %}
-      <tr class="border-t border-gray-100 hover:bg-gray-50">
-        <td class="px-3 py-2">{{ category.name }}</td>
-        <td class="px-3 py-2">
-          {% if category.is_active %}<span class="text-green-700">Ativa</span>{% else %}<span class="text-gray-400">Inativa</span>{% endif %}
+      <tr>
+        <td>{{ category.name }}</td>
+        <td>
+          {% if category.is_active %}<span class="badge-success">Ativa</span>{% else %}<span class="badge-neutral">Inativa</span>{% endif %}
         </td>
-        <td class="px-3 py-2">
-          <a href="{% url 'catalog:category_update' category.pk %}" class="text-blue-600 hover:underline">Editar</a>
+        <td>
+          <a href="{% url 'catalog:category_update' category.pk %}" class="link">Editar</a>
         </td>
       </tr>
       {% empty %}
-      <tr><td class="px-3 py-4 text-gray-500" colspan="3">Nenhuma categoria cadastrada.</td></tr>
+      <tr><td class="empty-state" colspan="3">Nenhuma categoria cadastrada.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
 <p class="mt-4 text-sm">
-  <a href="{% url 'catalog:model_list' %}" class="text-blue-600 hover:underline">Ver modelos de equipamento &rarr;</a>
+  <a href="{% url 'catalog:model_list' %}" class="link">Ver modelos de equipamento &rarr;</a>
 </p>
 {% endblock %}

@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% load pagination_tags %}
 {% block title %}Clientes — Locus{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-4">
-  <h1 class="text-xl font-semibold">Clientes</h1>
+<div class="page-header">
+  <h1 class="page-title">Clientes</h1>
   {% if user.is_administrativo_ou_superior or user.is_superuser %}
-  <a href="{% url 'clients:create' %}" class="bg-blue-600 text-white rounded-md px-4 py-1.5 text-sm font-medium hover:bg-blue-700">
+  <a href="{% url 'clients:create' %}" class="btn-primary">
     Novo cliente
   </a>
   {% endif %}
@@ -12,31 +13,31 @@
 
 <form method="get" class="mb-4">
   <input type="text" name="q" value="{{ q }}" placeholder="Buscar por razão social, nome fantasia ou CNPJ"
-         class="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full max-w-md">
+         class="filter-input w-full max-w-md">
 </form>
 
-<div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-100 text-gray-600 text-left">
+<div class="table-wrap">
+  <table class="table-base">
+    <thead>
       <tr>
-        <th class="px-3 py-2">Razão social</th>
-        <th class="px-3 py-2">Nome fantasia</th>
-        <th class="px-3 py-2">CNPJ</th>
-        <th class="px-3 py-2"></th>
+        <th>Razão social</th>
+        <th>Nome fantasia</th>
+        <th>CNPJ</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for client in clients %}
-      <tr class="border-t border-gray-100 hover:bg-gray-50">
-        <td class="px-3 py-2">{{ client.company_name }}</td>
-        <td class="px-3 py-2">{{ client.trade_name|default:"—" }}</td>
-        <td class="px-3 py-2">{{ client.document|default:"—" }}</td>
-        <td class="px-3 py-2">
-          <a href="{% url 'clients:detail' client.pk %}" class="text-blue-600 hover:underline">Ver</a>
+      <tr>
+        <td>{{ client.company_name }}</td>
+        <td>{{ client.trade_name|default:"—" }}</td>
+        <td>{{ client.document|default:"—" }}</td>
+        <td>
+          <a href="{% url 'clients:detail' client.pk %}" class="link">Ver</a>
         </td>
       </tr>
       {% empty %}
-      <tr><td class="px-3 py-4 text-gray-500" colspan="4">Nenhum cliente cadastrado.</td></tr>
+      <tr><td class="empty-state" colspan="4">Nenhum cliente cadastrado.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -45,11 +46,11 @@
 {% if is_paginated %}
 <div class="mt-4 flex gap-3 text-sm">
   {% if page_obj.has_previous %}
-  <a href="?page={{ page_obj.previous_page_number }}{% if q %}&q={{ q }}{% endif %}" class="text-blue-600 hover:underline">&larr; Anterior</a>
+  <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link">&larr; Anterior</a>
   {% endif %}
   <span class="text-gray-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
   {% if page_obj.has_next %}
-  <a href="?page={{ page_obj.next_page_number }}{% if q %}&q={{ q }}{% endif %}" class="text-blue-600 hover:underline">Próxima &rarr;</a>
+  <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link">Próxima &rarr;</a>
   {% endif %}
 </div>
 {% endif %}

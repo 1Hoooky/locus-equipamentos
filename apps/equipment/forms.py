@@ -16,7 +16,7 @@ from apps.catalog.models import EquipmentModel
 from apps.equipment.models import Condition, Equipment
 from apps.equipment.services import MAX_BATCH_QUANTITY
 
-TEXT_INPUT_CLASS = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
+TEXT_INPUT_CLASS = "field-input"
 
 
 class EquipmentCreateForm(forms.Form):

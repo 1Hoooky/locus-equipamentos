@@ -9,7 +9,7 @@ from django.contrib.auth.forms import UserCreationForm
 
 from apps.accounts.models import User
 
-TEXT_INPUT_CLASS = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
+TEXT_INPUT_CLASS = "field-input"
 
 
 class UserCreateForm(UserCreationForm):

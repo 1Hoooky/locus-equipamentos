@@ -1,47 +1,47 @@
 {% extends "base.html" %}
 {% block title %}Modelos de equipamento — Locus{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-4">
-  <h1 class="text-xl font-semibold">Modelos de equipamento</h1>
-  <a href="{% url 'catalog:model_create' %}" class="bg-blue-600 text-white rounded-md px-4 py-1.5 text-sm font-medium hover:bg-blue-700">
+<div class="page-header">
+  <h1 class="page-title">Modelos de equipamento</h1>
+  <a href="{% url 'catalog:model_create' %}" class="btn-primary">
     Novo modelo
   </a>
 </div>
 
-<div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-100 text-gray-600 text-left">
+<div class="table-wrap">
+  <table class="table-base">
+    <thead>
       <tr>
-        <th class="px-3 py-2">Código</th>
-        <th class="px-3 py-2">Nome</th>
-        <th class="px-3 py-2">Categoria</th>
-        <th class="px-3 py-2">Equipamentos</th>
-        <th class="px-3 py-2">Status</th>
-        <th class="px-3 py-2"></th>
+        <th>Código</th>
+        <th>Nome</th>
+        <th>Categoria</th>
+        <th>Equipamentos</th>
+        <th>Status</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for model in models %}
-      <tr class="border-t border-gray-100 hover:bg-gray-50">
-        <td class="px-3 py-2 font-mono">{{ model.code }}</td>
-        <td class="px-3 py-2">{{ model.name }}</td>
-        <td class="px-3 py-2">{{ model.category.name }}</td>
-        <td class="px-3 py-2">{{ model.equipment_set.count }}</td>
-        <td class="px-3 py-2">
-          {% if model.is_active %}<span class="text-green-700">Ativo</span>{% else %}<span class="text-gray-400">Inativo</span>{% endif %}
+      <tr>
+        <td class="font-mono">{{ model.code }}</td>
+        <td>{{ model.name }}</td>
+        <td>{{ model.category.name }}</td>
+        <td>{{ model.equipment_set.count }}</td>
+        <td>
+          {% if model.is_active %}<span class="badge-success">Ativo</span>{% else %}<span class="badge-neutral">Inativo</span>{% endif %}
         </td>
-        <td class="px-3 py-2">
-          <a href="{% url 'catalog:model_update' model.pk %}" class="text-blue-600 hover:underline">Editar</a>
+        <td>
+          <a href="{% url 'catalog:model_update' model.pk %}" class="link">Editar</a>
         </td>
       </tr>
       {% empty %}
-      <tr><td class="px-3 py-4 text-gray-500" colspan="6">Nenhum modelo cadastrado.</td></tr>
+      <tr><td class="empty-state" colspan="6">Nenhum modelo cadastrado.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
 <p class="mt-4 text-sm">
-  <a href="{% url 'catalog:category_list' %}" class="text-blue-600 hover:underline">&larr; Ver categorias</a>
+  <a href="{% url 'catalog:category_list' %}" class="link">&larr; Ver categorias</a>
 </p>
 {% endblock %}

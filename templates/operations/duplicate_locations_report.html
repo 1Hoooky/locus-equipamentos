@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Diagnóstico — Locations duplicadas — Locus{% endblock %}
 {% block content %}
-<h1 class="text-xl font-semibold mb-1">Diagnóstico: Locations duplicadas</h1>
-<p class="text-sm text-gray-500 mb-4">
+<h1 class="page-title mb-1">Diagnóstico: Locations duplicadas</h1>
+<p class="page-subtitle mb-4">
   Ferramenta interna somente-leitura, restrita a Administrador — equivalente ao comando
   <code class="bg-gray-100 px-1 rounded">python manage.py report_duplicate_locations</code>, usada onde não há acesso a
   Shell (Render Free). Esta tela não apaga, não edita e não consolida nada. A limpeza dos dados de teste
@@ -10,51 +10,51 @@
   detectar problemas parecidos no futuro.
 </p>
 
-<div class="mb-4 rounded-md bg-amber-50 text-amber-800 px-4 py-2 text-sm">
+<div class="alert-warning">
   "Duplicata" aqui = mesmo nome + tipo + cliente, com mais de uma unidade ativa. Unidades homônimas de clientes
   DIFERENTES são legítimas por decisão de projeto e não aparecem nesta lista.
 </div>
 
 {% if not groups %}
-<div class="bg-white border border-gray-200 rounded-lg p-6 text-sm text-gray-600">
+<div class="card-pad text-sm text-gray-600">
   Nenhuma Location duplicada encontrada.
 </div>
 {% else %}
 <p class="text-sm text-gray-600 mb-4">{{ groups|length }} grupo(s) de duplicatas encontrados.</p>
 
 {% for group in groups %}
-<div class="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
-  <div class="bg-gray-100 px-4 py-2 text-sm font-medium">
+<div class="table-wrap mb-4">
+  <div class="bg-gray-50 px-4 py-2 text-sm font-medium border-b border-gray-100">
     Grupo: “{{ group.name }}” · tipo={{ group.type }} · cliente={{ group.owner_label }}
   </div>
-  <table class="w-full text-sm">
-    <thead class="text-gray-600 text-left border-b border-gray-100">
+  <table class="table-base">
+    <thead>
       <tr>
-        <th class="px-3 py-2">ID</th>
-        <th class="px-3 py-2">Nome</th>
-        <th class="px-3 py-2">Tipo</th>
-        <th class="px-3 py-2">Cliente</th>
-        <th class="px-3 py-2">Criada em</th>
-        <th class="px-3 py-2">Movements como origem</th>
-        <th class="px-3 py-2">Movements como destino</th>
-        <th class="px-3 py-2">Referências</th>
+        <th>ID</th>
+        <th>Nome</th>
+        <th>Tipo</th>
+        <th>Cliente</th>
+        <th>Criada em</th>
+        <th>Movements como origem</th>
+        <th>Movements como destino</th>
+        <th>Referências</th>
       </tr>
     </thead>
     <tbody>
       {% for entry in group.entries %}
-      <tr class="border-t border-gray-100">
-        <td class="px-3 py-2">#{{ entry.location.pk }}</td>
-        <td class="px-3 py-2">{{ entry.location.name }}</td>
-        <td class="px-3 py-2">{{ entry.location.get_type_display }}</td>
-        <td class="px-3 py-2">{{ group.owner_label }}</td>
-        <td class="px-3 py-2">{{ entry.location.created_at|date:"d/m/Y H:i" }}</td>
-        <td class="px-3 py-2">{{ entry.movements_as_origin }}</td>
-        <td class="px-3 py-2">{{ entry.movements_as_destination }}</td>
-        <td class="px-3 py-2">
+      <tr>
+        <td>#{{ entry.location.pk }}</td>
+        <td>{{ entry.location.name }}</td>
+        <td>{{ entry.location.get_type_display }}</td>
+        <td>{{ group.owner_label }}</td>
+        <td>{{ entry.location.created_at|date:"d/m/Y H:i" }}</td>
+        <td>{{ entry.movements_as_origin }}</td>
+        <td>{{ entry.movements_as_destination }}</td>
+        <td>
           {% if entry.has_references %}
-            <span class="inline-block rounded-full bg-red-100 text-red-800 px-2 py-0.5 text-xs font-medium">COM REFERÊNCIAS</span>
+            <span class="badge-danger">COM REFERÊNCIAS</span>
           {% else %}
-            <span class="inline-block rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-xs font-medium">SEM REFERÊNCIAS</span>
+            <span class="badge-success">SEM REFERÊNCIAS</span>
           {% endif %}
         </td>
       </tr>

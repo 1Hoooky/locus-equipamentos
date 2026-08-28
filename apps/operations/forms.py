@@ -32,7 +32,7 @@ from apps.clients.models import Client
 from apps.operations.models import Location, LocationType, MovementType
 from apps.operations.services import _REQUIRED_DESTINATION_TYPE
 
-TEXT_INPUT_CLASS = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
+TEXT_INPUT_CLASS = "field-input"
 
 
 class DestinationLocationSelect(forms.Select):

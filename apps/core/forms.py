@@ -9,7 +9,7 @@ from django import forms
 
 from apps.core.models import Address
 
-TEXT_INPUT_CLASS = "border border-gray-300 rounded-md px-3 py-1.5 text-sm w-full"
+TEXT_INPUT_CLASS = "field-input"
 
 
 class AddressForm(forms.ModelForm):
