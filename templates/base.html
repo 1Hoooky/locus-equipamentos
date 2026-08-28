@@ -160,6 +160,46 @@
       .alert-error { @apply alert bg-red-50 text-red-800 border-red-200; }
       .alert-warning { @apply alert bg-amber-50 text-amber-800 border-amber-200; }
       .alert-info { @apply alert bg-blue-50 text-blue-800 border-blue-200; }
+
+      /* -----------------------------------------------------------------
+       * Ícones e ações compactas (auditoria de iconografia/apresentação de
+       * ações, aprovada em 28/08/2026 — ver AUDITORIA_ICONOGRAFIA_ACOES.md).
+       * Reaproveita o mesmo foco/borda/radius/cores já usados em .btn-*;
+       * de propósito, só 3 variantes de botão-ícone (nunca dezenas).
+       *
+       * Área clicável: o SVG em si continua pequeno (20px "normal" ou
+       * 16px "compact", ver apps/core/templatetags/icons.py) — quem cresce
+       * é o alvo de toque ao redor, via padding/min-width/min-height,
+       * nunca o ícone. 44px no mobile (toque), ~36px a partir de `sm:`
+       * (mouse em tablet/desktop) — decisão explícita da auditoria,
+       * diferente do "32px" que tinha sido cogitado inicialmente.
+       * --------------------------------------------------------------- */
+      .icon-btn {
+        @apply inline-flex items-center justify-center rounded-md min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] p-2 transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
+      }
+      .icon-btn-neutral {
+        @apply icon-btn border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 hover:text-gray-900;
+      }
+      .icon-btn-danger {
+        @apply icon-btn border border-red-300 text-red-700 bg-white hover:bg-red-50;
+      }
+      /* .icon-btn-primary não foi criada nesta rodada: nenhuma ação
+         primária virou ícone-sozinho (decisão aprovada — botão primário
+         continua sempre com texto), então a variante ficaria sem uso. */
+
+      /* Ícone acompanhando texto dentro de um .link solto (que não é
+         flex, ao contrário de .btn-*) — ex.: "Voltar", "Exportar CSV". */
+      .icon-inline {
+        @apply inline-flex items-center gap-1;
+      }
+
+      /* Agrupamento compacto de 2-3 .icon-btn lado a lado (célula de
+         tabela densa, ex.: QR + Etiqueta) — sem bordas próprias, só
+         espaçamento; quebra de linha permitida para não estourar em
+         telas estreitas. */
+      .action-group {
+        @apply inline-flex flex-wrap items-center gap-1;
+      }
     }
   </style>
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>

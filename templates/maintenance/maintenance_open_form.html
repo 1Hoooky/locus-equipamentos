@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}Abrir manutenção — Locus{% endblock %}
 {% block content %}
-<a href="{% url 'maintenance:maintenance_list' %}" class="text-sm link">&larr; Voltar</a>
+<a href="{% url 'maintenance:maintenance_list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
 
 <h1 class="page-title mt-3 mb-1">Abrir manutenção</h1>
 <p class="page-subtitle mb-4">Registra uma nova ficha técnica de manutenção — usa exclusivamente open_maintenance().</p>
@@ -55,8 +56,8 @@
   </div>
 
   <div class="flex items-center gap-3 pt-2">
-    <button type="submit" class="btn-primary">Abrir manutenção</button>
-    <a href="{% url 'maintenance:maintenance_list' %}" class="btn-neutral">Cancelar</a>
+    <button type="submit" class="btn-primary">{% icon "wrench" size="compact" %} Abrir manutenção</button>
+    <a href="{% url 'maintenance:maintenance_list' %}" class="btn-neutral">{% icon "x-mark" size="compact" %} Cancelar</a>
   </div>
 </form>
 

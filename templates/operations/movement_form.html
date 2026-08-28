@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}Movimentar {{ equipment.patrimonio }} — Locus{% endblock %}
 {% block content %}
-<a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-sm link">&larr; Voltar</a>
+<a href="{% url 'equipment:detail' equipment.patrimonio %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
 
 <h1 class="page-title mb-1 mt-3">Registrar movimentação</h1>
 <p class="page-subtitle mb-4">{{ equipment.patrimonio }} — {{ equipment.model.name }} · status atual: {{ equipment.get_status_display }}</p>
@@ -26,7 +27,7 @@
     <button type="submit" class="btn-primary">
       Registrar
     </button>
-    <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="btn-neutral">Cancelar</a>
+    <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="btn-neutral">{% icon "x-mark" size="compact" %} Cancelar</a>
   </div>
 </form>
 

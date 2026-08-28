@@ -34,9 +34,22 @@ def _extract_href(content: str, link_text: str) -> str | None:
     'Próxima', 'Anterior') e devolve o valor já com entidades HTML
     decodificadas (o template, corretamente, renderiza `&` como `&amp;`
     dentro do atributo — um navegador real decodifica isso ao navegar).
+
+    Percorre cada `<a ...>...</a>` isoladamente (não cruza de uma âncora
+    pra outra) e compara o TEXTO VISÍVEL (tags internas removidas, espaços
+    colapsados) com `link_text`. Isso tolera o ícone SVG que a auditoria
+    de iconografia (28/08/2026) passou a renderizar junto do texto
+    ("Anterior" ganhou um ícone ANTES do texto, "Próxima" ganhou um ícone
+    DEPOIS) sem arriscar "vazar" de uma âncora pra outra em busca do
+    texto — o que uma versão ingênua com `.*?` solto faria.
     """
-    match = re.search(rf'<a href="([^"]*)"[^>]*>\s*{re.escape(link_text)}\s*</a>', content)
-    return html.unescape(match.group(1)) if match else None
+    for match in re.finditer(r'<a href="([^"]*)"[^>]*>(.*?)</a>', content, re.DOTALL):
+        href, inner = match.group(1), match.group(2)
+        visible_text = re.sub(r"<[^>]+>", "", inner)
+        visible_text = re.sub(r"\s+", " ", visible_text).strip()
+        if visible_text == link_text:
+            return html.unescape(href)
+    return None
 
 
 def _query_params(href: str) -> dict:

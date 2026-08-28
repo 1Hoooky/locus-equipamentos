@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% load pagination_tags %}
+{% load icons %}
 {% block title %}Clientes — Locus{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Clientes</h1>
   {% if user.is_administrativo_ou_superior or user.is_superuser %}
   <a href="{% url 'clients:create' %}" class="btn-primary">
-    Novo cliente
+    {% icon "plus" size="compact" %} Novo cliente
   </a>
   {% endif %}
 </div>
@@ -33,7 +34,10 @@
         <td>{{ client.trade_name|default:"—" }}</td>
         <td>{{ client.document|default:"—" }}</td>
         <td>
-          <a href="{% url 'clients:detail' client.pk %}" class="link">Ver</a>
+          <a href="{% url 'clients:detail' client.pk %}" class="icon-btn-neutral"
+             aria-label="Ver detalhes de {{ client.company_name }}" title="Ver detalhes de {{ client.company_name }}">
+            {% icon "eye" size="compact" %}
+          </a>
         </td>
       </tr>
       {% empty %}
@@ -46,11 +50,11 @@
 {% if is_paginated %}
 <div class="mt-4 flex gap-3 text-sm">
   {% if page_obj.has_previous %}
-  <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link">&larr; Anterior</a>
+  <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link icon-inline">{% icon "arrow-left" size="compact" %} Anterior</a>
   {% endif %}
   <span class="text-gray-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
   {% if page_obj.has_next %}
-  <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link">Próxima &rarr;</a>
+  <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link icon-inline">Próxima {% icon "arrow-right" size="compact" %}</a>
   {% endif %}
 </div>
 {% endif %}

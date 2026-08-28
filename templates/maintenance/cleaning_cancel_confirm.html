@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}Cancelar higienização — {{ cleaning.equipment.patrimonio }} — Locus{% endblock %}
 {% block content %}
-<a href="{% url 'maintenance:cleaning_detail' cleaning.pk %}" class="text-sm link">&larr; Voltar</a>
+<a href="{% url 'maintenance:cleaning_detail' cleaning.pk %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
 
 <h1 class="page-title mt-3 mb-1">Cancelar registro de higienização</h1>
 <p class="page-subtitle mb-4">{{ cleaning.equipment.patrimonio }} — {{ cleaning.equipment.model.name }}</p>

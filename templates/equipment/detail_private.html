@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}{{ equipment.patrimonio }} — Locus Equipamentos{% endblock %}
 {% block content %}
-<a href="{% url 'equipment:list' %}" class="text-sm link">&larr; Voltar</a>
+<a href="{% url 'equipment:list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
 
 <div class="mt-3 card-pad">
   <p class="page-subtitle">{{ equipment.category.name }} · {{ equipment.model.name }}</p>
@@ -66,22 +67,40 @@
 </div>
 
 {% if user.is_operacional_ou_superior %}
-<div class="mt-4 card-pad flex flex-wrap gap-3 text-sm">
-  <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="link">Registrar movimentação</a>
-  <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="link">Alterar status</a>
-  <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="link">Alterar condição</a>
-  {% if not maintenance_summary.open_maintenance %}
-  <a href="{% url 'maintenance:maintenance_open' %}?equipment={{ equipment.pk }}" class="link">Abrir manutenção</a>
-  {% endif %}
-  <a href="{% url 'maintenance:cleaning_create' %}?equipment={{ equipment.pk }}" class="link">Registrar higienização</a>
-  {% if user.is_administrativo_ou_superior %}
-  <a href="{% url 'equipment:update' equipment.patrimonio %}" class="link">Editar dados</a>
-  {% endif %}
-  {% if user.is_admin %}
-  <a href="{% url 'equipment:reclassify' equipment.patrimonio %}" class="link">Reclassificar modelo</a>
-  {# Ação sensível — decisão aprovada (auditoria 28/08/2026): permanece vermelha, mas só #}
-  {# como link de navegação para sua própria tela de confirmação, nunca botão destrutivo inline aqui. #}
-  <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="text-red-600 hover:underline font-medium">Reemitir patrimônio</a>
+<div class="mt-4 card-pad">
+  {% comment %}
+    Dois grupos VISUAIS (auditoria de iconografia, 28/08/2026, decisão 7):
+    operacional x administrativo/sensível — mesma distinção que já existe
+    no código via is_administrativo_ou_superior/is_admin, só explicitada
+    na tela. Nenhuma ação foi escondida atrás de clique extra, dropdown
+    ou menu de três pontos — todas continuam visíveis ao mesmo tempo,
+    exatamente com as mesmas condições de permissão de antes.
+  {% endcomment %}
+  <h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Ações operacionais</h2>
+  <div class="flex flex-wrap gap-3 text-sm">
+    <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="link">Registrar movimentação</a>
+    <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="link">Alterar status</a>
+    <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="link">Alterar condição</a>
+    {% if not maintenance_summary.open_maintenance %}
+    <a href="{% url 'maintenance:maintenance_open' %}?equipment={{ equipment.pk }}" class="link icon-inline">{% icon "wrench" size="compact" %} Abrir manutenção</a>
+    {% endif %}
+    <a href="{% url 'maintenance:cleaning_create' %}?equipment={{ equipment.pk }}" class="link">Registrar higienização</a>
+  </div>
+
+  {% if user.is_administrativo_ou_superior or user.is_admin %}
+  <h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mt-4 mb-3 border-t border-gray-100 pt-4">Ações administrativas</h2>
+  <div class="flex flex-wrap gap-3 text-sm">
+    {% if user.is_administrativo_ou_superior %}
+    <a href="{% url 'equipment:update' equipment.patrimonio %}" class="link">Editar dados</a>
+    {% endif %}
+    {% if user.is_admin %}
+    <a href="{% url 'equipment:reclassify' equipment.patrimonio %}" class="link">Reclassificar modelo</a>
+    {# Ação sensível — decisão aprovada (auditoria 28/08/2026): permanece vermelha, com #}
+    {# texto explícito, sem ícone, só como link de navegação para sua própria tela de #}
+    {# confirmação, nunca botão destrutivo inline aqui. #}
+    <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="text-red-600 hover:underline font-medium">Reemitir patrimônio</a>
+    {% endif %}
+  </div>
   {% endif %}
 </div>
 {% endif %}
@@ -115,7 +134,13 @@
         {% if m.status == "ABERTA" %}<span class="badge-warning">Aberta</span>{% elif m.status == "CONCLUIDA" %}<span class="badge-success">Concluída</span>{% else %}<span class="badge-neutral">Cancelada</span>{% endif %}
         <span class="text-gray-400">({{ m.created_at|date:"d/m/Y" }})</span>
       </span>
-      <a href="{% url 'maintenance:maintenance_detail' m.pk %}" class="link shrink-0">Ver</a>
+      {# "Ver" vira ícone-só (decisão 3 da auditoria): a linha já identifica #}
+      {# o registro (tipo + status + data), então o texto seria redundante. #}
+      <a href="{% url 'maintenance:maintenance_detail' m.pk %}" class="icon-btn-neutral shrink-0"
+         aria-label="Ver manutenção {{ m.get_maintenance_type_display|lower }} de {{ m.created_at|date:'d/m/Y' }}"
+         title="Ver manutenção {{ m.get_maintenance_type_display|lower }} de {{ m.created_at|date:'d/m/Y' }}">
+        {% icon "eye" size="compact" %}
+      </a>
     </li>
     {% endfor %}
     {% for c in maintenance_summary.recent_cleanings %}
@@ -124,7 +149,11 @@
         Higienização realizada
         <span class="text-gray-400">({{ c.performed_at|date:"d/m/Y" }})</span>
       </span>
-      <a href="{% url 'maintenance:cleaning_detail' c.pk %}" class="link shrink-0">Ver</a>
+      <a href="{% url 'maintenance:cleaning_detail' c.pk %}" class="icon-btn-neutral shrink-0"
+         aria-label="Ver higienização de {{ c.performed_at|date:'d/m/Y' }}"
+         title="Ver higienização de {{ c.performed_at|date:'d/m/Y' }}">
+        {% icon "eye" size="compact" %}
+      </a>
     </li>
     {% endfor %}
   </ul>
@@ -136,9 +165,9 @@
 
 {% if user.is_administrativo_ou_superior %}
 <div class="mt-4 card-pad flex flex-wrap gap-3 text-sm">
-  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="link">Ver QR Code</a>
-  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" download="{{ equipment.patrimonio }}-qr.png" class="link">Baixar QR Code (PNG)</a>
-  <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="link">Baixar etiqueta (PDF)</a>
+  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="link icon-inline">{% icon "qr-code" size="compact" %} Ver QR Code</a>
+  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" download="{{ equipment.patrimonio }}-qr.png" class="link icon-inline">{% icon "arrow-down-tray" size="compact" %} Baixar QR Code (PNG)</a>
+  <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="link icon-inline">{% icon "arrow-down-tray" size="compact" %} Baixar etiqueta (PDF)</a>
 </div>
 {% endif %}
 

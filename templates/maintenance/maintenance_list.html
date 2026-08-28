@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load pagination_tags %}
+{% load icons %}
 {% block title %}Manutenções — Locus{% endblock %}
 {% block content %}
 <div class="page-header">
@@ -8,7 +9,7 @@
     <p class="page-subtitle">Fichas técnicas de manutenção preventiva/corretiva por equipamento.</p>
   </div>
   {% if user.is_operacional_ou_superior %}
-  <a href="{% url 'maintenance:maintenance_open' %}" class="btn-primary">Abrir manutenção</a>
+  <a href="{% url 'maintenance:maintenance_open' %}" class="btn-primary">{% icon "wrench" size="compact" %} Abrir manutenção</a>
   {% endif %}
 </div>
 
@@ -89,11 +90,11 @@
 {% if is_paginated %}
 <div class="flex gap-3 mt-4 text-sm items-center">
   {% if page_obj.has_previous %}
-    <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link">Anterior</a>
+    <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link icon-inline">{% icon "arrow-left" size="compact" %} Anterior</a>
   {% endif %}
   <span class="text-gray-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
   {% if page_obj.has_next %}
-    <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link">Próxima</a>
+    <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link icon-inline">Próxima {% icon "arrow-right" size="compact" %}</a>
   {% endif %}
 </div>
 {% endif %}

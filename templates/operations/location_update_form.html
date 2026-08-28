@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}Editar {{ location.name }} — Locus{% endblock %}
 {% block content %}
 <h1 class="page-title mb-4">Editar unidade — {{ location.name }}</h1>
@@ -22,7 +23,7 @@
     <button type="submit" class="btn-primary">
       Salvar
     </button>
-    <a href="{% url 'operations:location_detail' location.pk %}" class="btn-neutral">Cancelar</a>
+    <a href="{% url 'operations:location_detail' location.pk %}" class="btn-neutral">{% icon "x-mark" size="compact" %} Cancelar</a>
   </div>
 </form>
 {% endblock %}

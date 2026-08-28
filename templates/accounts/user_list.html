@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}Usuários — Locus{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Usuários</h1>
   <a href="{% url 'accounts:user_create' %}" class="btn-primary">
-    Novo usuário
+    {% icon "plus" size="compact" %} Novo usuário
   </a>
 </div>
 
@@ -35,7 +36,10 @@
           {% endif %}
         </td>
         <td>
-          <a href="{% url 'accounts:user_update' u.pk %}" class="link">Editar</a>
+          <a href="{% url 'accounts:user_update' u.pk %}" class="icon-btn-neutral"
+             aria-label="Editar usuário {{ u.username }}" title="Editar usuário {{ u.username }}">
+            {% icon "pencil" size="compact" %}
+          </a>
         </td>
       </tr>
       {% empty %}

@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}Registrar higienização — Locus{% endblock %}
 {% block content %}
-<a href="{% url 'maintenance:cleaning_list' %}" class="text-sm link">&larr; Voltar</a>
+<a href="{% url 'maintenance:cleaning_list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
 
 <h1 class="page-title mt-3 mb-1">Registrar higienização</h1>
 <p class="page-subtitle mb-4">Usa exclusivamente create_cleaning().</p>
@@ -57,7 +58,7 @@
 
   <div class="flex items-center gap-3 pt-2">
     <button type="submit" class="btn-primary">Registrar higienização</button>
-    <a href="{% url 'maintenance:cleaning_list' %}" class="btn-neutral">Cancelar</a>
+    <a href="{% url 'maintenance:cleaning_list' %}" class="btn-neutral">{% icon "x-mark" size="compact" %} Cancelar</a>
   </div>
 </form>
 

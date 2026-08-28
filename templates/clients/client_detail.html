@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}{{ client.display_name }} — Locus{% endblock %}
 {% block content %}
-<a href="{% url 'clients:list' %}" class="text-sm link">&larr; Voltar</a>
+<a href="{% url 'clients:list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
 
 <div class="mt-3 card-pad">
   <p class="page-subtitle">{{ client.get_client_type_display }}</p>

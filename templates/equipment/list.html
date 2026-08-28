@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load pagination_tags %}
+{% load icons %}
 {% block title %}Equipamentos — Locus{% endblock %}
 {% block content %}
 <div class="page-header">
@@ -7,22 +8,22 @@
   <div class="flex flex-wrap gap-3 text-sm items-center">
     {% if user.is_administrativo_ou_superior %}
     <a href="{% url 'equipment:create' %}" class="btn-primary">
-      Novo equipamento
+      {% icon "plus" size="compact" %} Novo equipamento
     </a>
     <a href="{% url 'equipment:batch_create' %}" class="link">
       Adicionar equipamentos em lote
     </a>
-    <a href="{% url 'equipment:export' %}?format=csv&{{ request.GET.urlencode }}" class="link">
-      Exportar CSV
+    <a href="{% url 'equipment:export' %}?format=csv&{{ request.GET.urlencode }}" class="link icon-inline">
+      {% icon "arrow-down-tray" size="compact" %} Exportar CSV
     </a>
-    <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="link">
-      Exportar Excel
+    <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="link icon-inline">
+      {% icon "arrow-down-tray" size="compact" %} Exportar Excel
     </a>
-    <a href="{% url 'qrcodes:qr_zip' %}" class="link">
-      Exportar QR Codes
+    <a href="{% url 'qrcodes:qr_zip' %}" class="link icon-inline">
+      {% icon "arrow-down-tray" size="compact" %} Exportar QR Codes
     </a>
-    <a href="{% url 'qrcodes:label_zip' %}" class="link">
-      Exportar Etiquetas
+    <a href="{% url 'qrcodes:label_zip' %}" class="link icon-inline">
+      {% icon "arrow-down-tray" size="compact" %} Exportar Etiquetas
     </a>
     {% endif %}
   </div>
@@ -114,9 +115,16 @@
         </td>
         {% if user.is_administrativo_ou_superior %}
         <td class="whitespace-nowrap">
-          <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="link">QR</a>
-          ·
-          <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" target="_blank" class="link">Etiqueta</a>
+          <div class="action-group">
+            <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="icon-btn-neutral"
+               aria-label="Ver QR Code de {{ equipment.patrimonio }}" title="Ver QR Code de {{ equipment.patrimonio }}">
+              {% icon "qr-code" size="compact" %}
+            </a>
+            <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" target="_blank" class="icon-btn-neutral"
+               aria-label="Baixar etiqueta de {{ equipment.patrimonio }}" title="Baixar etiqueta de {{ equipment.patrimonio }}">
+              {% icon "tag" size="compact" %}
+            </a>
+          </div>
         </td>
         {% endif %}
       </tr>
@@ -130,11 +138,11 @@
 {% if is_paginated %}
 <div class="flex gap-2 mt-4 text-sm">
   {% if page_obj.has_previous %}
-    <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link">Anterior</a>
+    <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link icon-inline">{% icon "arrow-left" size="compact" %} Anterior</a>
   {% endif %}
   <span class="text-gray-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
   {% if page_obj.has_next %}
-    <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link">Próxima</a>
+    <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link icon-inline">Próxima {% icon "arrow-right" size="compact" %}</a>
   {% endif %}
 </div>
 {% endif %}

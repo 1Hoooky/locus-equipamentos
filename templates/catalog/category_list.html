@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}Categorias — Locus{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Categorias</h1>
   <a href="{% url 'catalog:category_create' %}" class="btn-primary">
-    Nova categoria
+    {% icon "plus" size="compact" %} Nova categoria
   </a>
 </div>
 
@@ -25,7 +26,10 @@
           {% if category.is_active %}<span class="badge-success">Ativa</span>{% else %}<span class="badge-neutral">Inativa</span>{% endif %}
         </td>
         <td>
-          <a href="{% url 'catalog:category_update' category.pk %}" class="link">Editar</a>
+          <a href="{% url 'catalog:category_update' category.pk %}" class="icon-btn-neutral"
+             aria-label="Editar categoria {{ category.name }}" title="Editar categoria {{ category.name }}">
+            {% icon "pencil" size="compact" %}
+          </a>
         </td>
       </tr>
       {% empty %}

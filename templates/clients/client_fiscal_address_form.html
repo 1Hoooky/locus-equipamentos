@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}Endereço fiscal — {{ client.display_name }}{% endblock %}
 {% block content %}
 <h1 class="page-title mb-4">Endereço fiscal — {{ client.display_name }}</h1>
@@ -16,7 +17,7 @@
     <button type="submit" class="btn-primary">
       Salvar
     </button>
-    <a href="{% url 'clients:detail' client.pk %}" class="btn-neutral">Cancelar</a>
+    <a href="{% url 'clients:detail' client.pk %}" class="btn-neutral">{% icon "x-mark" size="compact" %} Cancelar</a>
   </div>
 </form>
 {% endblock %}

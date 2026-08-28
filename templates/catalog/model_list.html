@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% load icons %}
 {% block title %}Modelos de equipamento — Locus{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Modelos de equipamento</h1>
   <a href="{% url 'catalog:model_create' %}" class="btn-primary">
-    Novo modelo
+    {% icon "plus" size="compact" %} Novo modelo
   </a>
 </div>
 
@@ -31,7 +32,10 @@
           {% if model.is_active %}<span class="badge-success">Ativo</span>{% else %}<span class="badge-neutral">Inativo</span>{% endif %}
         </td>
         <td>
-          <a href="{% url 'catalog:model_update' model.pk %}" class="link">Editar</a>
+          <a href="{% url 'catalog:model_update' model.pk %}" class="icon-btn-neutral"
+             aria-label="Editar modelo {{ model.name }}" title="Editar modelo {{ model.name }}">
+            {% icon "pencil" size="compact" %}
+          </a>
         </td>
       </tr>
       {% empty %}
@@ -42,6 +46,6 @@
 </div>
 
 <p class="mt-4 text-sm">
-  <a href="{% url 'catalog:category_list' %}" class="link">&larr; Ver categorias</a>
+  <a href="{% url 'catalog:category_list' %}" class="link icon-inline">{% icon "arrow-left" size="compact" %} Ver categorias</a>
 </p>
 {% endblock %}
