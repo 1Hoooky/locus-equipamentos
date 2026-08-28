@@ -4,120 +4,128 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Locus Equipamentos{% endblock %}</title>
-  {# Tokens/componentes compartilhados com base_public.html — ver #}
-  {# templates/_design_tokens.html (extraído nesta etapa de UX/UI, item [16] #}
-  {# da auditoria) para as duas bases usarem a mesma identidade sem duplicar #}
-  {# o bloco inteiro. #}
+  {# Tokens/componentes compartilhados com base_public.html — ver templates/_design_tokens.html. #}
   {% include "_design_tokens.html" %}
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
   {% load icons %}
 </head>
-<body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
-  <header class="bg-brand-black text-white px-4 py-3">
-    <div class="max-w-6xl mx-auto w-full flex items-center justify-between gap-3">
-      {# Autenticado -> Home operacional (etapa de UX/UI, 28/08/2026 — #}
-      {# antes desta etapa não existia Home nem rota raiz "/", então o #}
-      {# logo apontava para a listagem de equipamentos; auditoria final #}
-      {# da Fase 1, 2026-08-25). Anônimo continua indo para o login — #}
-      {# "/" agora existe, mas exige login (LoginRequiredMixin), então #}
-      {# apontar direto para accounts:login evita um redirect a mais. #}
-      <a href="{% if user.is_authenticated %}{% url 'dashboard:home' %}{% else %}{% url 'accounts:login' %}{% endif %}"
-         class="font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark shrink-0">
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+<div id="app-shell" class="flex min-h-screen">
+
+{% if user.is_authenticated %}
+{% comment %}
+Rodada CORRETIVA de UX/UI (homologação no Render, pós-implementação de
+28/08/2026): a navegação desktop tinha virado uma barra horizontal simples
+(Home | Equipamentos | ... | dropdowns) — funcional, mas abaixo do padrão
+de painel administrativo pedido na auditoria original. Substituída aqui por
+uma sidebar lateral fixa e colapsável, mantendo a identidade Locus
+(preto/dourado) e reaproveitando EXATAMENTE as mesmas condições de
+permissão que já protegiam cada link (nenhuma regra nova).
+
+Taxonomia compartilhada entre desktop (sidebar) e mobile (drawer, logo
+abaixo): "Operação" / "Cadastros" / "Administração" — os mesmos 3 grupos
+nos dois lugares, para que a pessoa não precise reaprender a navegação ao
+trocar de tamanho de tela. Sidebar/drawer só existem para usuário
+autenticado — anônimo (ex.: tela de login) nunca vê nenhum dos dois, só o
+header abaixo (fora deste bloco condicional) com a marca apontando para o
+login.
+{% endcomment %}
+
+  {# ------------------------------------------------------------------- #}
+  {# Sidebar administrativa DESKTOP (>= 640px) — colapsável, ícone-somente #}
+  {# quando recolhida. Ver #app-sidebar-toggle no script no fim do body.  #}
+  {# ------------------------------------------------------------------- #}
+  <aside id="app-sidebar" class="hidden sm:flex sm:flex-col bg-brand-black text-white shrink-0 w-60 transition-[width] duration-150 ease-in-out overflow-x-hidden">
+    <div class="flex items-center justify-between gap-2 px-3 py-4 border-b border-white/10 shrink-0">
+      <a href="{% url 'dashboard:home' %}" id="app-sidebar-brand-full" class="font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark truncate min-w-0">
         LOCUS <span class="text-white font-normal">Equipamentos</span>
       </a>
-
-      {% if user.is_authenticated %}
-      {# Botão do menu MOBILE (< 640px) — abre o drawer definido logo #}
-      {# abaixo do </header>. Etapa de UX/UI, 28/08/2026 (auditoria, item #}
-      {# [24]): antes disto, "main-nav" abaixo servia mobile E desktop ao #}
-      {# mesmo tempo, e no mobile virava uma lista inline sem estilo #}
-      {# nenhum assim que o JS tirava a classe "hidden". Agora mobile e #}
-      {# desktop são duas superfícies de navegação SEPARADAS. #}
-      <button type="button" id="mobile-menu-toggle" aria-expanded="false" aria-controls="mobile-menu-drawer"
-              class="sm:hidden min-w-[44px] min-h-[44px] flex items-center justify-center text-white rounded-md hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
-        <span class="sr-only">Abrir menu</span>
-        {% icon "bars-3" size="normal" %}
+      <a href="{% url 'dashboard:home' %}" id="app-sidebar-brand-compact" class="hidden font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark shrink-0" aria-label="LOCUS Equipamentos — ir para a Home" title="LOCUS Equipamentos">
+        L
+      </a>
+      <button type="button" id="app-sidebar-toggle" aria-expanded="true" aria-controls="app-sidebar"
+              aria-label="Recolher menu lateral" title="Recolher menu lateral"
+              class="inline-flex items-center justify-center w-8 h-8 rounded-md text-gray-300 hover:bg-white/10 hover:text-white shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
+        <span id="app-sidebar-toggle-icon-expanded" class="inline-flex">{% icon "arrow-left" size="compact" %}</span>
+        <span id="app-sidebar-toggle-icon-collapsed" class="hidden">{% icon "arrow-right" size="compact" %}</span>
       </button>
-
-      {# Navegação DESKTOP (>= 640px) — conteúdo inalterado nesta etapa #}
-      {# (a reorganização em grupos/dropdowns é a próxima etapa, #}
-      {# separada, da auditoria). Não depende mais do JS de toggle: fica #}
-      {# sempre visível a partir de `sm:` e sempre oculta abaixo disso, #}
-      {# só via CSS responsivo. #}
-      <nav id="main-nav" class="hidden sm:flex sm:items-center gap-x-4 gap-y-2 text-sm flex-wrap w-full sm:w-auto" aria-label="Navegação principal">
-        {# Ações de uso frequente — sempre visíveis como link direto #}
-        {# (auditoria, item [25], Opção B aprovada: nada de esconder o #}
-        {# que é usado todo dia atrás de um clique extra). #}
-        <a href="{% url 'dashboard:home' %}" class="text-gray-300 hover:text-brand-gold">Home</a>
-        <a href="{% url 'equipment:list' %}" class="text-gray-300 hover:text-brand-gold">Equipamentos</a>
-        <a href="{% url 'maintenance:maintenance_list' %}" class="text-gray-300 hover:text-brand-gold">Manutenções</a>
-        <a href="{% url 'maintenance:cleaning_list' %}" class="text-gray-300 hover:text-brand-gold">Higienizações</a>
-        <a href="{% url 'clients:list' %}" class="text-gray-300 hover:text-brand-gold">Clientes</a>
-        <a href="{% url 'operations:location_list' %}" class="text-gray-300 hover:text-brand-gold">Unidades</a>
-
-        {% if user.is_administrativo_ou_superior or user.is_superuser %}
-        {# Dropdown "Cadastros" — área usada com menos frequência que as #}
-        {# ações acima (auditoria, item [25]). Mesma permissão que já #}
-        {# protegia estes dois links quando eram inline. #}
-        <div class="relative" data-dropdown>
-          <button type="button" class="nav-dropdown-toggle" aria-haspopup="true" aria-expanded="false"
-                  aria-controls="nav-dropdown-cadastros" data-dropdown-toggle>
-            Cadastros {% icon "chevron-down" size="compact" %}
-          </button>
-          <div id="nav-dropdown-cadastros" class="nav-dropdown-menu" data-dropdown-menu role="menu">
-            <a href="{% url 'catalog:category_list' %}" class="nav-dropdown-item" role="menuitem">Categorias</a>
-            <a href="{% url 'catalog:model_list' %}" class="nav-dropdown-item" role="menuitem">Modelos</a>
-          </div>
-        </div>
-        {% endif %}
-
-        {% if user.is_admin or user.is_superuser %}
-        {# Dropdown "Administração" — mesma permissão que já protegia #}
-        {# Importar planilha/Usuários; "Diagnóstico de unidades #}
-        {# duplicadas" ganha aqui o mesmo link de navegação que o drawer #}
-        {# mobile já tem (antes só era alcançável digitando a URL). #}
-        <div class="relative" data-dropdown>
-          <button type="button" class="nav-dropdown-toggle" aria-haspopup="true" aria-expanded="false"
-                  aria-controls="nav-dropdown-administracao" data-dropdown-toggle>
-            Administração {% icon "chevron-down" size="compact" %}
-          </button>
-          <div id="nav-dropdown-administracao" class="nav-dropdown-menu" data-dropdown-menu role="menu">
-            <a href="{% url 'equipment:import_upload' %}" class="nav-dropdown-item" role="menuitem">Importar planilha</a>
-            <a href="{% url 'accounts:user_list' %}" class="nav-dropdown-item" role="menuitem">Usuários</a>
-            <a href="{% url 'operations:duplicate_locations_report' %}" class="nav-dropdown-item" role="menuitem">Diagnóstico de unidades</a>
-          </div>
-        </div>
-        {% endif %}
-
-        <span class="text-gray-400 sm:ml-2">{{ user }} · {{ user.get_role_display }}</span>
-        <form method="post" action="{% url 'accounts:logout' %}" class="inline">
-          {% csrf_token %}
-          <button type="submit" class="text-brand-gold hover:text-brand-gold-dark hover:underline">Sair</button>
-        </form>
-      </nav>
-      {% endif %}
     </div>
-  </header>
+    <p id="app-sidebar-subtitle" class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-gray-500 shrink-0">Sistema de Equipamentos</p>
 
-  {% if user.is_authenticated %}
-  {# ---------------------------------------------------------------------
-     Drawer do menu mobile — etapa de UX/UI, 28/08/2026 (auditoria, itens
-     [23]/[24]). Organizado por módulo (grupos aprovados: Operação,
-     Equipamentos, Manutenção, Cadastros, Administração), reaproveitando
-     EXATAMENTE as mesmas condições de permissão já usadas na navegação
-     desktop acima e nas views (nenhuma regra de permissão foi reescrita
-     "de cabeça" — só reorganizada visualmente). "Movimentações" não
-     entra como item próprio porque não existe uma listagem geral dela
-     hoje (auditoria, item [23]); "Diagnóstico de unidades duplicadas"
-     ganha link de navegação pela primeira vez aqui (antes só era
-     alcançável digitando a URL — mesma permissão CAN_VIEW_DIAGNOSTICS
-     que já protegia a view).
+    <nav class="flex-1 overflow-y-auto px-2 pb-4" aria-label="Navegação principal">
+      <p class="sidebar-group-title">Operação</p>
+      <a href="{% url 'dashboard:home' %}" title="Home" aria-label="Home"
+         class="sidebar-link {% if request.resolver_match.view_name == 'dashboard:home' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'dashboard:home' %}aria-current="page"{% endif %}>
+        {% icon "home" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Home</span>
+      </a>
+      <a href="{% url 'equipment:list' %}" title="Equipamentos" aria-label="Equipamentos"
+         class="sidebar-link {% if request.resolver_match.view_name == 'equipment:list' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'equipment:list' %}aria-current="page"{% endif %}>
+        {% icon "archive-box" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Equipamentos</span>
+      </a>
+      <a href="{% url 'maintenance:maintenance_list' %}" title="Manutenções" aria-label="Manutenções"
+         class="sidebar-link {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}aria-current="page"{% endif %}>
+        {% icon "wrench" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Manutenções</span>
+      </a>
+      <a href="{% url 'maintenance:cleaning_list' %}" title="Higienizações" aria-label="Higienizações"
+         class="sidebar-link {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}aria-current="page"{% endif %}>
+        {% icon "sparkles" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Higienizações</span>
+      </a>
 
-     `request.resolver_match.view_name` (namespace:nome da rota) é o que
-     decide o estado ativo (`aria-current="page"` + destaque visual) —
-     sempre disponível no `request` de qualquer view normal do Django,
-     nenhum context processor novo foi necessário para isso.
-     --------------------------------------------------------------------- #}
+      <p class="sidebar-group-title">Cadastros</p>
+      <a href="{% url 'clients:list' %}" title="Clientes" aria-label="Clientes"
+         class="sidebar-link {% if request.resolver_match.view_name == 'clients:list' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'clients:list' %}aria-current="page"{% endif %}>
+        {% icon "users" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Clientes</span>
+      </a>
+      <a href="{% url 'operations:location_list' %}" title="Unidades" aria-label="Unidades"
+         class="sidebar-link {% if request.resolver_match.view_name == 'operations:location_list' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'operations:location_list' %}aria-current="page"{% endif %}>
+        {% icon "building-office" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Unidades</span>
+      </a>
+      {% if user.is_administrativo_ou_superior or user.is_superuser %}
+      <a href="{% url 'catalog:category_list' %}" title="Categorias" aria-label="Categorias"
+         class="sidebar-link {% if request.resolver_match.view_name == 'catalog:category_list' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'catalog:category_list' %}aria-current="page"{% endif %}>
+        {% icon "squares-2x2" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Categorias</span>
+      </a>
+      <a href="{% url 'catalog:model_list' %}" title="Modelos" aria-label="Modelos"
+         class="sidebar-link {% if request.resolver_match.view_name == 'catalog:model_list' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'catalog:model_list' %}aria-current="page"{% endif %}>
+        {% icon "cube" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Modelos</span>
+      </a>
+      {% endif %}
+
+      {% if user.is_admin or user.is_superuser %}
+      <p class="sidebar-group-title">Administração</p>
+      <a href="{% url 'equipment:import_upload' %}" title="Importar planilha" aria-label="Importar planilha"
+         class="sidebar-link {% if request.resolver_match.view_name == 'equipment:import_upload' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'equipment:import_upload' %}aria-current="page"{% endif %}>
+        {% icon "arrow-up-tray" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Importar planilha</span>
+      </a>
+      <a href="{% url 'accounts:user_list' %}" title="Usuários" aria-label="Usuários"
+         class="sidebar-link {% if request.resolver_match.view_name == 'accounts:user_list' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'accounts:user_list' %}aria-current="page"{% endif %}>
+        {% icon "user-group" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Usuários</span>
+      </a>
+      <a href="{% url 'operations:duplicate_locations_report' %}" title="Diagnóstico de unidades" aria-label="Diagnóstico de unidades"
+         class="sidebar-link {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}aria-current="page"{% endif %}>
+        {% icon "magnifying-glass" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Diagnóstico de unidades</span>
+      </a>
+      {% endif %}
+    </nav>
+  </aside>
+
+  {# ------------------------------------------------------------------- #}
+  {# Drawer do menu MOBILE (< 640px) — mesma taxonomia da sidebar acima  #}
+  {# (Operação/Cadastros/Administração), mesmas permissões, mecânica     #}
+  {# preservada (backdrop, X, Escape, foco, 44px de toque, scroll        #}
+  {# interno) da etapa anterior — só a estrutura de grupos foi realinhada.#}
+  {# ------------------------------------------------------------------- #}
   <div id="mobile-menu-backdrop" class="hidden sm:hidden fixed inset-0 bg-black/50 z-40"></div>
   <nav id="mobile-menu-drawer" class="hidden sm:hidden fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-white shadow-xl flex flex-col"
        aria-label="Menu principal" tabindex="-1">
@@ -138,35 +146,15 @@
       </a>
       <a href="{% url 'equipment:list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:list' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'equipment:list' %}aria-current="page"{% endif %}>
-        {% icon "cube" size="compact" %} Equipamentos
+        {% icon "archive-box" size="compact" %} Equipamentos
       </a>
-
-      <p class="mobile-menu-group-title">Equipamentos</p>
-      {% if user.is_administrativo_ou_superior or user.is_superuser %}
-      <a href="{% url 'equipment:create' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:create' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'equipment:create' %}aria-current="page"{% endif %}>
-        {% icon "plus" size="compact" %} Novo equipamento
-      </a>
-      <a href="{% url 'equipment:batch_create' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:batch_create' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'equipment:batch_create' %}aria-current="page"{% endif %}>
-        {% icon "plus" size="compact" %} Adicionar em lote
-      </a>
-      {% endif %}
-      {% if user.is_admin or user.is_superuser %}
-      <a href="{% url 'equipment:import_upload' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:import_upload' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'equipment:import_upload' %}aria-current="page"{% endif %}>
-        {% icon "arrow-down-tray" size="compact" %} Importar planilha
-      </a>
-      {% endif %}
-
-      <p class="mobile-menu-group-title">Manutenção</p>
       <a href="{% url 'maintenance:maintenance_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}aria-current="page"{% endif %}>
         {% icon "wrench" size="compact" %} Manutenções
       </a>
       <a href="{% url 'maintenance:cleaning_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}aria-current="page"{% endif %}>
-        {% icon "tag" size="compact" %} Higienizações
+        {% icon "sparkles" size="compact" %} Higienizações
       </a>
 
       <p class="mobile-menu-group-title">Cadastros</p>
@@ -176,7 +164,7 @@
       </a>
       <a href="{% url 'operations:location_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'operations:location_list' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'operations:location_list' %}aria-current="page"{% endif %}>
-        {% icon "archive-box" size="compact" %} Unidades
+        {% icon "building-office" size="compact" %} Unidades
       </a>
       {% if user.is_administrativo_ou_superior or user.is_superuser %}
       <a href="{% url 'catalog:category_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'catalog:category_list' %}mobile-menu-link-active{% endif %}"
@@ -191,13 +179,17 @@
 
       {% if user.is_admin or user.is_superuser %}
       <p class="mobile-menu-group-title">Administração</p>
+      <a href="{% url 'equipment:import_upload' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:import_upload' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'equipment:import_upload' %}aria-current="page"{% endif %}>
+        {% icon "arrow-up-tray" size="compact" %} Importar planilha
+      </a>
       <a href="{% url 'accounts:user_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'accounts:user_list' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'accounts:user_list' %}aria-current="page"{% endif %}>
-        {% icon "users" size="compact" %} Usuários
+        {% icon "user-group" size="compact" %} Usuários
       </a>
       <a href="{% url 'operations:duplicate_locations_report' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}aria-current="page"{% endif %}>
-        {% icon "cog-6-tooth" size="compact" %} Diagnóstico de unidades
+        {% icon "magnifying-glass" size="compact" %} Diagnóstico de unidades
       </a>
       {% endif %}
     </div>
@@ -210,152 +202,162 @@
       </form>
     </div>
   </nav>
-  {% endif %}
+{% endif %}
 
-  <main class="flex-1 px-4 py-6 max-w-6xl mx-auto w-full">
-    {% for message in messages %}
-      <div class="alert-{% if 'error' in message.tags %}error{% elif 'warning' in message.tags %}warning{% elif 'success' in message.tags %}success{% else %}info{% endif %}">
-        {{ message }}
+  {# ------------------------------------------------------------------- #}
+  {# Coluna principal — SEMPRE renderizada, autenticado ou não (a tela   #}
+  {# de login usa esta mesma base). Header simplificado (sem duplicar a  #}
+  {# navegação completa da sidebar/drawer, que só existem autenticado) + #}
+  {# conteúdo da tela + rodapé.                                          #}
+  {# ------------------------------------------------------------------- #}
+  <div class="flex-1 flex flex-col min-w-0">
+    <header class="bg-brand-black text-white px-4 py-3 shrink-0">
+      <div class="w-full flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          {% if user.is_authenticated %}
+          <button type="button" id="mobile-menu-toggle" aria-expanded="false" aria-controls="mobile-menu-drawer"
+                  class="sm:hidden min-w-[44px] min-h-[44px] flex items-center justify-center text-white rounded-md hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold shrink-0">
+            <span class="sr-only">Abrir menu</span>
+            {% icon "bars-3" size="normal" %}
+          </button>
+          {% endif %}
+          {# Autenticado -> Home operacional; anônimo -> login. No desktop #}
+          {# autenticado a marca já vive na sidebar (acima), então some    #}
+          {# daqui a partir de `sm:` (`sm:hidden`) para não duplicar; para #}
+          {# anônimo (tela de login, sem sidebar) fica sempre visível.     #}
+          <a href="{% if user.is_authenticated %}{% url 'dashboard:home' %}{% else %}{% url 'accounts:login' %}{% endif %}"
+             class="{% if user.is_authenticated %}sm:hidden {% endif %}font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark truncate min-w-0 shrink-0">
+            LOCUS <span class="text-white font-normal">Equipamentos</span>
+          </a>
+        </div>
+        {% if user.is_authenticated %}
+        <div class="hidden sm:flex items-center gap-3 text-sm shrink-0">
+          <span class="text-gray-300">{{ user }} · {{ user.get_role_display }}</span>
+          <form method="post" action="{% url 'accounts:logout' %}" class="inline">
+            {% csrf_token %}
+            <button type="submit" class="text-brand-gold hover:text-brand-gold-dark hover:underline">Sair</button>
+          </form>
+        </div>
+        {% endif %}
       </div>
-    {% endfor %}
-    {% block content %}{% endblock %}
-  </main>
+    </header>
 
-  <footer class="text-center text-xs text-gray-400 py-4 border-t border-gray-200 bg-white">
-    Locus Locações · Sistema de Gestão de Equipamentos
-  </footer>
+    <main class="flex-1 px-4 py-6 max-w-6xl mx-auto w-full">
+      {% for message in messages %}
+        <div class="alert-{% if 'error' in message.tags %}error{% elif 'warning' in message.tags %}warning{% elif 'success' in message.tags %}success{% else %}info{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+      {% block content %}{% endblock %}
+    </main>
 
-  {% if user.is_authenticated %}
-  <script>
-    // Drawer do menu mobile interno — vanilla JS, sem framework/dependência
-    // nova (decisão aprovada, etapa de UX/UI de 28/08/2026). Só front-end
-    // de conveniência/acessibilidade, mesma disciplina de outros scripts
-    // inline do projeto: não afeta nenhuma regra de permissão/segurança,
-    // que continua 100% no backend (RoleRequiredMixin/allowed_roles).
-    (function () {
-      var toggle = document.getElementById("mobile-menu-toggle");
-      var drawer = document.getElementById("mobile-menu-drawer");
-      var backdrop = document.getElementById("mobile-menu-backdrop");
-      var closeBtn = document.getElementById("mobile-menu-close");
-      if (!toggle || !drawer || !backdrop || !closeBtn) return;
+    <footer class="text-center text-xs text-gray-400 py-4 border-t border-gray-200 bg-white">
+      Locus Locações · Sistema de Gestão de Equipamentos
+    </footer>
+  </div>
+</div>
 
-      function openMenu() {
-        drawer.classList.remove("hidden");
-        backdrop.classList.remove("hidden");
-        toggle.setAttribute("aria-expanded", "true");
-        // Foco vai para o botão de fechar — primeiro elemento focável do
-        // drawer (requisito: foco correto ao abrir).
-        closeBtn.focus();
-        document.addEventListener("keydown", onKeydown);
+{% if user.is_authenticated %}
+<script>
+  // Sidebar administrativa DESKTOP — colapsar/expandir (vanilla JS, sem
+  // framework/dependência nova). Preferência persistida em localStorage
+  // só como conveniência entre recarregamentos; toda leitura/escrita é
+  // protegida por try/catch porque localStorage pode não estar disponível
+  // (navegação privada, política do navegador) sem que isso quebre o
+  // colapso dentro da própria sessão.
+  (function () {
+    var sidebar = document.getElementById("app-sidebar");
+    var toggleBtn = document.getElementById("app-sidebar-toggle");
+    var iconExpanded = document.getElementById("app-sidebar-toggle-icon-expanded");
+    var iconCollapsed = document.getElementById("app-sidebar-toggle-icon-collapsed");
+    var brandFull = document.getElementById("app-sidebar-brand-full");
+    var brandCompact = document.getElementById("app-sidebar-brand-compact");
+    if (!sidebar || !toggleBtn) return;
+
+    var STORAGE_KEY = "locus:sidebarCollapsed";
+
+    function applyCollapsed(collapsed) {
+      sidebar.classList.toggle("is-collapsed", collapsed);
+      toggleBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      toggleBtn.setAttribute("aria-label", collapsed ? "Expandir menu lateral" : "Recolher menu lateral");
+      toggleBtn.setAttribute("title", collapsed ? "Expandir menu lateral" : "Recolher menu lateral");
+      if (iconExpanded) iconExpanded.classList.toggle("hidden", collapsed);
+      if (iconCollapsed) iconCollapsed.classList.toggle("hidden", !collapsed);
+      if (brandFull) brandFull.classList.toggle("hidden", collapsed);
+      if (brandCompact) brandCompact.classList.toggle("hidden", !collapsed);
+    }
+
+    var stored = null;
+    try {
+      stored = window.localStorage.getItem(STORAGE_KEY);
+    } catch (e) {
+      stored = null;
+    }
+    applyCollapsed(stored === "1");
+
+    toggleBtn.addEventListener("click", function () {
+      var collapsed = !sidebar.classList.contains("is-collapsed");
+      applyCollapsed(collapsed);
+      try {
+        window.localStorage.setItem(STORAGE_KEY, collapsed ? "1" : "0");
+      } catch (e) {
+        // localStorage indisponível — colapso funciona nesta sessão, só não persiste.
       }
+    });
+  })();
 
-      function closeMenu() {
-        drawer.classList.add("hidden");
-        backdrop.classList.add("hidden");
-        toggle.setAttribute("aria-expanded", "false");
-        document.removeEventListener("keydown", onKeydown);
-        // Devolve o foco ao botão que abriu o menu (requisito explícito
-        // do briefing aprovado) — sem isso, o foco do teclado "se perde"
-        // num elemento agora invisível.
-        toggle.focus();
+  // Drawer do menu mobile interno — vanilla JS, sem framework/dependência
+  // nova. Só front-end de conveniência/acessibilidade: nenhuma regra de
+  // permissão/segurança é decidida aqui, que continua 100% no backend
+  // (RoleRequiredMixin/allowed_roles).
+  (function () {
+    var toggle = document.getElementById("mobile-menu-toggle");
+    var drawer = document.getElementById("mobile-menu-drawer");
+    var backdrop = document.getElementById("mobile-menu-backdrop");
+    var closeBtn = document.getElementById("mobile-menu-close");
+    if (!toggle || !drawer || !backdrop || !closeBtn) return;
+
+    function openMenu() {
+      drawer.classList.remove("hidden");
+      backdrop.classList.remove("hidden");
+      toggle.setAttribute("aria-expanded", "true");
+      // Foco vai para o botão de fechar — primeiro elemento focável do drawer.
+      closeBtn.focus();
+      document.addEventListener("keydown", onKeydown);
+    }
+
+    function closeMenu() {
+      drawer.classList.add("hidden");
+      backdrop.classList.add("hidden");
+      toggle.setAttribute("aria-expanded", "false");
+      document.removeEventListener("keydown", onKeydown);
+      // Devolve o foco ao botão que abriu o menu.
+      toggle.focus();
+    }
+
+    function onKeydown(event) {
+      if (event.key === "Escape") {
+        closeMenu();
       }
+    }
 
-      function onKeydown(event) {
-        if (event.key === "Escape") {
-          closeMenu();
-        }
+    toggle.addEventListener("click", openMenu);
+    closeBtn.addEventListener("click", closeMenu);
+    backdrop.addEventListener("click", closeMenu);
+
+    // Breakpoint `sm:` do Tailwind (640px) — se a janela crescer para
+    // desktop com o drawer mobile aberto, fecha automaticamente.
+    var desktopBreakpoint = window.matchMedia("(min-width: 640px)");
+    function handleBreakpointChange(event) {
+      if (event.matches && !drawer.classList.contains("hidden")) {
+        closeMenu();
       }
-
-      toggle.addEventListener("click", openMenu);
-      closeBtn.addEventListener("click", closeMenu);
-      backdrop.addEventListener("click", closeMenu);
-
-      // Breakpoint `sm:` do Tailwind (640px) — se a janela crescer para
-      // desktop com o drawer mobile aberto, fecha automaticamente (a
-      // navegação desktop já está visível ao lado, não faz sentido os
-      // dois abertos ao mesmo tempo).
-      var desktopBreakpoint = window.matchMedia("(min-width: 640px)");
-      function handleBreakpointChange(event) {
-        if (event.matches && !drawer.classList.contains("hidden")) {
-          closeMenu();
-        }
-      }
-      if (desktopBreakpoint.addEventListener) {
-        desktopBreakpoint.addEventListener("change", handleBreakpointChange);
-      }
-    })();
-
-    // Dropdowns da navegação desktop ("Cadastros"/"Administração") —
-    // etapa de UX/UI, 28/08/2026 (auditoria, item [25], Opção B).
-    // Controlador genérico: funciona para qualquer número de dropdowns
-    // marcados com `data-dropdown` dentro de #main-nav, sem duplicar
-    // lógica por item. Vanilla JS, sem lib nova — teclado (Enter/Espaço/
-    // Escape), clique fora fecha, só um aberto por vez.
-    (function () {
-      var dropdowns = Array.prototype.slice.call(document.querySelectorAll("#main-nav [data-dropdown]"));
-      if (!dropdowns.length) return;
-
-      function closeDropdown(root) {
-        var toggle = root.querySelector("[data-dropdown-toggle]");
-        var menu = root.querySelector("[data-dropdown-menu]");
-        if (!toggle || !menu) return;
-        menu.classList.add("hidden");
-        toggle.setAttribute("aria-expanded", "false");
-      }
-
-      function closeAllExcept(except) {
-        dropdowns.forEach(function (root) {
-          if (root !== except) closeDropdown(root);
-        });
-      }
-
-      function openDropdown(root) {
-        closeAllExcept(root);
-        var toggle = root.querySelector("[data-dropdown-toggle]");
-        var menu = root.querySelector("[data-dropdown-menu]");
-        if (!toggle || !menu) return;
-        menu.classList.remove("hidden");
-        toggle.setAttribute("aria-expanded", "true");
-      }
-
-      dropdowns.forEach(function (root) {
-        var toggle = root.querySelector("[data-dropdown-toggle]");
-        var menu = root.querySelector("[data-dropdown-menu]");
-        if (!toggle || !menu) return;
-
-        toggle.addEventListener("click", function () {
-          var isOpen = toggle.getAttribute("aria-expanded") === "true";
-          if (isOpen) {
-            closeDropdown(root);
-          } else {
-            openDropdown(root);
-          }
-        });
-      });
-
-      document.addEventListener("keydown", function (event) {
-        if (event.key === "Escape") {
-          var openRoot = dropdowns.find(function (root) {
-            var toggle = root.querySelector("[data-dropdown-toggle]");
-            return toggle && toggle.getAttribute("aria-expanded") === "true";
-          });
-          if (openRoot) {
-            closeDropdown(openRoot);
-            var toggle = openRoot.querySelector("[data-dropdown-toggle]");
-            if (toggle) toggle.focus();
-          }
-        }
-      });
-
-      // Clique fora de qualquer dropdown aberto fecha todos.
-      document.addEventListener("click", function (event) {
-        var clickedInsideAnyDropdown = dropdowns.some(function (root) {
-          return root.contains(event.target);
-        });
-        if (!clickedInsideAnyDropdown) closeAllExcept(null);
-      });
-    })();
-  </script>
-  {% endif %}
+    }
+    if (desktopBreakpoint.addEventListener) {
+      desktopBreakpoint.addEventListener("change", handleBreakpointChange);
+    }
+  })();
+</script>
+{% endif %}
 </body>
 </html>

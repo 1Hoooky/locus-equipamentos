@@ -35,12 +35,25 @@
     Pular para o conteúdo
   </a>
 
-  {# ---------------------------------------------------------------------
-     Header público minimalista (auditoria, item [8]): LOCUS + ☰, nada de
-     navbar administrativa, nada de "Equipamentos" ao lado da marca. O
-     menu (drawer) contém os CTAs comerciais + "Entrar" (visualmente
-     secundário) — ver bloco de script no fim do body.
-     --------------------------------------------------------------------- #}
+  {% comment %}
+  Header público minimalista (auditoria, item [8]): LOCUS + ☰, nada de
+  navbar administrativa, nada de "Equipamentos" ao lado da marca. O
+  menu (drawer) contém os CTAs comerciais + "Entrar" (visualmente
+  secundário) — ver bloco de script no fim do body.
+
+  CORREÇÃO (rodada corretiva de UX/UI, homologação no Render): este
+  bloco usava a sintaxe de comentário de linha única do Django esticada
+  por várias linhas, sintaxe que o Django só reconhece quando abre e
+  fecha na MESMA linha (o lexer do template não usa modo multi-linha
+  para esse tipo de marcador). Um comentário assim, aberto numa linha e
+  fechado só em outra, nunca é reconhecido como comentário de verdade:
+  tudo vira texto puro, renderizado na tela (foi exatamente o que
+  apareceu no topo da landing pública em produção). A tag de bloco
+  "comment" (esta que envolve o texto que você está lendo agora) é a
+  forma correta de comentário multi-linha, processada de ponta a ponta
+  pelo parser de block tags do Django, com suporte nativo a quebras de
+  linha.
+  {% endcomment %}
   <header class="bg-brand-black text-white px-4 py-3 sticky top-0 z-30">
     <div class="max-w-md mx-auto w-full flex items-center justify-between">
       <span class="font-bold text-lg tracking-tight text-brand-gold select-none">LOCUS</span>

@@ -267,5 +267,50 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     .nav-dropdown-item {
       @apply block px-4 py-2 text-sm hover:bg-gray-50 min-h-[36px] flex items-center;
     }
+
+    /* -----------------------------------------------------------------
+     * Sidebar administrativa DESKTOP (base.html, >= 640px) — rodada
+     * CORRETIVA de UX/UI (homologação no Render): substitui a barra
+     * horizontal + dropdowns acima (que permanecem no CSS só por
+     * compatibilidade, sem nenhum elemento renderizado usando-os mais).
+     * Fixa à esquerda, colapsável (ícone-somente quando recolhida — ver
+     * #app-sidebar-toggle no script no fim de base.html), mesma paleta
+     * de marca (preto/dourado) do header e do drawer mobile. Estado
+     * ativo com fundo dourado sólido (nunca só texto dourado sobre
+     * fundo escuro — contraste também sem depender de cor).
+     * --------------------------------------------------------------- */
+    .sidebar-group-title {
+      @apply px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 first:pt-2;
+    }
+    .sidebar-link {
+      @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-300 min-h-[44px] hover:bg-white/10 hover:text-white transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold;
+    }
+    .sidebar-link-active {
+      @apply bg-brand-gold text-brand-black font-semibold hover:bg-brand-gold hover:text-brand-black;
+    }
+    .sidebar-link-icon {
+      @apply shrink-0;
+    }
+    .sidebar-link-label {
+      @apply truncate;
+    }
+  }
+
+  /* Estado recolhido da sidebar — fora do @layer components de propósito
+     (não é um componente reutilizável, é o estado de UM elemento único
+     por página, #app-sidebar). Alternado via JS (classList.toggle
+     "is-collapsed"), nunca decide nada de permissão/segurança. */
+  #app-sidebar.is-collapsed {
+    width: 4.5rem;
+  }
+  #app-sidebar.is-collapsed .sidebar-link-label,
+  #app-sidebar.is-collapsed .sidebar-group-title,
+  #app-sidebar.is-collapsed #app-sidebar-subtitle {
+    display: none;
+  }
+  #app-sidebar.is-collapsed .sidebar-link {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
   }
 </style>

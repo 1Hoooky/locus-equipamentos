@@ -355,12 +355,12 @@ class DuplicateLocationsReportViewContentTest(TestCase):
 
         # Os únicos <form> da página inteira são os dois "Sair" do
         # cabeçalho global (base.html, presente em TODA página do
-        # sistema) — um na navegação desktop, outro dentro do drawer do
-        # menu mobile (etapa de UX/UI, 28/08/2026: o drawer duplica o
-        # mesmo botão "Sair" não-destrutivo para quem está no mobile,
-        # ver AUDITORIA_UX_HOME_NAVEGACAO_QR.md, item [24]). O conteúdo
-        # da tela de diagnóstico em si não tem nenhum form, método
-        # POST/DELETE ou link/rótulo de apagar/editar/consolidar.
+        # sistema) — um no header (visível a partir de `sm:`), outro
+        # dentro do drawer do menu mobile (etapa de UX/UI, 28/08/2026: o
+        # drawer duplica o mesmo botão "Sair" não-destrutivo para quem
+        # está no mobile). O conteúdo da tela de diagnóstico em si não
+        # tem nenhum form, método POST/DELETE ou link/rótulo de
+        # apagar/editar/consolidar.
         self.assertEqual(content.count("<form"), 2)
         self.assertIn('action="/contas/logout/"', content)
         # "Remover" fica de fora da lista: aparece só na prosa explicando que
@@ -370,11 +370,15 @@ class DuplicateLocationsReportViewContentTest(TestCase):
             self.assertNotIn(forbidden, content)
         # Chrome global não-destrutivo, nenhum pertence ao conteúdo desta
         # tela de diagnóstico: botão de abrir o menu mobile, botão de
-        # fechar o drawer, os dois botões "Sair" (desktop + drawer), e os
-        # dois toggles de dropdown da navegação desktop ("Cadastros"/
-        # "Administração" — etapa de UX/UI, 28/08/2026, item [25]; o
-        # usuário deste teste é ADMIN, então vê os dois).
-        self.assertEqual(content.count("<button"), 6)
+        # fechar o drawer, os dois botões "Sair" (header + drawer), e o
+        # botão de colapsar/expandir a sidebar desktop (rodada CORRETIVA
+        # de UX/UI, homologação no Render: a navegação desktop virou uma
+        # sidebar lateral colapsável no lugar dos dois dropdowns
+        # "Cadastros"/"Administração" da etapa anterior — um único botão
+        # de toggle no lugar dos dois toggles de dropdown, contagem cai
+        # de 6 para 5; consequência esperada da mudança de chrome, nenhuma
+        # asserção de privacidade/conteúdo foi enfraquecida).
+        self.assertEqual(content.count("<button"), 5)
 
 
 class DuplicateLocationsReportRegressionTest(TestCase):

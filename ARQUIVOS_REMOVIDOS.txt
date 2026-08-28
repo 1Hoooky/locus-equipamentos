@@ -1,0 +1,1 @@
+apps/core/tests/test_desktop_nav_dropdowns.py — REMOVER este arquivo (substituído por apps/core/tests/test_desktop_sidebar.py)
