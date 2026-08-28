@@ -1,16 +1,115 @@
-{% extends "base.html" %}
-{% block title %}{{ equipment.patrimonio }} — Locus Locações{% endblock %}
-{% block content %}
-{# Ficha PÚBLICA — especificação, seção 5/12: nunca cliente, valor de   #}
-{# aquisição, manutenção ou qualquer dado interno. Só o essencial para  #}
-{# identificar o equipamento. #}
-<div class="max-w-sm mx-auto card-pad text-center">
-  <p class="page-subtitle mb-1">Equipamento Locus Locações</p>
-  <h1 class="page-title mb-4">{{ equipment.patrimonio }}</h1>
-  <p class="text-gray-700">{{ equipment.category.name }} · {{ equipment.model.name }}</p>
+{% extends "base_public.html" %}
+{% load icons %}
+{% load model_images %}
 
-  <a href="{% url 'accounts:login' %}?next={{ request.path }}" class="btn-primary w-full mt-6">
-    Entrar para ver mais detalhes
-  </a>
+{% comment %}
+Landing pública do QR Code (etapa de UX/UI, 28/08/2026 — ver
+AUDITORIA_UX_HOME_NAVEGACAO_QR.md, hierarquia aprovada seção [1]):
+
+  1. header Locus (base_public.html)
+  2. contexto curto
+  3. imagem grande do equipamento
+  4. nome do modelo
+  5. patrimônio
+  6. fabricante, só se preenchido
+  7. mensagem comercial fixa
+  8. CTA principal ("Faça seu orçamento")
+  9. CTAs secundários
+  10. footer discreto (base_public.html)
+
+Esta é a MESMA rota do QR físico (`equipment:detail`), servida pela
+mesma view (`EquipmentDetailView`) — só quando o visitante NÃO está
+autenticado (ver apps/equipment/views.py). O contexto que chega aqui é
+deliberadamente mínimo (defesa em profundidade, item [6] da auditoria):
+só `equipment`, com `select_related("model", "category")` e SEM
+current_client/current_location/campos financeiros carregados do banco —
+não é só uma questão deste template "não usar" esses campos.
+{% endcomment %}
+
+{% block title %}{{ equipment.model.name }} — Locus Equipamentos{% endblock %}
+{% block meta_description %}{{ equipment.model.name }} — equipamento Locus. Conheça e faça seu orçamento.{% endblock %}
+{% block og_title %}{{ equipment.model.name }} — Locus Equipamentos{% endblock %}
+{% block og_description %}Conforto onde você precisa. Soluções Locus para climatização e aquecimento.{% endblock %}
+{% comment %}
+  Django template não executa tags fora de {% block %} num filho que usa
+  {% extends %} (só os próprios blocks são extraídos e renderizados) — por
+  isso `model_has_commercial_image` é chamada de novo, localmente, dentro
+  de CADA block que precisa do resultado (og_image abaixo e content mais
+  adiante), em vez de uma única vez aqui no topo. A tag é barata (cacheada
+  por `functools.lru_cache` em apps/catalog/templatetags/model_images.py).
+{% endcomment %}
+{% block og_image %}{% model_has_commercial_image equipment.model as has_real_image_og %}{% if has_real_image_og %}<meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{% model_image_url equipment.model %}">{% endif %}{% endblock %}
+
+{% block content %}
+{% model_has_commercial_image equipment.model as has_real_image %}
+<div class="max-w-md mx-auto w-full px-4 py-6 flex flex-col items-center text-center">
+
+  {# 2. Contexto curto — a primeira frase que a pessoa lê ao escanear. #}
+  <p class="text-sm text-gray-500 mb-4">Você encontrou um equipamento Locus</p>
+
+  {# 3. Imagem grande do equipamento — elemento visual mais importante da #}
+  {# página (auditoria, item [2]). object-fit: contain, aspect-ratio #}
+  {# reservado (sem layout shift), sem lazy loading (é o provável LCP da #}
+  {# página — item [17] da auditoria), fetchpriority alto. #}
+  <div class="w-full rounded-xl bg-gray-50 border border-gray-100 overflow-hidden" style="aspect-ratio: 4 / 3; max-height: 340px;">
+    <img
+      src="{% model_image_url equipment.model %}"
+      alt="{% if has_real_image %}{{ equipment.model.name }} — equipamento Locus{% else %}Imagem do modelo em breve — {{ equipment.model.name }}{% endif %}"
+      width="800" height="600"
+      class="w-full h-full object-contain"
+      fetchpriority="high"
+      loading="eager"
+      decoding="async">
+  </div>
+
+  {# 4/5/6. Nome do modelo, patrimônio, fabricante (só se preenchido). #}
+  <p class="text-xs uppercase tracking-wide text-gray-400 mt-5">{{ equipment.category.name }}</p>
+  <h1 class="text-2xl font-bold text-brand-charcoal mt-1">{{ equipment.model.name }}</h1>
+  <p class="text-xs text-gray-400 mt-1">Patrimônio {{ equipment.patrimonio }}</p>
+  {% if equipment.model.manufacturer %}
+  <p class="text-sm text-gray-500 mt-1">Fabricante: {{ equipment.model.manufacturer }}</p>
+  {% endif %}
+
+  {# 7. Mensagem comercial fixa (texto aprovado — não reescrever o sentido). #}
+  <p class="text-base text-brand-charcoal mt-5 leading-relaxed">
+    Conforto onde você precisa.<br>
+    Soluções Locus para climatização e aquecimento.
+  </p>
+
+  {# 8/9. CTA principal + CTAs secundários (link-page comercial). Cada #}
+  {# botão só aparece se a URL correspondente estiver configurada #}
+  {# (settings + apps.core.context_processors.commercial_links) — nunca #}
+  {# um link vazio/`href="#"` (auditoria, item [9]). #}
+  <div class="w-full flex flex-col gap-3 mt-7">
+    {% if commercial_links.orcamento %}
+    <a href="{{ commercial_links.orcamento }}" class="btn-cta-primary icon-inline justify-center">
+      {% icon "document-text" size="normal" %} Faça seu orçamento
+    </a>
+    {% endif %}
+
+    {% if commercial_links.whatsapp %}
+    <a href="{{ commercial_links.whatsapp }}" class="btn-cta-secondary icon-inline justify-center">
+      {% icon "chat-bubble-left-right" size="normal" %} Fale com a Locus
+    </a>
+    {% endif %}
+
+    {% if commercial_links.instagram %}
+    <a href="{{ commercial_links.instagram }}" class="btn-cta-secondary icon-inline justify-center">
+      {% brand_icon "instagram" size="normal" %} Conheça nosso Instagram
+    </a>
+    {% endif %}
+
+    {% if commercial_links.site %}
+    <a href="{{ commercial_links.site }}" class="btn-cta-secondary icon-inline justify-center">
+      {% icon "globe-alt" size="normal" %} Conheça nosso site
+    </a>
+    {% endif %}
+
+    {% if commercial_links.equipamentos %}
+    <a href="{{ commercial_links.equipamentos }}" class="btn-cta-secondary icon-inline justify-center">
+      {% icon "cube" size="normal" %} Conheça nossos equipamentos
+    </a>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}

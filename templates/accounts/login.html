@@ -5,6 +5,20 @@
   <h1 class="page-title mb-4">Entrar</h1>
   <form method="post">
     {% csrf_token %}
+    {# Campo hidden explícito para `next` (etapa de UX/UI, 28/08/2026 — #}
+    {# auditoria item [12]/[21]): o fluxo "QR -> login -> mesma ficha #}
+    {# privada" já funcionava sem isto, porque este <form> não tem #}
+    {# `action` e o navegador reenvia para a URL atual (que já inclui #}
+    {# `?next=...` quando o link para o login foi montado com esse #}
+    {# parâmetro — ver base_public.html). Este campo é só defesa em #}
+    {# profundidade/robustez explícita: continua funcionando mesmo se um #}
+    {# dia o form ganhar um `action` fixo, sem depender do comportamento #}
+    {# implícito do navegador. A validação do valor (contra open #}
+    {# redirect) é 100% do Django (`LoginView`/`url_has_allowed_host_and_scheme`) #}
+    {# — nada de validação própria aqui. #}
+    {% if request.GET.next %}
+    <input type="hidden" name="next" value="{{ request.GET.next }}">
+    {% endif %}
     {% if form.errors %}
       <p class="field-error mb-3">Usuário ou senha inválidos.</p>
     {% endif %}

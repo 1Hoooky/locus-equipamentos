@@ -4,238 +4,91 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Locus Equipamentos{% endblock %}</title>
-  {# TODO (Fase 1, próxima etapa): trocar o CDN por Tailwind compilado via #}
-  {# build step (django-tailwind ou equivalente) antes de ir para produção. #}
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    // Identidade visual Locus Locações (auditoria de 27/08/2026 — ver
-    // IDENTIDADE_VISUAL_MANUTENCAO_HIGIENIZACAO.md): extraída via inspeção
-    // do site institucional (www.locuslocacoes.com.br) — fundo preto/quase
-    // preto, dourado como cor de marca (CTAs/logo), cards escuros com
-    // borda sutil (sem sombra), botões com raio ~8px, fonte do sistema
-    // (Segoe UI/Tahoma/Verdana — o site não usa nenhuma webfont custom).
-    //
-    // Adaptação DELIBERADA para uso administrativo (o site é vitrine
-    // comercial, este é um sistema operacional de uso prolongado): o
-    // dourado/preto vira identidade de MARCA (cabeçalho, ações primárias,
-    // foco, destaques), mas a área de conteúdo (tabelas/formulários dos
-    // quais a operação depende o dia inteiro) permanece clara — preto
-    // total como fundo de conteúdo prejudicaria leitura de tabela densa e
-    // contraste prolongado. `brand-black`/`brand-charcoal` são os tons do
-    // site; `brand-gold`/`brand-gold-dark` são o dourado do site ajustado
-    // para um tom levemente mais escuro que o #ffd700 puro do site,
-    // mantendo contraste AA com texto preto por cima em botões maiores.
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              black: "#0a0a0a",
-              charcoal: "#171717",
-              gold: "#eab308",
-              "gold-dark": "#b45309",
-              "gold-light": "#fef3c7",
-            },
-          },
-        },
-      },
-    };
-  </script>
-  <style type="text/tailwindcss">
-    @layer components {
-      /* ---------------------------------------------------------------
-       * Componentes reutilizáveis — centralizados aqui para não repetir
-       * dezenas de classes Tailwind em cada template (auditoria de
-       * 27/08/2026). Equipment/Clientes/Unidades/Movimentações podem
-       * migrar para estas mesmas classes depois, sem retrabalho.
-       * --------------------------------------------------------------- */
-
-      /* Botões */
-      .btn {
-        @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
-      }
-      .btn-primary {
-        @apply btn bg-brand-gold text-brand-black hover:bg-brand-gold-dark hover:text-white;
-      }
-      .btn-secondary {
-        @apply btn border border-brand-gold text-brand-gold-dark bg-white hover:bg-brand-gold-light;
-      }
-      .btn-neutral {
-        @apply btn border border-gray-300 text-gray-700 bg-white hover:bg-gray-50;
-      }
-      .btn-danger {
-        @apply btn border border-red-300 text-red-700 bg-white hover:bg-red-50;
-      }
-      .btn-sm {
-        @apply px-3 py-1.5 text-xs;
-      }
-      .link {
-        @apply text-brand-gold-dark hover:underline font-medium;
-      }
-
-      /* Cards / superfícies */
-      .card {
-        @apply bg-white border border-gray-200 rounded-lg shadow-sm;
-      }
-      .card-pad {
-        @apply card p-4 sm:p-6;
-      }
-
-      /* Cabeçalho de página (título + ações) */
-      .page-header {
-        @apply flex flex-wrap items-center justify-between gap-3 mb-5;
-      }
-      .page-title {
-        @apply text-xl sm:text-2xl font-bold tracking-tight text-brand-charcoal;
-      }
-      .page-subtitle {
-        @apply text-sm text-gray-500;
-      }
-
-      /* Badges de status — tons semânticos, nunca dourado (reservado p/ marca/ação) */
-      .badge {
-        @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
-      }
-      .badge-success { @apply badge bg-green-100 text-green-800; }
-      .badge-warning { @apply badge bg-amber-100 text-amber-800; }
-      .badge-danger { @apply badge bg-red-100 text-red-800; }
-      .badge-info { @apply badge bg-blue-100 text-blue-800; }
-      .badge-neutral { @apply badge bg-gray-100 text-gray-700; }
-
-      /* Formulários */
-      .field-label {
-        @apply block text-sm font-medium text-brand-charcoal mb-1;
-      }
-      .field-hint {
-        @apply text-xs text-gray-500 mt-1;
-      }
-      .field-error {
-        @apply text-xs text-red-600 mt-1;
-      }
-      .field-input,
-      input[type="text"].field-input,
-      select.field-input,
-      textarea.field-input {
-        @apply border border-gray-300 rounded-lg px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-brand-gold;
-      }
-      .filter-input {
-        @apply border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-brand-gold;
-      }
-
-      /* Tabelas de listagem */
-      .table-wrap {
-        @apply card overflow-x-auto;
-      }
-      .table-base {
-        @apply w-full text-sm;
-      }
-      .table-base thead {
-        @apply bg-gray-50 text-gray-600 text-left uppercase tracking-wide text-xs;
-      }
-      .table-base th {
-        @apply px-3 py-2.5 font-semibold;
-      }
-      .table-base td {
-        @apply px-3 py-2.5;
-      }
-      .table-base tbody tr {
-        @apply border-t border-gray-100 hover:bg-amber-50/40 transition-colors;
-      }
-
-      /* Estado vazio */
-      .empty-state {
-        @apply text-center text-sm text-gray-500 py-10;
-      }
-
-      /* Timeline unificada (ficha do equipamento) */
-      .timeline-item {
-        @apply border-l-2 border-gray-200 pl-3;
-      }
-
-      /* Alertas / mensagens do framework de messages */
-      .alert {
-        @apply mb-3 rounded-lg px-4 py-2.5 text-sm border;
-      }
-      .alert-success { @apply alert bg-green-50 text-green-800 border-green-200; }
-      .alert-error { @apply alert bg-red-50 text-red-800 border-red-200; }
-      .alert-warning { @apply alert bg-amber-50 text-amber-800 border-amber-200; }
-      .alert-info { @apply alert bg-blue-50 text-blue-800 border-blue-200; }
-
-      /* -----------------------------------------------------------------
-       * Ícones e ações compactas (auditoria de iconografia/apresentação de
-       * ações, aprovada em 28/08/2026 — ver AUDITORIA_ICONOGRAFIA_ACOES.md).
-       * Reaproveita o mesmo foco/borda/radius/cores já usados em .btn-*;
-       * de propósito, só 3 variantes de botão-ícone (nunca dezenas).
-       *
-       * Área clicável: o SVG em si continua pequeno (20px "normal" ou
-       * 16px "compact", ver apps/core/templatetags/icons.py) — quem cresce
-       * é o alvo de toque ao redor, via padding/min-width/min-height,
-       * nunca o ícone. 44px no mobile (toque), ~36px a partir de `sm:`
-       * (mouse em tablet/desktop) — decisão explícita da auditoria,
-       * diferente do "32px" que tinha sido cogitado inicialmente.
-       * --------------------------------------------------------------- */
-      .icon-btn {
-        @apply inline-flex items-center justify-center rounded-md min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] p-2 transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
-      }
-      .icon-btn-neutral {
-        @apply icon-btn border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 hover:text-gray-900;
-      }
-      .icon-btn-danger {
-        @apply icon-btn border border-red-300 text-red-700 bg-white hover:bg-red-50;
-      }
-      /* .icon-btn-primary não foi criada nesta rodada: nenhuma ação
-         primária virou ícone-sozinho (decisão aprovada — botão primário
-         continua sempre com texto), então a variante ficaria sem uso. */
-
-      /* Ícone acompanhando texto dentro de um .link solto (que não é
-         flex, ao contrário de .btn-*) — ex.: "Voltar", "Exportar CSV". */
-      .icon-inline {
-        @apply inline-flex items-center gap-1;
-      }
-
-      /* Agrupamento compacto de 2-3 .icon-btn lado a lado (célula de
-         tabela densa, ex.: QR + Etiqueta) — sem bordas próprias, só
-         espaçamento; quebra de linha permitida para não estourar em
-         telas estreitas. */
-      .action-group {
-        @apply inline-flex flex-wrap items-center gap-1;
-      }
-    }
-  </style>
+  {# Tokens/componentes compartilhados com base_public.html — ver #}
+  {# templates/_design_tokens.html (extraído nesta etapa de UX/UI, item [16] #}
+  {# da auditoria) para as duas bases usarem a mesma identidade sem duplicar #}
+  {# o bloco inteiro. #}
+  {% include "_design_tokens.html" %}
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  {% load icons %}
 </head>
 <body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
   <header class="bg-brand-black text-white px-4 py-3">
     <div class="max-w-6xl mx-auto w-full flex items-center justify-between gap-3">
-      {# Anônimo -> login, não "/": não existe rota raiz registrada em config/urls.py (auditoria final da Fase 1, 2026-08-25) — "/" resultava em 404 no logo do cabeçalho em toda página pública/de login. #}
-      <a href="{% if user.is_authenticated %}{% url 'equipment:list' %}{% else %}{% url 'accounts:login' %}{% endif %}"
+      {# Autenticado -> Home operacional (etapa de UX/UI, 28/08/2026 — #}
+      {# antes desta etapa não existia Home nem rota raiz "/", então o #}
+      {# logo apontava para a listagem de equipamentos; auditoria final #}
+      {# da Fase 1, 2026-08-25). Anônimo continua indo para o login — #}
+      {# "/" agora existe, mas exige login (LoginRequiredMixin), então #}
+      {# apontar direto para accounts:login evita um redirect a mais. #}
+      <a href="{% if user.is_authenticated %}{% url 'dashboard:home' %}{% else %}{% url 'accounts:login' %}{% endif %}"
          class="font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark shrink-0">
         LOCUS <span class="text-white font-normal">Equipamentos</span>
       </a>
 
       {% if user.is_authenticated %}
-      <button type="button" id="nav-toggle" aria-expanded="false" aria-controls="main-nav"
-              class="sm:hidden text-white p-1.5 rounded-md hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
+      {# Botão do menu MOBILE (< 640px) — abre o drawer definido logo #}
+      {# abaixo do </header>. Etapa de UX/UI, 28/08/2026 (auditoria, item #}
+      {# [24]): antes disto, "main-nav" abaixo servia mobile E desktop ao #}
+      {# mesmo tempo, e no mobile virava uma lista inline sem estilo #}
+      {# nenhum assim que o JS tirava a classe "hidden". Agora mobile e #}
+      {# desktop são duas superfícies de navegação SEPARADAS. #}
+      <button type="button" id="mobile-menu-toggle" aria-expanded="false" aria-controls="mobile-menu-drawer"
+              class="sm:hidden min-w-[44px] min-h-[44px] flex items-center justify-center text-white rounded-md hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
         <span class="sr-only">Abrir menu</span>
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
+        {% icon "bars-3" size="normal" %}
       </button>
 
-      <nav id="main-nav" class="hidden sm:flex sm:items-center gap-x-4 gap-y-2 text-sm flex-wrap w-full sm:w-auto">
+      {# Navegação DESKTOP (>= 640px) — conteúdo inalterado nesta etapa #}
+      {# (a reorganização em grupos/dropdowns é a próxima etapa, #}
+      {# separada, da auditoria). Não depende mais do JS de toggle: fica #}
+      {# sempre visível a partir de `sm:` e sempre oculta abaixo disso, #}
+      {# só via CSS responsivo. #}
+      <nav id="main-nav" class="hidden sm:flex sm:items-center gap-x-4 gap-y-2 text-sm flex-wrap w-full sm:w-auto" aria-label="Navegação principal">
+        {# Ações de uso frequente — sempre visíveis como link direto #}
+        {# (auditoria, item [25], Opção B aprovada: nada de esconder o #}
+        {# que é usado todo dia atrás de um clique extra). #}
+        <a href="{% url 'dashboard:home' %}" class="text-gray-300 hover:text-brand-gold">Home</a>
         <a href="{% url 'equipment:list' %}" class="text-gray-300 hover:text-brand-gold">Equipamentos</a>
         <a href="{% url 'maintenance:maintenance_list' %}" class="text-gray-300 hover:text-brand-gold">Manutenções</a>
         <a href="{% url 'maintenance:cleaning_list' %}" class="text-gray-300 hover:text-brand-gold">Higienizações</a>
         <a href="{% url 'clients:list' %}" class="text-gray-300 hover:text-brand-gold">Clientes</a>
         <a href="{% url 'operations:location_list' %}" class="text-gray-300 hover:text-brand-gold">Unidades</a>
+
         {% if user.is_administrativo_ou_superior or user.is_superuser %}
-          <a href="{% url 'catalog:category_list' %}" class="text-gray-300 hover:text-brand-gold">Categorias</a>
-          <a href="{% url 'catalog:model_list' %}" class="text-gray-300 hover:text-brand-gold">Modelos</a>
+        {# Dropdown "Cadastros" — área usada com menos frequência que as #}
+        {# ações acima (auditoria, item [25]). Mesma permissão que já #}
+        {# protegia estes dois links quando eram inline. #}
+        <div class="relative" data-dropdown>
+          <button type="button" class="nav-dropdown-toggle" aria-haspopup="true" aria-expanded="false"
+                  aria-controls="nav-dropdown-cadastros" data-dropdown-toggle>
+            Cadastros {% icon "chevron-down" size="compact" %}
+          </button>
+          <div id="nav-dropdown-cadastros" class="nav-dropdown-menu" data-dropdown-menu role="menu">
+            <a href="{% url 'catalog:category_list' %}" class="nav-dropdown-item" role="menuitem">Categorias</a>
+            <a href="{% url 'catalog:model_list' %}" class="nav-dropdown-item" role="menuitem">Modelos</a>
+          </div>
+        </div>
         {% endif %}
+
         {% if user.is_admin or user.is_superuser %}
-          <a href="{% url 'equipment:import_upload' %}" class="text-gray-300 hover:text-brand-gold">Importar planilha</a>
-          <a href="{% url 'accounts:user_list' %}" class="text-gray-300 hover:text-brand-gold">Usuários</a>
+        {# Dropdown "Administração" — mesma permissão que já protegia #}
+        {# Importar planilha/Usuários; "Diagnóstico de unidades #}
+        {# duplicadas" ganha aqui o mesmo link de navegação que o drawer #}
+        {# mobile já tem (antes só era alcançável digitando a URL). #}
+        <div class="relative" data-dropdown>
+          <button type="button" class="nav-dropdown-toggle" aria-haspopup="true" aria-expanded="false"
+                  aria-controls="nav-dropdown-administracao" data-dropdown-toggle>
+            Administração {% icon "chevron-down" size="compact" %}
+          </button>
+          <div id="nav-dropdown-administracao" class="nav-dropdown-menu" data-dropdown-menu role="menu">
+            <a href="{% url 'equipment:import_upload' %}" class="nav-dropdown-item" role="menuitem">Importar planilha</a>
+            <a href="{% url 'accounts:user_list' %}" class="nav-dropdown-item" role="menuitem">Usuários</a>
+            <a href="{% url 'operations:duplicate_locations_report' %}" class="nav-dropdown-item" role="menuitem">Diagnóstico de unidades</a>
+          </div>
+        </div>
         {% endif %}
+
         <span class="text-gray-400 sm:ml-2">{{ user }} · {{ user.get_role_display }}</span>
         <form method="post" action="{% url 'accounts:logout' %}" class="inline">
           {% csrf_token %}
@@ -245,6 +98,119 @@
       {% endif %}
     </div>
   </header>
+
+  {% if user.is_authenticated %}
+  {# ---------------------------------------------------------------------
+     Drawer do menu mobile — etapa de UX/UI, 28/08/2026 (auditoria, itens
+     [23]/[24]). Organizado por módulo (grupos aprovados: Operação,
+     Equipamentos, Manutenção, Cadastros, Administração), reaproveitando
+     EXATAMENTE as mesmas condições de permissão já usadas na navegação
+     desktop acima e nas views (nenhuma regra de permissão foi reescrita
+     "de cabeça" — só reorganizada visualmente). "Movimentações" não
+     entra como item próprio porque não existe uma listagem geral dela
+     hoje (auditoria, item [23]); "Diagnóstico de unidades duplicadas"
+     ganha link de navegação pela primeira vez aqui (antes só era
+     alcançável digitando a URL — mesma permissão CAN_VIEW_DIAGNOSTICS
+     que já protegia a view).
+
+     `request.resolver_match.view_name` (namespace:nome da rota) é o que
+     decide o estado ativo (`aria-current="page"` + destaque visual) —
+     sempre disponível no `request` de qualquer view normal do Django,
+     nenhum context processor novo foi necessário para isso.
+     --------------------------------------------------------------------- #}
+  <div id="mobile-menu-backdrop" class="hidden sm:hidden fixed inset-0 bg-black/50 z-40"></div>
+  <nav id="mobile-menu-drawer" class="hidden sm:hidden fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-white shadow-xl flex flex-col"
+       aria-label="Menu principal" tabindex="-1">
+    <div class="flex items-center justify-between px-4 py-3 bg-brand-black text-white shrink-0">
+      <span class="font-bold text-brand-gold text-sm">LOCUS <span class="text-white font-normal">Equipamentos</span></span>
+      <button type="button" id="mobile-menu-close"
+              class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md text-white hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold"
+              aria-label="Fechar menu">
+        {% icon "x-mark" size="normal" %}
+      </button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto px-2 pb-3">
+      <p class="mobile-menu-group-title">Operação</p>
+      <a href="{% url 'dashboard:home' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'dashboard:home' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'dashboard:home' %}aria-current="page"{% endif %}>
+        {% icon "home" size="compact" %} Home
+      </a>
+      <a href="{% url 'equipment:list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:list' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'equipment:list' %}aria-current="page"{% endif %}>
+        {% icon "cube" size="compact" %} Equipamentos
+      </a>
+
+      <p class="mobile-menu-group-title">Equipamentos</p>
+      {% if user.is_administrativo_ou_superior or user.is_superuser %}
+      <a href="{% url 'equipment:create' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:create' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'equipment:create' %}aria-current="page"{% endif %}>
+        {% icon "plus" size="compact" %} Novo equipamento
+      </a>
+      <a href="{% url 'equipment:batch_create' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:batch_create' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'equipment:batch_create' %}aria-current="page"{% endif %}>
+        {% icon "plus" size="compact" %} Adicionar em lote
+      </a>
+      {% endif %}
+      {% if user.is_admin or user.is_superuser %}
+      <a href="{% url 'equipment:import_upload' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:import_upload' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'equipment:import_upload' %}aria-current="page"{% endif %}>
+        {% icon "arrow-down-tray" size="compact" %} Importar planilha
+      </a>
+      {% endif %}
+
+      <p class="mobile-menu-group-title">Manutenção</p>
+      <a href="{% url 'maintenance:maintenance_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}aria-current="page"{% endif %}>
+        {% icon "wrench" size="compact" %} Manutenções
+      </a>
+      <a href="{% url 'maintenance:cleaning_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}aria-current="page"{% endif %}>
+        {% icon "tag" size="compact" %} Higienizações
+      </a>
+
+      <p class="mobile-menu-group-title">Cadastros</p>
+      <a href="{% url 'clients:list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'clients:list' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'clients:list' %}aria-current="page"{% endif %}>
+        {% icon "users" size="compact" %} Clientes
+      </a>
+      <a href="{% url 'operations:location_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'operations:location_list' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'operations:location_list' %}aria-current="page"{% endif %}>
+        {% icon "archive-box" size="compact" %} Unidades
+      </a>
+      {% if user.is_administrativo_ou_superior or user.is_superuser %}
+      <a href="{% url 'catalog:category_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'catalog:category_list' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'catalog:category_list' %}aria-current="page"{% endif %}>
+        {% icon "squares-2x2" size="compact" %} Categorias
+      </a>
+      <a href="{% url 'catalog:model_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'catalog:model_list' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'catalog:model_list' %}aria-current="page"{% endif %}>
+        {% icon "cube" size="compact" %} Modelos
+      </a>
+      {% endif %}
+
+      {% if user.is_admin or user.is_superuser %}
+      <p class="mobile-menu-group-title">Administração</p>
+      <a href="{% url 'accounts:user_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'accounts:user_list' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'accounts:user_list' %}aria-current="page"{% endif %}>
+        {% icon "users" size="compact" %} Usuários
+      </a>
+      <a href="{% url 'operations:duplicate_locations_report' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}aria-current="page"{% endif %}>
+        {% icon "cog-6-tooth" size="compact" %} Diagnóstico de unidades
+      </a>
+      {% endif %}
+    </div>
+
+    <div class="border-t border-gray-100 px-4 py-3 shrink-0">
+      <p class="text-xs text-gray-500 mb-2">{{ user }} · {{ user.get_role_display }}</p>
+      <form method="post" action="{% url 'accounts:logout' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn-neutral w-full">Sair</button>
+      </form>
+    </div>
+  </nav>
+  {% endif %}
 
   <main class="flex-1 px-4 py-6 max-w-6xl mx-auto w-full">
     {% for message in messages %}
@@ -261,17 +227,132 @@
 
   {% if user.is_authenticated %}
   <script>
-    // Alternância do menu mobile — só front-end de conveniência, mesma
-    // disciplina de outros scripts inline do projeto (ex.:
-    // operations/movement_form.html): não afeta nenhuma regra de
-    // permissão/segurança, que continua 100% no backend.
+    // Drawer do menu mobile interno — vanilla JS, sem framework/dependência
+    // nova (decisão aprovada, etapa de UX/UI de 28/08/2026). Só front-end
+    // de conveniência/acessibilidade, mesma disciplina de outros scripts
+    // inline do projeto: não afeta nenhuma regra de permissão/segurança,
+    // que continua 100% no backend (RoleRequiredMixin/allowed_roles).
     (function () {
-      var toggle = document.getElementById("nav-toggle");
-      var nav = document.getElementById("main-nav");
-      if (!toggle || !nav) return;
-      toggle.addEventListener("click", function () {
-        var isHidden = nav.classList.toggle("hidden");
-        toggle.setAttribute("aria-expanded", String(!isHidden));
+      var toggle = document.getElementById("mobile-menu-toggle");
+      var drawer = document.getElementById("mobile-menu-drawer");
+      var backdrop = document.getElementById("mobile-menu-backdrop");
+      var closeBtn = document.getElementById("mobile-menu-close");
+      if (!toggle || !drawer || !backdrop || !closeBtn) return;
+
+      function openMenu() {
+        drawer.classList.remove("hidden");
+        backdrop.classList.remove("hidden");
+        toggle.setAttribute("aria-expanded", "true");
+        // Foco vai para o botão de fechar — primeiro elemento focável do
+        // drawer (requisito: foco correto ao abrir).
+        closeBtn.focus();
+        document.addEventListener("keydown", onKeydown);
+      }
+
+      function closeMenu() {
+        drawer.classList.add("hidden");
+        backdrop.classList.add("hidden");
+        toggle.setAttribute("aria-expanded", "false");
+        document.removeEventListener("keydown", onKeydown);
+        // Devolve o foco ao botão que abriu o menu (requisito explícito
+        // do briefing aprovado) — sem isso, o foco do teclado "se perde"
+        // num elemento agora invisível.
+        toggle.focus();
+      }
+
+      function onKeydown(event) {
+        if (event.key === "Escape") {
+          closeMenu();
+        }
+      }
+
+      toggle.addEventListener("click", openMenu);
+      closeBtn.addEventListener("click", closeMenu);
+      backdrop.addEventListener("click", closeMenu);
+
+      // Breakpoint `sm:` do Tailwind (640px) — se a janela crescer para
+      // desktop com o drawer mobile aberto, fecha automaticamente (a
+      // navegação desktop já está visível ao lado, não faz sentido os
+      // dois abertos ao mesmo tempo).
+      var desktopBreakpoint = window.matchMedia("(min-width: 640px)");
+      function handleBreakpointChange(event) {
+        if (event.matches && !drawer.classList.contains("hidden")) {
+          closeMenu();
+        }
+      }
+      if (desktopBreakpoint.addEventListener) {
+        desktopBreakpoint.addEventListener("change", handleBreakpointChange);
+      }
+    })();
+
+    // Dropdowns da navegação desktop ("Cadastros"/"Administração") —
+    // etapa de UX/UI, 28/08/2026 (auditoria, item [25], Opção B).
+    // Controlador genérico: funciona para qualquer número de dropdowns
+    // marcados com `data-dropdown` dentro de #main-nav, sem duplicar
+    // lógica por item. Vanilla JS, sem lib nova — teclado (Enter/Espaço/
+    // Escape), clique fora fecha, só um aberto por vez.
+    (function () {
+      var dropdowns = Array.prototype.slice.call(document.querySelectorAll("#main-nav [data-dropdown]"));
+      if (!dropdowns.length) return;
+
+      function closeDropdown(root) {
+        var toggle = root.querySelector("[data-dropdown-toggle]");
+        var menu = root.querySelector("[data-dropdown-menu]");
+        if (!toggle || !menu) return;
+        menu.classList.add("hidden");
+        toggle.setAttribute("aria-expanded", "false");
+      }
+
+      function closeAllExcept(except) {
+        dropdowns.forEach(function (root) {
+          if (root !== except) closeDropdown(root);
+        });
+      }
+
+      function openDropdown(root) {
+        closeAllExcept(root);
+        var toggle = root.querySelector("[data-dropdown-toggle]");
+        var menu = root.querySelector("[data-dropdown-menu]");
+        if (!toggle || !menu) return;
+        menu.classList.remove("hidden");
+        toggle.setAttribute("aria-expanded", "true");
+      }
+
+      dropdowns.forEach(function (root) {
+        var toggle = root.querySelector("[data-dropdown-toggle]");
+        var menu = root.querySelector("[data-dropdown-menu]");
+        if (!toggle || !menu) return;
+
+        toggle.addEventListener("click", function () {
+          var isOpen = toggle.getAttribute("aria-expanded") === "true";
+          if (isOpen) {
+            closeDropdown(root);
+          } else {
+            openDropdown(root);
+          }
+        });
+      });
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          var openRoot = dropdowns.find(function (root) {
+            var toggle = root.querySelector("[data-dropdown-toggle]");
+            return toggle && toggle.getAttribute("aria-expanded") === "true";
+          });
+          if (openRoot) {
+            closeDropdown(openRoot);
+            var toggle = openRoot.querySelector("[data-dropdown-toggle]");
+            if (toggle) toggle.focus();
+          }
+        }
+      });
+
+      // Clique fora de qualquer dropdown aberto fecha todos.
+      document.addEventListener("click", function (event) {
+        var clickedInsideAnyDropdown = dropdowns.some(function (root) {
+          return root.contains(event.target);
+        });
+        if (!clickedInsideAnyDropdown) closeAllExcept(null);
       });
     })();
   </script>

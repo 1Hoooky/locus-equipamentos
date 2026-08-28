@@ -422,12 +422,58 @@ class EquipmentDetailView(View):
     """
     Rota pública do QR Code (especificação, seção 12/14).
 
-    Não autenticado: só empresa + categoria + modelo + patrimônio.
+    Não autenticado: landing pública/comercial (etapa de UX/UI,
+    28/08/2026) — só empresa + categoria + modelo + patrimônio.
     Autenticado: ficha completa (a Fase 1 ainda não tem ações de
     manutenção/movimentação — essas chegam na Fase 2, seção 21).
+
+    Os dois ramos usam consultas DIFERENTES ao banco (defesa em
+    profundidade, ver `_get_public_equipment`/`_get_private_equipment`
+    abaixo) — a separação por `is_authenticated` já existia antes, mas até
+    a auditoria de 28/08/2026 (ver AUDITORIA_UX_HOME_NAVEGACAO_QR.md, item
+    [6]) as duas rotas compartilhavam o MESMO `select_related` (incluindo
+    `current_client`/`current_location`), e só o TEMPLATE público
+    decidia não renderizar esses campos. A proteção do valor de aquisição
+    já usava `.defer()` (auditoria final da Fase 1); agora o mesmo
+    raciocínio se estende a cliente/localização/notas/histórico técnico
+    resumido/lote/reemissão para o visitante anônimo: esses campos nunca
+    chegam a sair do banco na rota pública, não é só uma questão de o
+    template "não usar" o que já veio na consulta.
     """
 
+    # Campos que a landing pública (`equipment/detail_public.html`)
+    # efetivamente usa hoje — qualquer campo fora desta lista fica
+    # deferred pelo Django (nunca sai do banco) para o visitante anônimo.
+    # Ver auditoria, itens [5]/[6]/[12] para a lista completa do que NUNCA
+    # pode ser público (cliente, localização, financeiro, notas,
+    # histórico operacional, IDs internos administrativos).
+    _PUBLIC_ONLY_FIELDS = (
+        "patrimonio",
+        "model__name",
+        "model__code",
+        "model__manufacturer",
+        "category__name",
+    )
+
     def get(self, request, patrimonio: str):
+        if not request.user.is_authenticated:
+            equipment = self._get_public_equipment(patrimonio)
+            return render(
+                request,
+                "equipment/detail_public.html",
+                {"equipment": equipment},
+            )
+
+        return self._render_private(request, patrimonio)
+
+    def _get_public_equipment(self, patrimonio: str) -> Equipment:
+        queryset = (
+            Equipment.objects.select_related("model", "category")
+            .only(*self._PUBLIC_ONLY_FIELDS)
+        )
+        return get_object_or_404(queryset, patrimonio=patrimonio)
+
+    def _render_private(self, request, patrimonio: str):
         # Fornecedor/data/valor de aquisição (seção 11: "Ver valor de
         # aquisição / dados financeiros" — Admin e Administrativo, não
         # Operacional nem Consulta) só devem sair do banco quando o
@@ -441,22 +487,13 @@ class EquipmentDetailView(View):
         # `.defer(...)` aqui garante que, para quem não tem a permissão, a
         # própria consulta ao banco nunca traz esses três campos — não é
         # só uma questão de o template não renderizar.
-        can_view_acquisition_value = request.user.is_authenticated and (
-            request.user.is_superuser or request.user.role in CAN_VIEW_ACQUISITION_VALUE
-        )
+        can_view_acquisition_value = request.user.is_superuser or request.user.role in CAN_VIEW_ACQUISITION_VALUE
 
         queryset = Equipment.objects.select_related("model", "category", "current_client", "current_location")
         if not can_view_acquisition_value:
             queryset = queryset.defer("supplier", "acquisition_date", "acquisition_value")
 
         equipment = get_object_or_404(queryset, patrimonio=patrimonio)
-
-        if not request.user.is_authenticated:
-            return render(
-                request,
-                "equipment/detail_public.html",
-                {"equipment": equipment},
-            )
 
         # Import local — mesmo padrão já usado no bloco de Movement dentro
         # de `get_equipment_history_timeline()`: evita subir uma

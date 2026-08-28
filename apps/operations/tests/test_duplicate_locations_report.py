@@ -353,21 +353,28 @@ class DuplicateLocationsReportViewContentTest(TestCase):
         response = self.client.get(self.URL)
         content = response.content.decode()
 
-        # O único <form> da página inteira é o "Sair" do cabeçalho global
-        # (base.html, presente em TODA página do sistema) — o conteúdo da
-        # tela de diagnóstico em si não tem nenhum form, método POST/DELETE
-        # ou link/rótulo de apagar/editar/consolidar.
-        self.assertEqual(content.count("<form"), 1)
+        # Os únicos <form> da página inteira são os dois "Sair" do
+        # cabeçalho global (base.html, presente em TODA página do
+        # sistema) — um na navegação desktop, outro dentro do drawer do
+        # menu mobile (etapa de UX/UI, 28/08/2026: o drawer duplica o
+        # mesmo botão "Sair" não-destrutivo para quem está no mobile,
+        # ver AUDITORIA_UX_HOME_NAVEGACAO_QR.md, item [24]). O conteúdo
+        # da tela de diagnóstico em si não tem nenhum form, método
+        # POST/DELETE ou link/rótulo de apagar/editar/consolidar.
+        self.assertEqual(content.count("<form"), 2)
         self.assertIn('action="/contas/logout/"', content)
         # "Remover" fica de fora da lista: aparece só na prosa explicando que
         # esta TELA (o código) será removida depois da limpeza — não é uma
         # ação oferecida ao usuário nesta página.
         for forbidden in ("Apagar", "Excluir", "Deletar", "Editar", "Consolidar"):
             self.assertNotIn(forbidden, content)
-        # "Sair" + o botão de alternar o menu mobile (revisão visual de
-        # 27/08/2026, base.html) — os dois são chrome global não-destrutivo,
-        # nenhum dos dois pertence ao conteúdo desta tela de diagnóstico.
-        self.assertEqual(content.count("<button"), 2)
+        # Chrome global não-destrutivo, nenhum pertence ao conteúdo desta
+        # tela de diagnóstico: botão de abrir o menu mobile, botão de
+        # fechar o drawer, os dois botões "Sair" (desktop + drawer), e os
+        # dois toggles de dropdown da navegação desktop ("Cadastros"/
+        # "Administração" — etapa de UX/UI, 28/08/2026, item [25]; o
+        # usuário deste teste é ADMIN, então vê os dois).
+        self.assertEqual(content.count("<button"), 6)
 
 
 class DuplicateLocationsReportRegressionTest(TestCase):

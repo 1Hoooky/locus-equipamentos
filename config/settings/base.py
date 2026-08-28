@@ -27,6 +27,22 @@ CSRF_TRUSTED_ORIGINS = config("DJANGO_CSRF_TRUSTED_ORIGINS", default="", cast=Cs
 SITE_BASE_URL = config("SITE_BASE_URL", default="http://localhost:8000")
 
 # --------------------------------------------------------------------------
+# Links comerciais da landing pública (etapa de UX/UI, 28/08/2026 — ver
+# AUDITORIA_UX_HOME_NAVEGACAO_QR.md, item [14]). Mesma família de
+# SITE_BASE_URL acima: configurável via .env, nunca hardcoded em template.
+# Default vazio e seguro — nenhuma URL foi inventada. Quando uma destas
+# estiver vazia, o CTA correspondente simplesmente não é renderizado na
+# landing (ver apps/core/context_processors.py::commercial_links e
+# templates/equipment/detail_public.html) — nunca um link quebrado/`href="#"`.
+# --------------------------------------------------------------------------
+
+LOCUS_INSTAGRAM_URL = config("LOCUS_INSTAGRAM_URL", default="")
+LOCUS_SITE_URL = config("LOCUS_SITE_URL", default="")
+LOCUS_WHATSAPP_URL = config("LOCUS_WHATSAPP_URL", default="")
+LOCUS_ORCAMENTO_URL = config("LOCUS_ORCAMENTO_URL", default="")
+LOCUS_EQUIPAMENTOS_URL = config("LOCUS_EQUIPAMENTOS_URL", default="")
+
+# --------------------------------------------------------------------------
 # Apps
 # --------------------------------------------------------------------------
 
@@ -114,6 +130,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "apps.core.context_processors.commercial_links",
             ],
         },
     },
@@ -195,7 +212,15 @@ CSRF_COOKIE_SECURE = config("DJANGO_SECURE_COOKIES", default=True, cast=bool)
 X_FRAME_OPTIONS = "DENY"
 
 LOGIN_URL = "accounts:login"
-LOGIN_REDIRECT_URL = "equipment:list"
+# Etapa de UX/UI, 28/08/2026 (auditoria, item [19]): agora que a Home
+# operacional existe (apps.dashboard), login SEM `next` cai nela — não
+# mais na listagem de equipamentos. Login COM `next` (fluxo do QR Code)
+# continua indo para o destino do `next`, sem exceção: `next` sempre tem
+# prioridade sobre `LOGIN_REDIRECT_URL` no `LoginView` padrão do Django
+# (`RedirectURLMixin.get_success_url()`), então esta troca não interfere
+# nesse fluxo — ver apps/accounts/tests/test_login_next_redirect.py e
+# apps/dashboard/tests/test_login_redirect.py.
+LOGIN_REDIRECT_URL = "dashboard:home"
 LOGOUT_REDIRECT_URL = "accounts:login"
 
 # --------------------------------------------------------------------------

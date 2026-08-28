@@ -10,6 +10,10 @@ from django.urls import include, path
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # Home operacional (etapa de UX/UI, 28/08/2026) — primeira rota raiz
+    # ("") do projeto; antes dela não existia nenhuma, e "/" resultava em
+    # 404 (ver comentário no header de templates/base.html).
+    path("", include("apps.dashboard.urls")),
     path("contas/", include("apps.accounts.urls")),
     path("qrcodes/", include("apps.qrcodes.urls")),
     path("catalogo/", include("apps.catalog.urls")),

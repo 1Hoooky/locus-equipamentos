@@ -1,0 +1,160 @@
+{% load icons %}<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Locus Equipamentos{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}Conforto onde você precisa. Soluções Locus para climatização e aquecimento.{% endblock %}">
+
+  {# Open Graph básico (auditoria, item [20]) — sem analytics/tracking/pixel #}
+  {# nesta etapa, conforme decisão aprovada. og:image é opcional: só entra #}
+  {# quando a página filha define og_image (ex.: a foto real do modelo na #}
+  {# landing) — sem imagem, o card de compartilhamento cai no padrão da #}
+  {# rede social, o que é aceitável para esta etapa. Django template não #}
+  {# tem um jeito nativo de "reler" outro block (sem o `self` do Jinja2) — #}
+  {# por isso og_title/og_description têm defaults próprios, e a página #}
+  {# filha que já preenche title/meta_description pode repetir o mesmo #}
+  {# texto aqui quando fizer sentido (ver detail_public.html). #}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Locus Equipamentos">
+  <meta property="og:title" content="{% block og_title %}Locus Equipamentos{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}Conforto onde você precisa. Soluções Locus para climatização e aquecimento.{% endblock %}">
+  {% block og_image %}{% endblock %}
+
+  {# Sem favicon real cadastrado no projeto ainda (auditoria, item [20]) — #}
+  {# decisão aprovada: não improvisar arte final aqui. Quando a Locus #}
+  {# fornecer um favicon oficial, basta adicionar o arquivo em #}
+  {# static/images/ e descomentar/ajustar a linha abaixo. #}
+  {# <link rel="icon" href="{% static 'images/favicon.ico' %}"> #}
+
+  {% include "_design_tokens.html" %}
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-white text-brand-charcoal min-h-screen flex flex-col">
+  <a href="#conteudo-principal" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:px-3 focus:py-2 focus:rounded-md focus:shadow">
+    Pular para o conteúdo
+  </a>
+
+  {# ---------------------------------------------------------------------
+     Header público minimalista (auditoria, item [8]): LOCUS + ☰, nada de
+     navbar administrativa, nada de "Equipamentos" ao lado da marca. O
+     menu (drawer) contém os CTAs comerciais + "Entrar" (visualmente
+     secundário) — ver bloco de script no fim do body.
+     --------------------------------------------------------------------- #}
+  <header class="bg-brand-black text-white px-4 py-3 sticky top-0 z-30">
+    <div class="max-w-md mx-auto w-full flex items-center justify-between">
+      <span class="font-bold text-lg tracking-tight text-brand-gold select-none">LOCUS</span>
+
+      <button type="button" id="public-menu-toggle" aria-expanded="false" aria-controls="public-menu-drawer"
+              class="text-white p-2 -mr-2 rounded-md hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
+        <span class="sr-only">Abrir menu</span>
+        {% icon "bars-3" size="normal" %}
+      </button>
+    </div>
+  </header>
+
+  {# Backdrop + drawer do menu público — igual em espírito ao drawer #}
+  {# interno (Etapa 4), mas com uma lista simples (sem grupos), porque só #}
+  {# tem os CTAs comerciais + "Entrar". Escondido por padrão via #}
+  {# `hidden`; JS no fim do body cuida de abrir/fechar. #}
+  <div id="public-menu-backdrop" class="hidden fixed inset-0 bg-black/50 z-40"></div>
+  <nav id="public-menu-drawer" class="hidden fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-white shadow-xl flex flex-col"
+       aria-label="Menu" tabindex="-1">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+      <span class="font-semibold text-brand-charcoal">Menu</span>
+      <button type="button" id="public-menu-close"
+              class="icon-btn-neutral" aria-label="Fechar menu">
+        {% icon "x-mark" size="compact" %}
+      </button>
+    </div>
+    <div class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-1 text-sm">
+      {% if commercial_links.orcamento %}
+      <a href="{{ commercial_links.orcamento }}" class="flex items-center gap-2 px-3 py-3 rounded-lg font-semibold text-brand-gold-dark hover:bg-brand-gold-light min-h-[44px]">
+        {% icon "document-text" size="compact" %} Faça seu orçamento
+      </a>
+      {% endif %}
+      {% if commercial_links.whatsapp %}
+      <a href="{{ commercial_links.whatsapp }}" class="flex items-center gap-2 px-3 py-3 rounded-lg text-brand-charcoal hover:bg-gray-50 min-h-[44px]">
+        {% icon "chat-bubble-left-right" size="compact" %} Fale com a Locus
+      </a>
+      {% endif %}
+      {% if commercial_links.instagram %}
+      <a href="{{ commercial_links.instagram }}" class="flex items-center gap-2 px-3 py-3 rounded-lg text-brand-charcoal hover:bg-gray-50 min-h-[44px]">
+        {% brand_icon "instagram" size="compact" %} Instagram
+      </a>
+      {% endif %}
+      {% if commercial_links.site %}
+      <a href="{{ commercial_links.site }}" class="flex items-center gap-2 px-3 py-3 rounded-lg text-brand-charcoal hover:bg-gray-50 min-h-[44px]">
+        {% icon "globe-alt" size="compact" %} Site
+      </a>
+      {% endif %}
+      {% if commercial_links.equipamentos %}
+      <a href="{{ commercial_links.equipamentos }}" class="flex items-center gap-2 px-3 py-3 rounded-lg text-brand-charcoal hover:bg-gray-50 min-h-[44px]">
+        {% icon "cube" size="compact" %} Nossos equipamentos
+      </a>
+      {% endif %}
+
+      <div class="mt-3 pt-3 border-t border-gray-100">
+        {# "Entrar" secundário — uso interno da equipe, não deve parecer #}
+        {# uma opção comercial para o cliente (auditoria, item [8]). #}
+        <a href="{% url 'accounts:login' %}?next={{ request.path|urlencode }}"
+           class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 min-h-[44px]">
+          Entrar (equipe Locus)
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="conteudo-principal" class="flex-1">
+    {% for message in messages %}
+      <div class="alert-{% if 'error' in message.tags %}error{% elif 'warning' in message.tags %}warning{% elif 'success' in message.tags %}success{% else %}info{% endif %} max-w-md mx-auto mt-3 mx-4">
+        {{ message }}
+      </div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="text-center text-xs text-gray-400 py-6 border-t border-gray-100">
+    Locus Locações
+  </footer>
+
+  <script>
+    // Drawer do menu público — mesma disciplina de front-end de
+    // conveniência dos outros scripts inline do projeto (não afeta
+    // nenhuma regra de permissão/segurança). Vanilla JS, sem dependência
+    // nova (decisão aprovada — nenhuma biblioteca de UI).
+    (function () {
+      var toggle = document.getElementById("public-menu-toggle");
+      var drawer = document.getElementById("public-menu-drawer");
+      var backdrop = document.getElementById("public-menu-backdrop");
+      var closeBtn = document.getElementById("public-menu-close");
+      if (!toggle || !drawer || !backdrop || !closeBtn) return;
+
+      function openMenu() {
+        drawer.classList.remove("hidden");
+        backdrop.classList.remove("hidden");
+        toggle.setAttribute("aria-expanded", "true");
+        closeBtn.focus();
+        document.addEventListener("keydown", onKeydown);
+      }
+
+      function closeMenu() {
+        drawer.classList.add("hidden");
+        backdrop.classList.add("hidden");
+        toggle.setAttribute("aria-expanded", "false");
+        document.removeEventListener("keydown", onKeydown);
+        toggle.focus();
+      }
+
+      function onKeydown(event) {
+        if (event.key === "Escape") closeMenu();
+      }
+
+      toggle.addEventListener("click", openMenu);
+      closeBtn.addEventListener("click", closeMenu);
+      backdrop.addEventListener("click", closeMenu);
+    })();
+  </script>
+  {% block extra_body %}{% endblock %}
+</body>
+</html>

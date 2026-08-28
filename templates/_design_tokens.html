@@ -1,0 +1,271 @@
+{% comment %}
+Tokens e componentes de design compartilhados entre a aplicação interna
+(templates/base.html) e a experiência pública/comercial
+(templates/base_public.html) — extraído de base.html na etapa de UX/UI de
+28/08/2026 (ver AUDITORIA_UX_HOME_NAVEGACAO_QR.md, item [16]) para que as
+duas bases usem exatamente as mesmas cores/tipografia/componentes sem
+duplicar o bloco inteiro em dois arquivos.
+
+Este partial é `{% include %}`do dentro de <head>, nas duas bases. Nada
+aqui é específico de navegação administrativa nem de header público —
+só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
+(.btn-*, .card-*, .badge-*, etc.), que fazem sentido nos dois contextos.
+{% endcomment %}
+{# TODO (Fase 1, próxima etapa): trocar o CDN por Tailwind compilado via #}
+{# build step (django-tailwind ou equivalente) antes de ir para produção. #}
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Identidade visual Locus Locações (auditoria de 27/08/2026 — ver
+  // IDENTIDADE_VISUAL_MANUTENCAO_HIGIENIZACAO.md): extraída via inspeção
+  // do site institucional (www.locuslocacoes.com.br) — fundo preto/quase
+  // preto, dourado como cor de marca (CTAs/logo), cards escuros com
+  // borda sutil (sem sombra), botões com raio ~8px, fonte do sistema
+  // (Segoe UI/Tahoma/Verdana — o site não usa nenhuma webfont custom).
+  //
+  // Adaptação DELIBERADA para uso administrativo (o site é vitrine
+  // comercial, este é um sistema operacional de uso prolongado): o
+  // dourado/preto vira identidade de MARCA (cabeçalho, ações primárias,
+  // foco, destaques), mas a área de conteúdo (tabelas/formulários dos
+  // quais a operação depende o dia inteiro) permanece clara — preto
+  // total como fundo de conteúdo prejudicaria leitura de tabela densa e
+  // contraste prolongado. `brand-black`/`brand-charcoal` são os tons do
+  // site; `brand-gold`/`brand-gold-dark` são o dourado do site ajustado
+  // para um tom levemente mais escuro que o #ffd700 puro do site,
+  // mantendo contraste AA com texto preto por cima em botões maiores.
+  //
+  // A landing pública (base_public.html) reusa a MESMA paleta — a marca
+  // Locus precisa ser reconhecível nos dois contextos (especificação da
+  // etapa de UX/UI, seção 1: "cliente reconhece a Locus").
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: {
+            black: "#0a0a0a",
+            charcoal: "#171717",
+            gold: "#eab308",
+            "gold-dark": "#b45309",
+            "gold-light": "#fef3c7",
+          },
+        },
+      },
+    },
+  };
+</script>
+<style type="text/tailwindcss">
+  @layer components {
+    /* ---------------------------------------------------------------
+     * Componentes reutilizáveis — centralizados aqui para não repetir
+     * dezenas de classes Tailwind em cada template (auditoria de
+     * 27/08/2026). Equipment/Clientes/Unidades/Movimentações podem
+     * migrar para estas mesmas classes depois, sem retrabalho.
+     * --------------------------------------------------------------- */
+
+    /* Botões */
+    .btn {
+      @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
+    }
+    .btn-primary {
+      @apply btn bg-brand-gold text-brand-black hover:bg-brand-gold-dark hover:text-white;
+    }
+    .btn-secondary {
+      @apply btn border border-brand-gold text-brand-gold-dark bg-white hover:bg-brand-gold-light;
+    }
+    .btn-neutral {
+      @apply btn border border-gray-300 text-gray-700 bg-white hover:bg-gray-50;
+    }
+    .btn-danger {
+      @apply btn border border-red-300 text-red-700 bg-white hover:bg-red-50;
+    }
+    .btn-sm {
+      @apply px-3 py-1.5 text-xs;
+    }
+    .link {
+      @apply text-brand-gold-dark hover:underline font-medium;
+    }
+
+    /* Cards / superfícies */
+    .card {
+      @apply bg-white border border-gray-200 rounded-lg shadow-sm;
+    }
+    .card-pad {
+      @apply card p-4 sm:p-6;
+    }
+
+    /* Cabeçalho de página (título + ações) */
+    .page-header {
+      @apply flex flex-wrap items-center justify-between gap-3 mb-5;
+    }
+    .page-title {
+      @apply text-xl sm:text-2xl font-bold tracking-tight text-brand-charcoal;
+    }
+    .page-subtitle {
+      @apply text-sm text-gray-500;
+    }
+
+    /* Badges de status — tons semânticos, nunca dourado (reservado p/ marca/ação) */
+    .badge {
+      @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
+    }
+    .badge-success { @apply badge bg-green-100 text-green-800; }
+    .badge-warning { @apply badge bg-amber-100 text-amber-800; }
+    .badge-danger { @apply badge bg-red-100 text-red-800; }
+    .badge-info { @apply badge bg-blue-100 text-blue-800; }
+    .badge-neutral { @apply badge bg-gray-100 text-gray-700; }
+
+    /* Formulários */
+    .field-label {
+      @apply block text-sm font-medium text-brand-charcoal mb-1;
+    }
+    .field-hint {
+      @apply text-xs text-gray-500 mt-1;
+    }
+    .field-error {
+      @apply text-xs text-red-600 mt-1;
+    }
+    .field-input,
+    input[type="text"].field-input,
+    select.field-input,
+    textarea.field-input {
+      @apply border border-gray-300 rounded-lg px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-brand-gold;
+    }
+    .filter-input {
+      @apply border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-brand-gold;
+    }
+
+    /* Tabelas de listagem */
+    .table-wrap {
+      @apply card overflow-x-auto;
+    }
+    .table-base {
+      @apply w-full text-sm;
+    }
+    .table-base thead {
+      @apply bg-gray-50 text-gray-600 text-left uppercase tracking-wide text-xs;
+    }
+    .table-base th {
+      @apply px-3 py-2.5 font-semibold;
+    }
+    .table-base td {
+      @apply px-3 py-2.5;
+    }
+    .table-base tbody tr {
+      @apply border-t border-gray-100 hover:bg-amber-50/40 transition-colors;
+    }
+
+    /* Estado vazio */
+    .empty-state {
+      @apply text-center text-sm text-gray-500 py-10;
+    }
+
+    /* Timeline unificada (ficha do equipamento) */
+    .timeline-item {
+      @apply border-l-2 border-gray-200 pl-3;
+    }
+
+    /* Alertas / mensagens do framework de messages */
+    .alert {
+      @apply mb-3 rounded-lg px-4 py-2.5 text-sm border;
+    }
+    .alert-success { @apply alert bg-green-50 text-green-800 border-green-200; }
+    .alert-error { @apply alert bg-red-50 text-red-800 border-red-200; }
+    .alert-warning { @apply alert bg-amber-50 text-amber-800 border-amber-200; }
+    .alert-info { @apply alert bg-blue-50 text-blue-800 border-blue-200; }
+
+    /* -----------------------------------------------------------------
+     * Ícones e ações compactas (auditoria de iconografia/apresentação de
+     * ações, aprovada em 28/08/2026 — ver AUDITORIA_ICONOGRAFIA_ACOES.md).
+     * Reaproveita o mesmo foco/borda/radius/cores já usados em .btn-*;
+     * de propósito, só 3 variantes de botão-ícone (nunca dezenas).
+     *
+     * Área clicável: o SVG em si continua pequeno (20px "normal" ou
+     * 16px "compact", ver apps/core/templatetags/icons.py) — quem cresce
+     * é o alvo de toque ao redor, via padding/min-width/min-height,
+     * nunca o ícone. 44px no mobile (toque), ~36px a partir de `sm:`
+     * (mouse em tablet/desktop) — decisão explícita da auditoria,
+     * diferente do "32px" que tinha sido cogitado inicialmente.
+     * --------------------------------------------------------------- */
+    .icon-btn {
+      @apply inline-flex items-center justify-center rounded-md min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] p-2 transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
+    }
+    .icon-btn-neutral {
+      @apply icon-btn border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 hover:text-gray-900;
+    }
+    .icon-btn-danger {
+      @apply icon-btn border border-red-300 text-red-700 bg-white hover:bg-red-50;
+    }
+    /* .icon-btn-primary não foi criada nesta rodada: nenhuma ação
+       primária virou ícone-sozinho (decisão aprovada — botão primário
+       continua sempre com texto), então a variante ficaria sem uso. */
+
+    /* Ícone acompanhando texto dentro de um .link solto (que não é
+       flex, ao contrário de .btn-*) — ex.: "Voltar", "Exportar CSV". */
+    .icon-inline {
+      @apply inline-flex items-center gap-1;
+    }
+
+    /* Agrupamento compacto de 2-3 .icon-btn lado a lado (célula de
+       tabela densa, ex.: QR + Etiqueta) — sem bordas próprias, só
+       espaçamento; quebra de linha permitida para não estourar em
+       telas estreitas. */
+    .action-group {
+      @apply inline-flex flex-wrap items-center gap-1;
+    }
+
+    /* -----------------------------------------------------------------
+     * Componentes da landing pública/comercial (base_public.html) —
+     * etapa de UX/UI de 28/08/2026. Só usados na experiência pública,
+     * mas vivem aqui (não em base_public.html) para não duplicar o
+     * bloco @layer components em dois arquivos, e porque reaproveitam a
+     * mesma paleta de marca acima.
+     * --------------------------------------------------------------- */
+
+    /* CTA principal da landing (\"Faça seu orçamento\") — visualmente
+       dominante, maior que qualquer .btn-primary do sistema interno. */
+    .btn-cta-primary {
+      @apply btn bg-brand-gold text-brand-black hover:bg-brand-gold-dark hover:text-white w-full py-3.5 text-base font-semibold shadow-sm;
+    }
+
+    /* CTAs secundários empilhados (estilo link-page) — mesma largura,
+       hierarquia visual nitidamente menor que o CTA principal. */
+    .btn-cta-secondary {
+      @apply btn border border-gray-300 bg-white text-brand-charcoal hover:border-brand-gold hover:text-brand-gold-dark w-full py-3 text-sm font-medium;
+    }
+
+    /* -----------------------------------------------------------------
+     * Menu mobile interno em drawer (base.html) — etapa de UX/UI de
+     * 28/08/2026 (auditoria, item [24]: menu mobile estruturalmente
+     * quebrado, substituído por um drawer lateral). Área de toque de
+     * 44px de altura mínima (mesma régua já usada em .icon-btn),
+     * agrupamento visual por módulo, estado ativo com fundo dourado
+     * claro (nunca só texto dourado — precisa ser perceptível também
+     * sem cor, para contraste/acessibilidade).
+     * --------------------------------------------------------------- */
+    .mobile-menu-group-title {
+      @apply px-3 pt-4 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400 first:pt-2;
+    }
+    .mobile-menu-link {
+      @apply flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm text-brand-charcoal min-h-[44px] hover:bg-gray-50;
+    }
+    .mobile-menu-link-active {
+      @apply bg-brand-gold-light text-brand-gold-dark font-semibold;
+    }
+
+    /* -----------------------------------------------------------------
+     * Dropdowns da navegação DESKTOP (base.html, >= 640px) — etapa de
+     * UX/UI de 28/08/2026 (auditoria, item [25], Opção B aprovada):
+     * ações de uso frequente continuam como link direto na barra;
+     * "Cadastros"/"Administração" (menos frequentes) viram dropdown.
+     * Vanilla JS (ver script no fim de base.html) — sem lib nova.
+     * --------------------------------------------------------------- */
+    .nav-dropdown-toggle {
+      @apply inline-flex items-center gap-1 text-gray-300 hover:text-brand-gold focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold rounded-md px-1;
+    }
+    .nav-dropdown-menu {
+      @apply hidden absolute left-0 mt-2 w-52 bg-white text-brand-charcoal rounded-lg shadow-lg border border-gray-100 py-1 z-40;
+    }
+    .nav-dropdown-item {
+      @apply block px-4 py-2 text-sm hover:bg-gray-50 min-h-[36px] flex items-center;
+    }
+  }
+</style>

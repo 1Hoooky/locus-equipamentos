@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}Home — Locus Equipamentos{% endblock %}
+
+{% comment %}
+Home operacional — etapa de UX/UI, 28/08/2026 (ver
+AUDITORIA_UX_HOME_NAVEGACAO_QR.md, itens [26]-[29]). Escopo aprovado desta
+primeira versão: 4 cards de status + 3 listas (movimentações recentes,
+manutenções abertas, equipamentos que exigem atenção). Sem gráfico nenhum
+de propósito (decisão aprovada, item 15 do briefing: "a Home não é um
+festival de gráficos" — cards + listas respondem melhor às perguntas
+operacionais reais do que um gráfico responderia aqui).
+{% endcomment %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Home</h1>
+    <p class="page-subtitle">Visão geral da operação — {{ user }} · {{ user.get_role_display }}</p>
+  </div>
+</div>
+
+{# 4 cards de status — cada um linka para a listagem já filtrada #}
+{# correspondente, nunca duplicando a informação em outro lugar. #}
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+  <a href="{% url 'equipment:list' %}?status=DISPONIVEL" class="card-pad hover:border-brand-gold transition-colors">
+    <p class="text-2xl font-bold text-brand-charcoal">{{ status_counts.disponiveis }}</p>
+    <p class="text-xs text-gray-500 mt-1">Disponíveis</p>
+  </a>
+  <a href="{% url 'equipment:list' %}?status=EM_OPERACAO" class="card-pad hover:border-brand-gold transition-colors">
+    <p class="text-2xl font-bold text-brand-charcoal">{{ status_counts.em_operacao }}</p>
+    <p class="text-xs text-gray-500 mt-1">Em operação</p>
+  </a>
+  <a href="{% url 'equipment:list' %}?status=MANUTENCAO" class="card-pad hover:border-brand-gold transition-colors">
+    <p class="text-2xl font-bold text-brand-charcoal">{{ status_counts.em_manutencao }}</p>
+    <p class="text-xs text-gray-500 mt-1">Em manutenção</p>
+  </a>
+  <a href="{% url 'maintenance:maintenance_list' %}?status=ABERTA" class="card-pad hover:border-brand-gold transition-colors">
+    <p class="text-2xl font-bold text-brand-charcoal">{{ open_maintenance_count }}</p>
+    <p class="text-xs text-gray-500 mt-1">Manutenções abertas</p>
+  </a>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+  {# Movimentações recentes #}
+  <div class="card-pad">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-brand-charcoal">Movimentações recentes</h2>
+    </div>
+    {% if recent_movements %}
+    <ul class="space-y-2 text-sm">
+      {% for movement in recent_movements %}
+      <li class="border-b border-gray-50 pb-2">
+        <a href="{% url 'equipment:detail' movement.equipment.patrimonio %}" class="link">{{ movement.equipment.patrimonio }}</a>
+        <span class="text-gray-500">— {{ movement.get_movement_type_display }}</span>
+        <span class="text-xs text-gray-400 block">{{ movement.created_at|date:"d/m/Y H:i" }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-state">Nenhuma movimentação registrada ainda.</p>
+    {% endif %}
+  </div>
+
+  {# Manutenções abertas #}
+  <div class="card-pad">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-brand-charcoal">Manutenções abertas</h2>
+      {% if open_maintenances %}
+      <a href="{% url 'maintenance:maintenance_list' %}?status=ABERTA" class="text-xs link">Ver todas</a>
+      {% endif %}
+    </div>
+    {% if open_maintenances %}
+    <ul class="space-y-2 text-sm">
+      {% for maintenance in open_maintenances %}
+      <li class="border-b border-gray-50 pb-2">
+        <a href="{% url 'maintenance:maintenance_detail' maintenance.pk %}" class="link">{{ maintenance.equipment.patrimonio }}</a>
+        <span class="text-gray-500">— {{ maintenance.get_maintenance_type_display }}</span>
+        <span class="text-xs text-gray-400 block">Aberta em {{ maintenance.created_at|date:"d/m/Y" }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-state">Nenhuma manutenção em aberto.</p>
+    {% endif %}
+  </div>
+
+  {# Equipamentos que exigem atenção #}
+  <div class="card-pad">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-brand-charcoal">Exigem atenção</h2>
+    </div>
+    {% if equipment_needing_attention %}
+    <ul class="space-y-2 text-sm">
+      {% for equipment in equipment_needing_attention %}
+      <li class="flex items-center justify-between gap-2 border-b border-gray-50 pb-2">
+        <span>
+          <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="link">{{ equipment.patrimonio }}</a>
+          <span class="text-gray-500">— {{ equipment.model.name }}</span>
+        </span>
+        {% if equipment.condition == "RUIM" %}<span class="badge-warning">{{ equipment.get_condition_display }}</span>
+        {% else %}<span class="badge-danger">{{ equipment.get_condition_display }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-state">Nenhum equipamento exigindo atenção.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
