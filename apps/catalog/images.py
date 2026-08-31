@@ -45,11 +45,13 @@ from apps.catalog.models import EquipmentModel
 # foi inventado como dado de equipamento: são só nomes de arquivo.
 MODEL_IMAGE_MAP: dict[str, str] = {
     "9PRO": "images/equipment/9pro.webp",
-    "9PRO2": "images/equipment/9pro2.webp",
+    "9PRO2": "images/equipment/9pro.webp",
     "6PRO": "images/equipment/6pro.webp",
     "AQCP": "images/equipment/aqcp.webp",
     "AQCT": "images/equipment/aqct.webp",
     "AQCH": "images/equipment/aqch.webp",
+    "NI23BT": "images/equipment/ni23bt.webp",
+    "NI23TC": "images/equipment/ni23tc.webp",
 }
 
 PLACEHOLDER_IMAGE = "images/equipment/_placeholder.webp"
