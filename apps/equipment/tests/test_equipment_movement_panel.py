@@ -189,9 +189,15 @@ class MovementPanelPermissionTest(TestCase):
                 self.assertIn("Instalar", content)  # DISPONIVEL por padrão em create_equipment
 
     def test_consulta_nao_ve_o_painel_nem_o_link_do_formulario_completo(self):
+        # Rodada de UX/UI mobile-first (31/08/2026): o link para o
+        # formulário completo de movimentação foi reescrito de "Ver
+        # formulário completo de movimentação" para "Outras movimentações"
+        # (mesmo href, sem `?movement_type=`, agora de baixa ênfase visual
+        # abaixo da grade de cards) — o comportamento continua o mesmo:
+        # Consulta não vê nem o painel nem este link secundário.
         content = self._get(Role.CONSULTA).content.decode()
         self.assertNotIn("Movimentar equipamento", content)
-        self.assertNotIn("Ver formulário completo de movimentação", content)
+        self.assertNotIn("Outras movimentações", content)
         self.assertNotIn(f"/operacao/movimentar/{self.equipment.patrimonio}/", content)
 
     def test_consulta_nao_consegue_acessar_o_endpoint_de_movimentacao_diretamente(self):

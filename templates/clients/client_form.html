@@ -16,7 +16,7 @@
 
   <section>
     <h2 class="text-sm font-semibold text-gray-700 mb-3">Dados do cliente</h2>
-    <div class="grid grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {% for field in form %}
         {% if field.name in "client_type,document,company_name,trade_name,registration_status,state_registration,phone,email,contact_name" %}
         <div>
@@ -38,7 +38,7 @@
 
   <section class="border-t border-gray-100 pt-4">
     <h2 class="text-sm font-semibold text-gray-700 mb-3">Endereço fiscal</h2>
-    <div class="grid grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {% for field in form %}
         {% if field.name in "fiscal_cep,fiscal_logradouro,fiscal_numero,fiscal_complemento,fiscal_bairro,fiscal_cidade,fiscal_uf" %}
         <div>
@@ -66,7 +66,7 @@
       {{ form.use_fiscal_as_operational }}
       <span>{{ form.use_fiscal_as_operational.label }}</span>
     </label>
-    <div class="grid grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {% for field in form %}
         {% if field.name in "operational_cep,operational_logradouro,operational_numero,operational_complemento,operational_bairro,operational_cidade,operational_uf" %}
         <div>

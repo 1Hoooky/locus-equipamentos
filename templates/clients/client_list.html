@@ -17,7 +17,13 @@
          class="filter-input w-full max-w-md">
 </form>
 
-<div class="table-wrap">
+{% comment %}
+Rodada de UX/UI mobile-first (31/08/2026): tabela completa a partir de
+`sm:`; abaixo disso, cartões empilhados (razão social + nome fantasia/
+CNPJ como texto secundário + botão "Ver detalhes"), sem rolagem
+horizontal.
+{% endcomment %}
+<div class="hidden sm:block table-wrap">
   <table class="table-base">
     <thead>
       <tr>
@@ -45,6 +51,23 @@
       {% endfor %}
     </tbody>
   </table>
+</div>
+
+<div class="sm:hidden flex flex-col gap-2">
+  {% for client in clients %}
+  <div class="mobile-list-card">
+    <div class="mobile-list-card-main">
+      <p class="mobile-list-card-title">{{ client.company_name }}</p>
+      <p class="mobile-list-card-meta">{{ client.trade_name|default:"—" }} · {{ client.document|default:"—" }}</p>
+    </div>
+    <a href="{% url 'clients:detail' client.pk %}" class="icon-btn-neutral shrink-0"
+       aria-label="Ver detalhes de {{ client.company_name }}" title="Ver detalhes de {{ client.company_name }}">
+      {% icon "eye" size="compact" %}
+    </a>
+  </div>
+  {% empty %}
+  <p class="empty-state">Nenhum cliente cadastrado.</p>
+  {% endfor %}
 </div>
 
 {% if is_paginated %}

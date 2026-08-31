@@ -68,15 +68,21 @@ horizontal.
   </table>
 </div>
 
-{# Mobile — cards compactos (nunca a tabela com scroll horizontal) #}
+{% comment %}
+Mobile — cards compactos (nunca a tabela com scroll horizontal). Rodada
+de UX/UI mobile-first (31/08/2026): removidos os botões de QR/etiqueta
+daqui — a listagem serve para ENCONTRAR o equipamento, não para operá-lo;
+QR/etiqueta continuam disponíveis (mesma permissão de sempre,
+`is_administrativo_ou_superior`) na tabela desktop logo acima e também
+dentro da ficha (disclosure "Administração"). Um único botão "Ver ficha"
+por card, sem nada mais competindo por atenção.
+{% endcomment %}
 <div class="sm:hidden flex flex-col gap-2">
   {% for equipment in page_obj.object_list %}
-  <div class="model-group-item-card">
-    <div class="min-w-0">
-      <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="link font-semibold block truncate">
-        {{ equipment.patrimonio }}
-      </a>
-      <p class="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-1">
+  <div class="mobile-list-card">
+    <div class="mobile-list-card-main">
+      <p class="mobile-list-card-title">{{ equipment.patrimonio }}</p>
+      <p class="mobile-list-card-meta flex flex-wrap items-center gap-1 mt-1">
         {% if equipment.status == "DISPONIVEL" %}<span class="badge-success">{{ equipment.get_status_display }}</span>
         {% elif equipment.status == "EM_OPERACAO" %}<span class="badge-info">{{ equipment.get_status_display }}</span>
         {% elif equipment.status == "MANUTENCAO" %}<span class="badge-warning">{{ equipment.get_status_display }}</span>
@@ -86,18 +92,7 @@ horizontal.
         {% else %}<span class="badge-danger">{{ equipment.get_condition_display }}</span>{% endif %}
       </p>
     </div>
-    {% if user.is_administrativo_ou_superior %}
-    <div class="action-group shrink-0">
-      <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="icon-btn-neutral"
-         aria-label="Ver QR Code de {{ equipment.patrimonio }}" title="Ver QR Code de {{ equipment.patrimonio }}">
-        {% icon "qr-code" size="compact" %}
-      </a>
-      <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" target="_blank" class="icon-btn-neutral"
-         aria-label="Baixar etiqueta de {{ equipment.patrimonio }}" title="Baixar etiqueta de {{ equipment.patrimonio }}">
-        {% icon "tag" size="compact" %}
-      </a>
-    </div>
-    {% endif %}
+    <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="btn-neutral btn-sm shrink-0">Ver ficha</a>
   </div>
   {% endfor %}
 </div>

@@ -42,7 +42,16 @@
   {% endif %}
 </form>
 
-<div class="table-wrap">
+{% comment %}
+Rodada de UX/UI mobile-first (31/08/2026): tabela de 8 colunas obrigava
+rolagem horizontal em telas de 320-375px. A partir de `sm:` continua
+exatamente a mesma tabela de sempre; abaixo disso, cada manutenção vira
+um cartão empilhado com os campos mais importantes para IDENTIFICAR o
+registro (patrimônio, equipamento, tipo, status, data) — os demais
+campos (responsável, encerramento, próxima manutenção) continuam
+disponíveis na tela de detalhe, a um toque de distância.
+{% endcomment %}
+<div class="hidden sm:block table-wrap">
   <table class="table-base">
     <thead>
       <tr>
@@ -85,6 +94,33 @@
       {% endfor %}
     </tbody>
   </table>
+</div>
+
+<div class="sm:hidden flex flex-col gap-2">
+  {% for maintenance in maintenances %}
+  <div class="mobile-list-card items-start">
+    <div class="mobile-list-card-main">
+      <p class="mobile-list-card-title">{{ maintenance.equipment.patrimonio }}</p>
+      <p class="mobile-list-card-meta">{{ maintenance.equipment.model.name }} · {{ maintenance.get_maintenance_type_display }}</p>
+      <p class="mobile-list-card-meta mt-1 flex flex-wrap items-center gap-1.5">
+        {% if maintenance.status == "ABERTA" %}
+          <span class="badge-warning">Aberta</span>
+        {% elif maintenance.status == "CONCLUIDA" %}
+          <span class="badge-success">Concluída</span>
+        {% else %}
+          <span class="badge-neutral">Cancelada</span>
+        {% endif %}
+        <span>{{ maintenance.created_at|date:"d/m/Y" }}</span>
+      </p>
+    </div>
+    <a href="{% url 'maintenance:maintenance_detail' maintenance.pk %}" class="icon-btn-neutral shrink-0"
+       aria-label="Ver manutenção de {{ maintenance.equipment.patrimonio }}" title="Ver manutenção de {{ maintenance.equipment.patrimonio }}">
+      {% icon "eye" size="compact" %}
+    </a>
+  </div>
+  {% empty %}
+  <p class="empty-state">Nenhuma manutenção encontrada.</p>
+  {% endfor %}
 </div>
 
 {% if is_paginated %}

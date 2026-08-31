@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Locus Equipamentos{% endblock %}</title>
-  <meta name="description" content="{% block meta_description %}Conforto onde você precisa. Locus Locações para climatização e aquecimento.{% endblock %}">
+  <meta name="description" content="{% block meta_description %}Conforto onde você precisa. Soluções Locus para climatização e aquecimento.{% endblock %}">
 
   {# Open Graph básico (auditoria, item [20]) — sem analytics/tracking/pixel #}
   {# nesta etapa, conforme decisão aprovada. og:image é opcional: só entra #}
@@ -18,7 +18,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Locus Equipamentos">
   <meta property="og:title" content="{% block og_title %}Locus Equipamentos{% endblock %}">
-  <meta property="og:description" content="{% block og_description %}Conforto onde você precisa. Locus Locações para climatização e aquecimento.{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}Conforto onde você precisa. Soluções Locus para climatização e aquecimento.{% endblock %}">
   {% block og_image %}{% endblock %}
 
   {# Sem favicon real cadastrado no projeto ainda (auditoria, item [20]) — #}
@@ -107,12 +107,18 @@
       </a>
       {% endif %}
 
-      <div class="mt-3 pt-3 border-t border-gray-100">
-        {# "Entrar" secundário — uso interno da equipe, não deve parecer #}
-        {# uma opção comercial para o cliente (auditoria, item [8]). #}
-        <a href="{% url 'accounts:login' %}?next={{ request.path|urlencode }}"
-           class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 min-h-[44px]">
-          Entrar (equipe Locus)
+      <div class="mt-4 pt-4 border-t border-gray-100">
+        {% comment %}
+        Rodada de UX/UI mobile-first (31/08/2026): homologação anterior
+        apontou "Entrar" quase invisível — link de texto cinza claro,
+        sem ícone, em último lugar, menor que qualquer CTA comercial.
+        Correção: mantém a posição (depois dos CTAs comerciais, para não
+        competir com eles) mas agora é um botão de verdade, com ícone e
+        cor de marca — inequívoco para quem já sabe que está procurando
+        a entrada da equipe, sem parecer uma oferta para o cliente.
+        {% endcomment %}
+        <a href="{% url 'accounts:login' %}?next={{ request.path|urlencode }}" class="public-login-cta">
+          {% icon "arrow-right-circle" size="compact" %} Entrar
         </a>
       </div>
     </div>

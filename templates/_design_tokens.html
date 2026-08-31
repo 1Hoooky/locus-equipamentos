@@ -61,9 +61,12 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
      * migrar para estas mesmas classes depois, sem retrabalho.
      * --------------------------------------------------------------- */
 
-    /* Botões */
+    /* Botões — min-h-[44px] no mobile (mesma régua de toque já usada em
+       .icon-btn/.mobile-menu-link/.sidebar-link), ~36px a partir de
+       `sm:` (mouse). Rodada de UX/UI mobile-first: nenhum .btn-* ficava
+       garantido acima de 44px antes desta linha. */
     .btn {
-      @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
+      @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] sm:min-h-[36px] transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
     }
     .btn-primary {
       @apply btn bg-brand-gold text-brand-black hover:bg-brand-gold-dark hover:text-white;
@@ -199,7 +202,8 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
        continua sempre com texto), então a variante ficaria sem uso. */
 
     /* Ícone acompanhando texto dentro de um .link solto (que não é
-       flex, ao contrário de .btn-*) — ex.: "Voltar", "Exportar CSV". */
+       flex, ao contrário de .btn-*) — ex.: um link de voltar ou de
+       exportação com ícone à frente do texto. */
     .icon-inline {
       @apply inline-flex items-center gap-1;
     }
@@ -220,8 +224,9 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
      * mesma paleta de marca acima.
      * --------------------------------------------------------------- */
 
-    /* CTA principal da landing (\"Faça seu orçamento\") — visualmente
-       dominante, maior que qualquer .btn-primary do sistema interno. */
+    /* CTA principal da landing (a oferta comercial de maior destaque) —
+       visualmente dominante, maior que qualquer .btn-primary do sistema
+       interno. */
     .btn-cta-primary {
       @apply btn bg-brand-gold text-brand-black hover:bg-brand-gold-dark hover:text-white w-full py-3.5 text-base font-semibold shadow-sm;
     }
@@ -254,8 +259,8 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     /* -----------------------------------------------------------------
      * Dropdowns da navegação DESKTOP (base.html, >= 640px) — etapa de
      * UX/UI de 28/08/2026 (auditoria, item [25], Opção B aprovada):
-     * ações de uso frequente continuam como link direto na barra;
-     * "Cadastros"/"Administração" (menos frequentes) viram dropdown.
+     * ações de uso frequente continuam como link direto na barra; os
+     * dois grupos menos frequentes viram dropdown.
      * Vanilla JS (ver script no fim de base.html) — sem lib nova.
      * --------------------------------------------------------------- */
     .nav-dropdown-toggle {
@@ -362,6 +367,111 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     }
     .sidebar-link-label {
       @apply truncate;
+    }
+
+    /* -----------------------------------------------------------------
+     * Rodada de UX/UI mobile-first (31/08/2026) — componentes novos,
+     * reutilizáveis entre ficha do equipamento, listas e formulários.
+     * Objetivo: hierarquia real (título forte, seção semibold, subgrupo
+     * pequeno/neutro) em vez de títulos maiúsculos com peso igual em
+     * toda a tela, e ações agrupadas por relevância (primária sempre
+     * visível, secundária quando pertinente, avançada recolhível).
+     * --------------------------------------------------------------- */
+
+    /* Bloco de seção dentro de uma tela operacional (ficha, detalhe) —
+       substitui divs soltas com título maiúsculo repetido em cada tela. */
+    .section-card {
+      @apply card-pad mb-4;
+    }
+    .section-heading {
+      @apply text-base font-semibold text-brand-charcoal mb-3 flex items-center gap-2;
+    }
+    .section-subheading {
+      @apply text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5;
+    }
+
+    /* Grade de ações compacta (2 colunas no mobile, usada tanto pelo
+       painel de movimentação quanto pelo bloco de serviços técnicos). */
+    .mobile-action-grid {
+      @apply grid grid-cols-2 gap-2;
+    }
+
+    /* Ações técnicas (abrir manutenção / registrar higienização) — visual
+       deliberadamente mais discreto que .movement-action-card--primary
+       (são ações secundárias na hierarquia da ficha, nunca a principal).
+       Mesma régua de toque (44px mobile / 44px aqui também, por serem
+       menos frequentes que a ação primária e por isso sem redução em
+       `sm:`) e mesmo raciocínio de cor (âmbar só quando há algo em
+       aberto que precisa de atenção; neutro no caso comum). */
+    .service-action-card {
+      @apply flex flex-col sm:flex-row items-center justify-center gap-1.5 sm:gap-2 rounded-lg border px-3 py-3 min-h-[44px] text-center sm:text-left text-sm font-medium border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1;
+    }
+    .service-action-card--attention {
+      @apply border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100;
+    }
+
+    /* Disclosure genérico (usado para blocos "ver mais"/"avançado" em
+       telas operacionais) — button semântico com aria-expanded, nunca
+       uma div clicável; o corpo some por CSS lendo o aria-expanded do
+       botão irmão, mesmo padrão já usado em .model-group-toggle/
+       .model-group-body mais abaixo neste arquivo. */
+    .disclosure-trigger {
+      @apply w-full flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 min-h-[44px] text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold;
+    }
+    .disclosure-chevron {
+      @apply inline-flex shrink-0 text-gray-400 transition-transform duration-150 -rotate-90;
+    }
+    .disclosure-trigger[aria-expanded="true"] .disclosure-chevron {
+      transform: rotate(0deg);
+    }
+    .disclosure-trigger[aria-expanded="false"] + .disclosure-body {
+      display: none;
+    }
+
+    /* Opção secundária de baixa ênfase, alinhada à direita/centro, para
+       um link que existe mas não deve competir com as ações da grade
+       acima (ex.: acesso ao formulário completo de uma ação já coberta
+       por um atalho). */
+    .low-emphasis-link {
+      @apply inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600;
+    }
+
+    /* Painel de busca/filtros colapsável (listagens). Mesmo padrão de
+       disclosure acima, mas com o corpo em grid responsivo para os
+       campos de filtro. */
+    .mobile-filter-panel {
+      @apply card-pad mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3;
+    }
+
+    /* Lista responsiva: no mobile cada registro vira um cartão
+       empilhado (evita rolagem horizontal de tabela densa); a partir de
+       `sm:` a mesma informação aparece como tabela tradicional
+       (.table-wrap/.table-base, já existentes). As duas representações
+       ficam no mesmo template, uma delas oculta por `sm:hidden`/`hidden
+       sm:block` — decisão explícita: não há truque de CSS unificando os
+       dois porque uma tabela HTML de verdade continua sendo a forma
+       correta de apresentar os mesmos dados em telas largas. */
+    .mobile-list-card {
+      @apply card-pad flex items-center justify-between gap-3;
+    }
+    .mobile-list-card-main {
+      @apply min-w-0 flex-1;
+    }
+    .mobile-list-card-title {
+      @apply font-medium text-brand-charcoal truncate;
+    }
+    .mobile-list-card-meta {
+      @apply text-xs text-gray-500 mt-0.5 truncate;
+    }
+
+    /* Botão de acesso da equipe na navegação pública — precisa parecer
+       um botão de verdade (rodada mobile-first: antes era um link de
+       texto cinza quase invisível, menor prioridade visual que os CTAs
+       comerciais e colocado por último). Usa a paleta de marca
+       (dourado), mesma largura dos CTAs comerciais (mantém a posição
+       depois deles, sem competir em peso visual). */
+    .public-login-cta {
+      @apply btn bg-brand-gold text-brand-black hover:bg-brand-gold-dark hover:text-white w-full py-3 text-sm font-semibold;
     }
   }
 

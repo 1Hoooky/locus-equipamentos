@@ -45,7 +45,7 @@ operacionais reais do que um gráfico responderia aqui).
   {# Movimentações recentes #}
   <div class="card-pad">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="text-sm font-semibold text-brand-charcoal">Movimentações recentes</h2>
+      <h2 class="section-heading mb-0">Movimentações recentes</h2>
     </div>
     {% if recent_movements %}
     <ul class="space-y-2 text-sm">
@@ -65,7 +65,7 @@ operacionais reais do que um gráfico responderia aqui).
   {# Manutenções abertas #}
   <div class="card-pad">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="text-sm font-semibold text-brand-charcoal">Manutenções abertas</h2>
+      <h2 class="section-heading mb-0">Manutenções abertas</h2>
       {% if open_maintenances %}
       <a href="{% url 'maintenance:maintenance_list' %}?status=ABERTA" class="text-xs link">Ver todas</a>
       {% endif %}
@@ -88,7 +88,7 @@ operacionais reais do que um gráfico responderia aqui).
   {# Equipamentos que exigem atenção #}
   <div class="card-pad">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="text-sm font-semibold text-brand-charcoal">Exigem atenção</h2>
+      <h2 class="section-heading mb-0">Exigem atenção</h2>
     </div>
     {% if equipment_needing_attention %}
     <ul class="space-y-2 text-sm">

@@ -4,19 +4,40 @@
 {% block content %}
 <a href="{% url 'equipment:list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
 
+{% comment %}
+Rodada de UX/UI mobile-first (31/08/2026): a ficha vira "central
+operacional" — cabeçalho mostra só o que identifica e localiza o
+equipamento (patrimônio dominante, modelo secundário, status e local),
+sem competir em peso visual com dezenas de outros campos. Os demais
+dados (condição, serial, código legado, aquisição, observações) ficam
+num segundo bloco, "Informações essenciais", ainda visível sem
+clique extra, mas visualmente subordinado ao cabeçalho.
+{% endcomment %}
 <div class="mt-3 card-pad">
   <p class="page-subtitle">{{ equipment.category.name }} · {{ equipment.model.name }}</p>
-  <h1 class="page-title mb-4">{{ equipment.patrimonio }}</h1>
+  <div class="flex flex-wrap items-center justify-between gap-2 mt-0.5">
+    <h1 class="page-title">{{ equipment.patrimonio }}</h1>
+    {% if equipment.status == "DISPONIVEL" %}<span class="badge-success">{{ equipment.get_status_display }}</span>
+    {% elif equipment.status == "EM_OPERACAO" %}<span class="badge-info">{{ equipment.get_status_display }}</span>
+    {% elif equipment.status == "MANUTENCAO" %}<span class="badge-warning">{{ equipment.get_status_display }}</span>
+    {% else %}<span class="badge-neutral">{{ equipment.get_status_display }}</span>{% endif %}
+  </div>
+  <p class="text-sm text-gray-600 mt-2">
+    Local:
+    {% if equipment.current_location %}
+      <a href="{% url 'operations:location_detail' equipment.current_location.pk %}" class="link">{{ equipment.current_location }}</a>
+    {% else %}
+      não definido
+    {% endif %}
+    {% if equipment.current_client %}
+      · Cliente: <a href="{% url 'clients:detail' equipment.current_client.pk %}" class="link">{{ equipment.current_client.display_name }}</a>
+    {% endif %}
+  </p>
+</div>
 
-  <dl class="grid grid-cols-2 gap-y-3 text-sm">
-    <dt class="text-gray-500">Status</dt>
-    <dd>
-      {% if equipment.status == "DISPONIVEL" %}<span class="badge-success">{{ equipment.get_status_display }}</span>
-      {% elif equipment.status == "EM_OPERACAO" %}<span class="badge-info">{{ equipment.get_status_display }}</span>
-      {% elif equipment.status == "MANUTENCAO" %}<span class="badge-warning">{{ equipment.get_status_display }}</span>
-      {% else %}<span class="badge-neutral">{{ equipment.get_status_display }}</span>{% endif %}
-    </dd>
-
+<div class="mt-4 section-card">
+  <h2 class="section-heading">Informações essenciais</h2>
+  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-y-3 text-sm">
     <dt class="text-gray-500">Condição</dt>
     <dd>
       {% if equipment.condition == "BOM" %}<span class="badge-success">{{ equipment.get_condition_display }}</span>
@@ -29,24 +50,6 @@
 
     <dt class="text-gray-500">Código legado</dt>
     <dd>{{ equipment.legacy_code|default:"—" }}</dd>
-
-    <dt class="text-gray-500">Localização atual</dt>
-    <dd>
-      {% if equipment.current_location %}
-        <a href="{% url 'operations:location_detail' equipment.current_location.pk %}" class="link">{{ equipment.current_location }}</a>
-      {% else %}
-        Não definida
-      {% endif %}
-    </dd>
-
-    <dt class="text-gray-500">Cliente atual</dt>
-    <dd>
-      {% if equipment.current_client %}
-        <a href="{% url 'clients:detail' equipment.current_client.pk %}" class="link">{{ equipment.current_client.display_name }}</a>
-      {% else %}
-        —
-      {% endif %}
-    </dd>
 
     {# can_view_acquisition_value vem da view (CAN_VIEW_ACQUISITION_VALUE, apps/accounts/permissions.py) — não é só este "if" que protege o dado: para quem não tem a permissão, a própria consulta ao banco em EquipmentDetailView já não traz supplier/acquisition_date/acquisition_value (auditoria final da Fase 1, 25/08/2026). #}
     {% if can_view_acquisition_value %}
@@ -67,36 +70,40 @@
 </div>
 
 {% if user.is_operacional_ou_superior %}
-<div class="mt-4 card-pad">
+<div class="mt-4 section-card">
   {% comment %}
-    Dois grupos VISUAIS (auditoria de iconografia, 28/08/2026, decisão 7):
-    operacional x administrativo/sensível — mesma distinção que já existe
-    no código via is_administrativo_ou_superior/is_admin, só explicitada
-    na tela. Nenhuma ação foi escondida atrás de clique extra, dropdown
-    ou menu de três pontos — todas continuam visíveis ao mesmo tempo,
-    exatamente com as mesmas condições de permissão de antes.
+    Rodada de UX/UI mobile-first (31/08/2026): a antiga "pilha" de ações
+    de mesmo peso visual (painel de movimentação + 5 links soltos + bloco
+    administrativo) vira três camadas explícitas — nenhuma delas nova em
+    termos de regra/permissão, só de hierarquia visual:
+
+      1. AÇÃO PRIMÁRIA — Movimentar equipamento (sempre visível quando há
+         alguma movimentação disponível para o status atual).
+      2. AÇÃO SECUNDÁRIA — Serviços (Abrir manutenção / Registrar
+         higienização), visível quando pertinente.
+      3. AÇÃO AVANÇADA — Ajustes (status/condição, uso pontual) e
+         Administração (recolhível, só quem tem alguma ação admin).
+
+    Nenhuma condição de permissão mudou: cada link abaixo mantém
+    exatamente o mesmo href/ícone/condição `{% templatetag openblock %}
+    if{% templatetag closeblock %}` de antes desta reorganização.
   {% endcomment %}
-  <h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Ações operacionais</h2>
+  <h2 class="section-heading">Ações</h2>
 
   {% comment %}
-    Painel visual "Movimentar equipamento" (rodada de UX/UI seguinte à
-    listagem agrupada por modelo) — só os MovementTypes REALMENTE
-    disponíveis para o status atual deste equipamento aparecem como
-    card (calculado em `apps.equipment.movement_panel.
-    available_movement_actions`, que só LÊ as regras já existentes em
-    `apps.operations.services`/`apps.maintenance.services`, nunca uma
-    cópia). Nenhuma lógica de disponibilidade nova aqui no template —
-    só itera `movement_actions`, já pronto do backend.
-
-    Mobile (abaixo de `sm:`): grid de 2 colunas de cards grandes.
-    A partir de `sm:`: vira uma linha horizontal compacta — mesma
-    classe `.movement-action-card`, só o layout muda por variante
-    responsiva (ver templates/_design_tokens.html).
+    Painel visual "Movimentar equipamento" (preservado — só o wrapper ao
+    redor mudou) — só os MovementTypes REALMENTE disponíveis para o
+    status atual deste equipamento aparecem como card (calculado em
+    `apps.equipment.movement_panel.available_movement_actions`, que só
+    LÊ as regras já existentes em `apps.operations.services`/
+    `apps.maintenance.services`, nunca uma cópia). Nenhuma lógica de
+    disponibilidade nova aqui no template — só itera `movement_actions`,
+    já pronto do backend.
   {% endcomment %}
   {% if movement_actions %}
-  <div class="mb-4">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Movimentar equipamento</h3>
-    <div class="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:gap-2">
+  <div class="mb-3">
+    <h3 class="section-subheading">Movimentar equipamento</h3>
+    <div class="mobile-action-grid sm:flex sm:flex-wrap sm:gap-2">
       {% for action in movement_actions %}
       <a href="{% url 'operations:movement_create' equipment.patrimonio %}?movement_type={{ action.movement_type }}"
          class="movement-action-card movement-action-card--{{ action.variant }}">
@@ -105,45 +112,101 @@
       </a>
       {% endfor %}
     </div>
+    <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="low-emphasis-link mt-2">
+      ••• Outras movimentações
+    </a>
   </div>
   {% else %}
-  <p class="text-xs text-gray-500 mb-4">Nenhuma movimentação disponível para o status atual.</p>
+  <p class="text-xs text-gray-500 mb-3">Nenhuma movimentação disponível para o status atual.</p>
   {% endif %}
 
   {% comment %}
     Ações técnicas (Maintenance/Cleaning — eventos técnicos, NUNCA
-    Movement) e ações de status/condição continuam exatamente como
-    antes desta melhoria: mesmos links, mesmo texto, mesma condição de
-    exibição. "Ver formulário completo de movimentação" é o MESMO link
-    "Registrar movimentação" de sempre (mesma URL, sem `?movement_type=`
-    — mostra os 6 tipos sem filtro, como sempre mostrou), só reposicionado
-    e reescrito para deixar claro que os cards acima já cobrem o caminho
-    comum; continua existindo como via de acesso ao formulário completo.
+    Movement) — camada SECUNDÁRIA, visualmente mais discreta que o
+    painel de movimentação acima, mas ainda em grade de cards (não link
+    solto) para manter alvo de toque confortável. Mesmos hrefs/ícones/
+    condições de exibição de antes ("Abrir manutenção" some quando já
+    existe uma manutenção aberta — mesma checagem de sempre).
   {% endcomment %}
-  <div class="flex flex-wrap gap-3 text-sm">
-    <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="link text-xs">Ver formulário completo de movimentação</a>
-    <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="link">Alterar status</a>
-    <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="link">Alterar condição</a>
-    {% if not maintenance_summary.open_maintenance %}
-    <a href="{% url 'maintenance:maintenance_open' %}?equipment={{ equipment.pk }}" class="link icon-inline">{% icon "wrench" size="compact" %} Abrir manutenção</a>
-    {% endif %}
-    <a href="{% url 'maintenance:cleaning_create' %}?equipment={{ equipment.pk }}" class="link">Registrar higienização</a>
+  <div class="mb-3 pt-3 border-t border-gray-100">
+    <h3 class="section-subheading">Serviços</h3>
+    <div class="mobile-action-grid sm:flex sm:flex-wrap sm:gap-2">
+      {% if not maintenance_summary.open_maintenance %}
+      <a href="{% url 'maintenance:maintenance_open' %}?equipment={{ equipment.pk }}" class="service-action-card">
+        {% icon "wrench" size="compact" %} Abrir manutenção
+      </a>
+      {% endif %}
+      <a href="{% url 'maintenance:cleaning_create' %}?equipment={{ equipment.pk }}" class="service-action-card">
+        {% icon "sparkles" size="compact" %} Registrar higienização
+      </a>
+    </div>
+  </div>
+
+  {% comment %}
+    Ajustes — status/condição são ações pontuais (não fazem parte do
+    fluxo diário de movimentar/manter/higienizar), por isso ficam como
+    links discretos, numa camada avançada, sem grade/ícone grande.
+  {% endcomment %}
+  <div class="pt-3 border-t border-gray-100">
+    <h3 class="section-subheading">Ajustes</h3>
+    <div class="flex flex-wrap gap-4 text-sm">
+      <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="link">Alterar status</a>
+      <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="link">Alterar condição</a>
+    </div>
   </div>
 
   {% if user.is_administrativo_ou_superior or user.is_admin %}
-  <h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mt-4 mb-3 border-t border-gray-100 pt-4">Ações administrativas</h2>
-  <div class="flex flex-wrap gap-3 text-sm">
-    {% if user.is_administrativo_ou_superior %}
-    <a href="{% url 'equipment:update' equipment.patrimonio %}" class="link">Editar dados</a>
-    {% endif %}
-    {% if user.is_admin %}
-    <a href="{% url 'equipment:reclassify' equipment.patrimonio %}" class="link">Reclassificar modelo</a>
-    {# Ação sensível — decisão aprovada (auditoria 28/08/2026): permanece vermelha, com #}
-    {# texto explícito, sem ícone, só como link de navegação para sua própria tela de #}
-    {# confirmação, nunca botão destrutivo inline aqui. #}
-    <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="text-red-600 hover:underline font-medium">Reemitir patrimônio</a>
-    {% endif %}
+  {% comment %}
+    Administração — recolhível no mobile (disclosure semântico, aria-
+    expanded no botão, corpo escondido só por CSS lendo esse atributo,
+    mesmo padrão já usado em .model-group-toggle/.model-group-body). Só
+    renderiza quando o usuário tem PELO MENOS uma ação administrativa —
+    Administrativo vê "Editar dados" + QR/etiqueta; só Admin vê também
+    Reclassificar/Reemitir. Nenhuma condição de permissão nova.
+  {% endcomment %}
+  <div class="mt-3 pt-3 border-t border-gray-100">
+    <button type="button" class="disclosure-trigger" aria-expanded="false" aria-controls="ficha-admin-body">
+      <span>Administração</span>
+      {% icon "chevron-down" size="compact" extra_class="disclosure-chevron" %}
+    </button>
+    <div id="ficha-admin-body" class="disclosure-body pt-3">
+      <div class="flex flex-wrap gap-4 text-sm">
+        {% if user.is_administrativo_ou_superior %}
+        <a href="{% url 'equipment:update' equipment.patrimonio %}" class="link">Editar dados</a>
+        {% endif %}
+        {% if user.is_admin %}
+        <a href="{% url 'equipment:reclassify' equipment.patrimonio %}" class="link">Reclassificar modelo</a>
+        {# Ação sensível — decisão aprovada (auditoria 28/08/2026): permanece vermelha, com #}
+        {# texto explícito, sem ícone, só como link de navegação para sua própria tela de #}
+        {# confirmação, nunca botão destrutivo inline aqui. #}
+        <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="text-red-600 hover:underline font-medium">Reemitir patrimônio</a>
+        {% endif %}
+      </div>
+      {% if user.is_administrativo_ou_superior %}
+      <div class="flex flex-wrap gap-4 text-sm mt-3">
+        <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="link icon-inline">{% icon "qr-code" size="compact" %} Ver QR Code</a>
+        <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" download="{{ equipment.patrimonio }}-qr.png" class="link icon-inline">{% icon "arrow-down-tray" size="compact" %} Baixar QR Code (PNG)</a>
+        <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="link icon-inline">{% icon "arrow-down-tray" size="compact" %} Baixar etiqueta (PDF)</a>
+      </div>
+      {% endif %}
+    </div>
   </div>
+  <script>
+    // Disclosure do bloco administrativo da ficha — mesma disciplina de
+    // front-end dos outros toggles do projeto (vanilla JS, não decide
+    // permissão: o corpo já vem renderizado no HTML, isto só alterna a
+    // exibição). Só entra na página quando o bloco acima existe (mesma
+    // condição de permissão do disclosure), então nunca procura um
+    // elemento inexistente para os demais perfis.
+    (function () {
+      var trigger = document.querySelector("[aria-controls='ficha-admin-body']");
+      if (!trigger) return;
+      trigger.addEventListener("click", function () {
+        var expanded = trigger.getAttribute("aria-expanded") === "true";
+        trigger.setAttribute("aria-expanded", expanded ? "false" : "true");
+      });
+    })();
+  </script>
   {% endif %}
 </div>
 {% endif %}
@@ -159,7 +222,7 @@
 {% endcomment %}
 {% if maintenance_summary %}
 <div class="mt-4 card-pad">
-  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Manutenção e higienização</h2>
+  <h2 class="section-heading">Manutenção e higienização</h2>
 
   {% if maintenance_summary.open_maintenance %}
   <div class="alert-warning">
@@ -206,13 +269,14 @@
 </div>
 {% endif %}
 
-{% if user.is_administrativo_ou_superior %}
-<div class="mt-4 card-pad flex flex-wrap gap-3 text-sm">
-  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="link icon-inline">{% icon "qr-code" size="compact" %} Ver QR Code</a>
-  <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" download="{{ equipment.patrimonio }}-qr.png" class="link icon-inline">{% icon "arrow-down-tray" size="compact" %} Baixar QR Code (PNG)</a>
-  <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="link icon-inline">{% icon "arrow-down-tray" size="compact" %} Baixar etiqueta (PDF)</a>
-</div>
-{% endif %}
+{% comment %}
+  Rodada de UX/UI mobile-first (31/08/2026): os links de QR/etiqueta que
+  ficavam soltos aqui (mesma condição `is_administrativo_ou_superior`)
+  agora vivem dentro do disclosure "Administração" acima — eram ações
+  administrativas de baixa frequência, mesma categoria de "Editar
+  dados"/"Reclassificar modelo". Nenhuma condição de permissão mudou,
+  só o agrupamento visual (evita mais um bloco solto na tela).
+{% endcomment %}
 
 {% comment %}
   Histórico do equipamento: linha do tempo somente leitura, fundindo
@@ -230,7 +294,7 @@
   seção não precisa ser reconstruída.
 {% endcomment %}
 <div class="mt-4 card-pad">
-  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Histórico do equipamento</h2>
+  <h2 class="section-heading">Histórico do equipamento</h2>
   {% if history_events %}
   <ul class="space-y-4">
     {% for event in history_events %}

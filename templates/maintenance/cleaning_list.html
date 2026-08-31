@@ -24,7 +24,12 @@
   {% endif %}
 </form>
 
-<div class="table-wrap">
+{% comment %}
+Rodada de UX/UI mobile-first (31/08/2026): mesmo padrão de
+maintenance_list.html — tabela completa a partir de `sm:`, cartões
+empilhados abaixo disso (sem rolagem horizontal).
+{% endcomment %}
+<div class="hidden sm:block table-wrap">
   <table class="table-base">
     <thead>
       <tr>
@@ -61,6 +66,31 @@
       {% endfor %}
     </tbody>
   </table>
+</div>
+
+<div class="sm:hidden flex flex-col gap-2">
+  {% for cleaning in cleanings %}
+  <div class="mobile-list-card items-start">
+    <div class="mobile-list-card-main">
+      <p class="mobile-list-card-title">{{ cleaning.equipment.patrimonio }}</p>
+      <p class="mobile-list-card-meta">{{ cleaning.equipment.model.name }}</p>
+      <p class="mobile-list-card-meta mt-1 flex flex-wrap items-center gap-1.5">
+        {% if cleaning.is_active %}
+          <span class="badge-success">Ativa</span>
+        {% else %}
+          <span class="badge-neutral">Cancelada</span>
+        {% endif %}
+        <span>{{ cleaning.performed_at|date:"d/m/Y" }}</span>
+      </p>
+    </div>
+    <a href="{% url 'maintenance:cleaning_detail' cleaning.pk %}" class="icon-btn-neutral shrink-0"
+       aria-label="Ver higienização de {{ cleaning.equipment.patrimonio }}" title="Ver higienização de {{ cleaning.equipment.patrimonio }}">
+      {% icon "eye" size="compact" %}
+    </a>
+  </div>
+  {% empty %}
+  <p class="empty-state">Nenhuma higienização encontrada.</p>
+  {% endfor %}
 </div>
 
 {% if is_paginated %}
