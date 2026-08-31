@@ -29,7 +29,7 @@ não é só uma questão deste template "não usar" esses campos.
 {% block title %}{{ equipment.model.name }} — Locus Equipamentos{% endblock %}
 {% block meta_description %}{{ equipment.model.name }} — equipamento Locus. Conheça e faça seu orçamento.{% endblock %}
 {% block og_title %}{{ equipment.model.name }} — Locus Equipamentos{% endblock %}
-{% block og_description %}Conforto onde você precisa. Locus Locações para climatização e aquecimento.{% endblock %}
+{% block og_description %}Conforto onde você precisa. Soluções Locus para climatização e aquecimento.{% endblock %}
 {% comment %}
   Django template não executa tags fora de {% block %} num filho que usa
   {% extends %} (só os próprios blocks são extraídos e renderizados) — por
@@ -73,7 +73,7 @@ não é só uma questão deste template "não usar" esses campos.
   {# 7. Mensagem comercial fixa (texto aprovado — não reescrever o sentido). #}
   <p class="text-base text-brand-charcoal mt-5 leading-relaxed">
     Conforto onde você precisa.<br>
-    Locus Locações para climatização e aquecimento.
+    Soluções Locus para climatização e aquecimento.
   </p>
 
   {# 8/9. CTA principal + CTAs secundários (link-page comercial). Cada #}
@@ -84,18 +84,6 @@ não é só uma questão deste template "não usar" esses campos.
     {% if commercial_links.orcamento %}
     <a href="{{ commercial_links.orcamento }}" class="btn-cta-primary icon-inline justify-center">
       {% icon "document-text" size="normal" %} Faça seu orçamento
-    </a>
-    {% endif %}
-
-    {% if commercial_links.whatsapp %}
-    <a href="{{ commercial_links.whatsapp }}" class="btn-cta-secondary icon-inline justify-center">
-      {% icon "chat-bubble-left-right" size="normal" %} Fale com a Locus
-    </a>
-    {% endif %}
-
-    {% if commercial_links.instagram %}
-    <a href="{{ commercial_links.instagram }}" class="btn-cta-secondary icon-inline justify-center">
-      {% brand_icon "instagram" size="normal" %} Conheça nosso Instagram
     </a>
     {% endif %}
 
@@ -111,5 +99,36 @@ não é só uma questão deste template "não usar" esses campos.
     </a>
     {% endif %}
   </div>
+
+  {% comment %}
+  Pequena área comercial — WhatsApp/Instagram (alteração cirúrgica,
+  31/08/2026). Separada do stack de CTAs acima de propósito: são canais
+  de contato/relacionamento, não a ação de conversão principal
+  ("Faça seu orçamento" continua sendo o CTA de maior destaque da
+  página). URLs vêm de `commercial_links` (mesmo context processor de
+  sempre, apps.core.context_processors.commercial_links, lendo
+  settings.LOCUS_WHATSAPP_URL/LOCUS_INSTAGRAM_URL) — nenhuma
+  configuração nova, nenhum telefone/usuário hardcoded aqui. O bloco
+  inteiro (título incluso) só existe no HTML quando pelo menos um dos
+  dois estiver configurado — nunca um título sem nenhum CTA embaixo.
+  {% endcomment %}
+  {% if commercial_links.whatsapp or commercial_links.instagram %}
+  <div class="w-full mt-6 pt-5 border-t border-gray-100">
+    <p class="text-sm font-medium text-brand-charcoal mb-3">Precisa de climatização para seu espaço?</p>
+    <div class="flex flex-col gap-2.5">
+      {% if commercial_links.whatsapp %}
+      <a href="{{ commercial_links.whatsapp }}" target="_blank" rel="noopener noreferrer" class="btn-cta-whatsapp icon-inline justify-center">
+        {% icon "chat-bubble-left-right" size="normal" %} Falar com a Locus
+      </a>
+      {% endif %}
+
+      {% if commercial_links.instagram %}
+      <a href="{{ commercial_links.instagram }}" target="_blank" rel="noopener noreferrer" class="btn-cta-secondary icon-inline justify-center">
+        {% brand_icon "instagram" size="normal" %} Conheça nosso Instagram
+      </a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

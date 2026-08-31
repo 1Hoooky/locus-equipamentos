@@ -237,6 +237,18 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
       @apply btn border border-gray-300 bg-white text-brand-charcoal hover:border-brand-gold hover:text-brand-gold-dark w-full py-3 text-sm font-medium;
     }
 
+    /* CTA de contato direto (WhatsApp) da pequena área comercial da
+       landing pública (rodada cirúrgica, 31/08/2026) — precisa ser o
+       item de maior destaque DESSA área (por isso a mesma base visual
+       de .btn-cta-primary: fundo dourado, texto preto), mas sem virar a
+       página inteira verde. O único traço que remete ao WhatsApp é a
+       barra fina na base do botão, na cor de marca do WhatsApp — um
+       detalhe, não uma repintura; identidade Locus (preto/dourado)
+       continua predominante. */
+    .btn-cta-whatsapp {
+      @apply btn bg-brand-gold text-brand-black hover:bg-brand-gold-dark hover:text-white w-full py-3.5 text-base font-semibold shadow-sm border-b-[3px] border-b-[#25D366];
+    }
+
     /* -----------------------------------------------------------------
      * Menu mobile interno em drawer (base.html) — etapa de UX/UI de
      * 28/08/2026 (auditoria, item [24]: menu mobile estruturalmente
