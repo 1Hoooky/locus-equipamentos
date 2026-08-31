@@ -21,7 +21,7 @@ from apps.core.forms import AddressForm
 from apps.core.services import AddressData
 from apps.core.submission import SubmissionGuard
 from apps.equipment.models import Equipment
-from apps.operations.forms import LocationForm, LocationUpdateForm, MovementForm
+from apps.operations.forms import MOVEMENT_TYPE_CHOICES, LocationForm, LocationUpdateForm, MovementForm
 from apps.operations.models import Location, LocationType
 from apps.operations.services import (
     LocationUpdateData,
@@ -226,13 +226,30 @@ class MovementCreateView(RoleRequiredMixin, View):
     estoque/envio-retorno de manutenção) para um equipamento específico —
     acessada a partir da ficha autenticada do equipamento
     (`equipment:detail`). Sempre via `create_movement()`.
+
+    `?movement_type=<TIPO>` pré-seleciona o tipo no formulário — usado
+    pelos cards do painel "Movimentar equipamento" da ficha (rodada de
+    UX/UI seguinte à listagem agrupada). Mesmo padrão já usado por
+    `apps.maintenance.views.MaintenanceOpenView`/`CleaningCreateView`
+    com `?equipment=<pk>`: só preenche `initial`, nunca trava o campo —
+    o valor é validado contra as choices reais antes de virar `initial`
+    (nunca repassado cru), e o POST continua validando tudo de novo via
+    `MovementForm`/`create_movement()`, exatamente como antes desta
+    melhoria.
     """
 
     allowed_roles = CAN_REGISTER_OPERATIONS
 
+    def _initial_movement_type(self, request):
+        requested = request.GET.get("movement_type")
+        valid_types = {value for value, _label in MOVEMENT_TYPE_CHOICES}
+        return requested if requested in valid_types else None
+
     def get(self, request, patrimonio):
         equipment = get_object_or_404(Equipment, patrimonio=patrimonio)
-        form = MovementForm(current_location=equipment.current_location)
+        initial_movement_type = self._initial_movement_type(request)
+        initial = {"movement_type": initial_movement_type} if initial_movement_type else {}
+        form = MovementForm(initial=initial, current_location=equipment.current_location)
         token = _movement_guard(patrimonio).issue(request)
         return render(
             request,

@@ -300,6 +300,44 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     }
 
     /* -----------------------------------------------------------------
+     * Painel de movimentação da ficha privada do equipamento (rodada de
+     * UX/UI seguinte à listagem agrupada). Card inteiro
+     * clicável (`<a>`, nunca div), texto sempre visível junto do ícone.
+     * Mobile (abaixo de `sm:`): card grande, empilhado (ícone em cima,
+     * texto embaixo), grid de 2 colunas no template. A partir de `sm:`:
+     * vira linha horizontal compacta (ícone + texto lado a lado) — a
+     * MESMA classe muda de layout via variantes responsivas, sem
+     * duplicar markup entre mobile/desktop.
+     *
+     * Três variantes de cor, deliberadamente poucas (identidade Locus —
+     * nunca uma tela cheia de botões coloridos): primary (dourado,
+     * reservado à ação de maior destaque, a única instalação/saída para
+     * operação), warning (âmbar discreto, só para o envio à manutenção
+     * — mesmos tons de .badge-warning/.alert-warning, nunca um tom
+     * novo) e neutral (as demais). Vermelho NUNCA usado aqui —
+     * reservado para ação destrutiva/erro real, nunca para uma
+     * movimentação física comum de retorno/retirada.
+     * --------------------------------------------------------------- */
+    .movement-action-card {
+      @apply flex flex-col sm:flex-row items-center justify-center gap-1.5 sm:gap-2 rounded-lg border px-3 py-3 sm:px-3 sm:py-2 min-h-[84px] sm:min-h-[44px] text-center sm:text-left transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1;
+    }
+    .movement-action-card-icon {
+      @apply w-7 h-7 sm:w-5 sm:h-5 shrink-0;
+    }
+    .movement-action-card-label {
+      @apply text-sm font-medium leading-tight;
+    }
+    .movement-action-card--primary {
+      @apply border-brand-gold bg-brand-gold-light text-brand-gold-dark hover:bg-brand-gold hover:text-brand-black;
+    }
+    .movement-action-card--warning {
+      @apply border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100;
+    }
+    .movement-action-card--neutral {
+      @apply border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300;
+    }
+
+    /* -----------------------------------------------------------------
      * Sidebar administrativa DESKTOP (base.html, >= 640px) — rodada
      * CORRETIVA de UX/UI (homologação no Render): substitui a barra
      * horizontal + dropdowns acima (que permanecem no CSS só por

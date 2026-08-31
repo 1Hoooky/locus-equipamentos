@@ -225,6 +225,43 @@ _ICONS = {
         '18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 '
         '1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />'
     ),
+    # ---------------------------------------------------------------------
+    # Adicionados nesta rodada — painel visual "Movimentar equipamento" da
+    # ficha privada do equipamento (mobile-first). Mesma origem/licença dos
+    # ícones acima (Heroicons "outline" 24x24, MIT License) — path `d`
+    # copiado tal como está do repositório oficial
+    # (tailwindlabs/heroicons, optimized/24/outline), nenhum ajuste manual.
+    # ---------------------------------------------------------------------
+    "arrow-right-circle": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="m12.75 15 3-3m0 0-3-3m3 3h-7.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />'
+    ),
+    "arrow-left-circle": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="m11.25 9-3 3m0 0 3 3m-3-3h7.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />'
+    ),
+    "arrows-right-left": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />'
+    ),
+    "wrench-screwdriver": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 '
+        '1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 '
+        '1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 '
+        '4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 '
+        '3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 '
+        '19.125h.008v.008h-.008v-.008Z" />'
+    ),
+    "arrow-uturn-left": (
+        '<path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />'
+    ),
+    "archive-box-arrow-down": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 '
+        '3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125'
+        'H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />'
+    ),
 }
 
 # Vendorizado à parte de `_ICONS`: NÃO é um ícone Heroicons (stroke,

@@ -77,8 +77,51 @@
     exatamente com as mesmas condições de permissão de antes.
   {% endcomment %}
   <h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Ações operacionais</h2>
+
+  {% comment %}
+    Painel visual "Movimentar equipamento" (rodada de UX/UI seguinte à
+    listagem agrupada por modelo) — só os MovementTypes REALMENTE
+    disponíveis para o status atual deste equipamento aparecem como
+    card (calculado em `apps.equipment.movement_panel.
+    available_movement_actions`, que só LÊ as regras já existentes em
+    `apps.operations.services`/`apps.maintenance.services`, nunca uma
+    cópia). Nenhuma lógica de disponibilidade nova aqui no template —
+    só itera `movement_actions`, já pronto do backend.
+
+    Mobile (abaixo de `sm:`): grid de 2 colunas de cards grandes.
+    A partir de `sm:`: vira uma linha horizontal compacta — mesma
+    classe `.movement-action-card`, só o layout muda por variante
+    responsiva (ver templates/_design_tokens.html).
+  {% endcomment %}
+  {% if movement_actions %}
+  <div class="mb-4">
+    <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Movimentar equipamento</h3>
+    <div class="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:gap-2">
+      {% for action in movement_actions %}
+      <a href="{% url 'operations:movement_create' equipment.patrimonio %}?movement_type={{ action.movement_type }}"
+         class="movement-action-card movement-action-card--{{ action.variant }}">
+        {% icon action.icon extra_class="movement-action-card-icon" %}
+        <span class="movement-action-card-label">{{ action.label }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <p class="text-xs text-gray-500 mb-4">Nenhuma movimentação disponível para o status atual.</p>
+  {% endif %}
+
+  {% comment %}
+    Ações técnicas (Maintenance/Cleaning — eventos técnicos, NUNCA
+    Movement) e ações de status/condição continuam exatamente como
+    antes desta melhoria: mesmos links, mesmo texto, mesma condição de
+    exibição. "Ver formulário completo de movimentação" é o MESMO link
+    "Registrar movimentação" de sempre (mesma URL, sem `?movement_type=`
+    — mostra os 6 tipos sem filtro, como sempre mostrou), só reposicionado
+    e reescrito para deixar claro que os cards acima já cobrem o caminho
+    comum; continua existindo como via de acesso ao formulário completo.
+  {% endcomment %}
   <div class="flex flex-wrap gap-3 text-sm">
-    <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="link">Registrar movimentação</a>
+    <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="link text-xs">Ver formulário completo de movimentação</a>
     <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="link">Alterar status</a>
     <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="link">Alterar condição</a>
     {% if not maintenance_summary.open_maintenance %}

@@ -28,6 +28,7 @@ from apps.accounts.permissions import (
 from apps.catalog.models import Category, EquipmentModel
 from apps.equipment.filters import filter_equipment_queryset
 from apps.equipment.grouping import build_model_groups
+from apps.equipment.movement_panel import available_movement_actions
 from apps.equipment.forms import (
     ChangeConditionForm,
     ChangeStatusForm,
@@ -599,6 +600,16 @@ class EquipmentDetailView(View):
         can_view_maintenance = request.user.is_superuser or request.user.role in CAN_VIEW_MAINTENANCE
         maintenance_summary = get_equipment_maintenance_summary(equipment) if can_view_maintenance else None
 
+        # Painel "Movimentar equipamento" (melhoria de UX/UI, rodada
+        # seguinte à listagem agrupada): só computado para quem já vê o
+        # bloco "Ações operacionais" no template
+        # (`user.is_operacional_ou_superior`, mesma condição de sempre) —
+        # evita a query extra de `has_open_maintenance()` (dentro de
+        # `available_movement_actions`) para quem nunca veria o painel.
+        movement_actions = (
+            available_movement_actions(equipment) if request.user.is_operacional_ou_superior else []
+        )
+
         return render(
             request,
             "equipment/detail_private.html",
@@ -612,5 +623,6 @@ class EquipmentDetailView(View):
                 "can_view_acquisition_value": can_view_acquisition_value,
                 "can_view_maintenance": can_view_maintenance,
                 "maintenance_summary": maintenance_summary,
+                "movement_actions": movement_actions,
             },
         )
