@@ -269,6 +269,37 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     }
 
     /* -----------------------------------------------------------------
+     * Listagem de Equipamentos agrupada por modelo — melhoria de UX da
+     * listagem (rodada pós-homologação). Grupo recolhível: elemento
+     * button semântico com `aria-expanded`, nunca uma div clicável. O
+     * corpo do grupo (itens carregados via HTMX) fica escondido/visível
+     * só por CSS, lendo o `aria-expanded` do botão irmão — um único
+     * lugar decide o estado (o atributo), nada duplicado numa classe à
+     * parte.
+     * --------------------------------------------------------------- */
+    .model-group-card {
+      @apply card overflow-hidden mb-3;
+    }
+    .model-group-toggle {
+      @apply w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3 text-left hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-inset;
+    }
+    .model-group-chevron {
+      @apply inline-flex shrink-0 text-gray-400 transition-transform duration-150 -rotate-90;
+    }
+    .model-group-toggle[aria-expanded="true"] .model-group-chevron {
+      transform: rotate(0deg);
+    }
+    .model-group-counts {
+      @apply flex flex-wrap items-center gap-1.5;
+    }
+    .model-group-body {
+      @apply border-t border-gray-100 px-3 sm:px-4 py-3;
+    }
+    .model-group-item-card {
+      @apply card-pad flex items-center justify-between gap-3;
+    }
+
+    /* -----------------------------------------------------------------
      * Sidebar administrativa DESKTOP (base.html, >= 640px) — rodada
      * CORRETIVA de UX/UI (homologação no Render): substitui a barra
      * horizontal + dropdowns acima (que permanecem no CSS só por
@@ -312,5 +343,14 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
+  }
+
+  /* Corpo do grupo (listagem de Equipamentos agrupada por modelo)
+     escondido quando o botão-irmão está recolhido — mesmo raciocínio das
+     regras de estado acima: fora do @layer components porque é
+     comportamento de UM par de elementos lendo `aria-expanded`, não um
+     componente reutilizável independente. */
+  .model-group-toggle[aria-expanded="false"] + .model-group-body {
+    display: none;
   }
 </style>

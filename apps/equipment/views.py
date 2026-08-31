@@ -11,6 +11,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 from django.views.generic import ListView
@@ -26,6 +27,7 @@ from apps.accounts.permissions import (
 )
 from apps.catalog.models import Category, EquipmentModel
 from apps.equipment.filters import filter_equipment_queryset
+from apps.equipment.grouping import build_model_groups
 from apps.equipment.forms import (
     ChangeConditionForm,
     ChangeStatusForm,
@@ -50,7 +52,28 @@ from apps.equipment.services import (
 
 
 class EquipmentListView(LoginRequiredMixin, ListView):
-    """Todos os 4 perfis podem consultar (matriz da seção 11)."""
+    """
+    Todos os 4 perfis podem consultar (matriz da seção 11).
+
+    Melhoria de UX/consulta (rodada corretiva pós-homologação): a área
+    principal da tela passou a exibir os equipamentos AGRUPADOS POR
+    MODELO (`context["model_groups"]`, via `apps.equipment.grouping`) em
+    vez de uma tabela única — com a frota crescendo, uma tabela plana de
+    centenas/milhares de patrimônios deixou de ser utilizável. Os
+    equipamentos individuais de cada grupo são carregados sob demanda,
+    via HTMX, por `EquipmentModelItemsView` abaixo — nunca todos de uma
+    vez no HTML desta página.
+
+    `get_queryset`/`context_object_name`/`paginate_by` (a listagem PLANA,
+    paginada, de `Equipment`) foram deliberadamente MANTIDOS intactos:
+    nenhum código novo depende mais deles para renderizar a tela, mas
+    `response.context["equipment_list"]` continua correto e disponível —
+    é o que `EquipmentExportView` já usa via `filter_equipment_queryset`
+    (lógica compartilhada, não duplicada aqui) e o que os testes de
+    filtro pré-existentes (`test_equipment_crud_views.py`,
+    `test_batch_views.py`) verificam. Manter esse contrato evita quebrar
+    silenciosamente uma garantia que já existia.
+    """
 
     model = Equipment
     template_name = "equipment/list.html"
@@ -78,7 +101,73 @@ class EquipmentListView(LoginRequiredMixin, ListView):
         context["selected_condition"] = self.request.GET.get("condition", "")
         context["selected_category"] = self.request.GET.get("category", "")
         context["selected_model"] = self.request.GET.get("model", "")
+
+        # Grupos por modelo — mesma queryset filtrada (`self.get_queryset()`
+        # reconstrói a expressão, não reexecuta a página inteira; a
+        # agregação em si é 1 única query, ver apps/equipment/grouping.py).
+        # Não usa `context["equipment_list"]` (que já veio FATIADA pela
+        # paginação do ListView) porque os contadores precisam refletir o
+        # resultado FILTRADO inteiro, não só os 50 primeiros registros.
+        context["model_groups"] = build_model_groups(self.get_queryset())
+
+        # Busca textual (seção 6 do pedido de correção): "facilitar chegar
+        # diretamente ao equipamento" sem obrigar a pessoa a descobrir em
+        # qual grupo ele está. Quando há busca ativa, os grupos com
+        # resultado se auto-expandem no carregamento da página (JS no fim
+        # de list.html simula um clique) — cada auto-expansão dispara UMA
+        # requisição HTMX própria para `EquipmentModelItemsView` (mesmo
+        # endpoint de um clique manual), então isto NÃO reintroduz N+1 na
+        # resposta desta página: o número de queries AQUI continua fixo,
+        # independente de quantos grupos tiverem resultado.
+        context["auto_expand_groups"] = bool(self.request.GET.get("q", "").strip())
         return context
+
+
+class EquipmentModelItemsView(LoginRequiredMixin, View):
+    """
+    Fragmento HTMX com os equipamentos de UM `EquipmentModel` — carregado
+    sob demanda ao expandir um grupo na listagem agrupada
+    (`EquipmentListView`/`templates/equipment/list.html`).
+
+    Mesma visibilidade de `EquipmentListView` (`LoginRequiredMixin`, os 4
+    perfis) — este endpoint não expõe nenhum dado que a listagem completa
+    já não mostrasse ao mesmo usuário; a única diferença é carregar sob
+    demanda em vez de tudo de uma vez. As ações de QR/etiqueta dentro do
+    fragmento continuam checando `user.is_administrativo_ou_superior` no
+    TEMPLATE (mesma condição já usada em list.html) — a proteção de
+    verdade dessas rotas já é feita nas próprias views de QR/etiqueta
+    (`apps.qrcodes`), este template não concede nem retira permissão
+    nenhuma, só decide o que desenhar.
+
+    Reaproveita `filter_equipment_queryset` (mesma função da listagem e da
+    exportação) para que os filtros ativos (status/condição/busca/etc.)
+    continuem valendo também dentro do grupo expandido — sem isso, expandir
+    um grupo com o filtro "Status = Manutenção" ativo mostraria TODOS os
+    equipamentos daquele modelo, não só os em manutenção.
+    """
+
+    GROUP_PAGE_SIZE = 20
+
+    def get(self, request, model_id):
+        model = get_object_or_404(EquipmentModel, pk=model_id)
+
+        qs = Equipment.objects.select_related("model", "category").filter(is_active=True, model_id=model_id)
+        qs = filter_equipment_queryset(qs, request.GET)
+        qs = qs.order_by("-created_at")
+
+        paginator = Paginator(qs, self.GROUP_PAGE_SIZE)
+        page_obj = paginator.get_page(request.GET.get("page") or 1)
+
+        return render(
+            request,
+            "equipment/_model_group_items.html",
+            {
+                "model": model,
+                "page_obj": page_obj,
+                "paginator": paginator,
+                "is_paginated": paginator.num_pages > 1,
+            },
+        )
 
 
 class EquipmentCreateView(RoleRequiredMixin, View):

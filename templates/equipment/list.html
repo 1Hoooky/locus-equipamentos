@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% load pagination_tags %}
 {% load icons %}
 {% block title %}Equipamentos — Locus{% endblock %}
 {% block content %}
@@ -80,70 +79,87 @@
   {% endif %}
 </form>
 
-<div class="table-wrap">
-  <table class="table-base">
-    <thead>
-      <tr>
-        <th>Patrimônio</th>
-        <th>Modelo</th>
-        <th>Categoria</th>
-        <th>Status</th>
-        <th>Condição</th>
-        {% if user.is_administrativo_ou_superior %}<th>QR</th>{% endif %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for equipment in equipment_list %}
-      <tr>
-        <td>
-          <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="link">
-            {{ equipment.patrimonio }}
-          </a>
-        </td>
-        <td>{{ equipment.model.name }}</td>
-        <td>{{ equipment.category.name }}</td>
-        <td>
-          {% if equipment.status == "DISPONIVEL" %}<span class="badge-success">{{ equipment.get_status_display }}</span>
-          {% elif equipment.status == "EM_OPERACAO" %}<span class="badge-info">{{ equipment.get_status_display }}</span>
-          {% elif equipment.status == "MANUTENCAO" %}<span class="badge-warning">{{ equipment.get_status_display }}</span>
-          {% else %}<span class="badge-neutral">{{ equipment.get_status_display }}</span>{% endif %}
-        </td>
-        <td>
-          {% if equipment.condition == "BOM" %}<span class="badge-success">{{ equipment.get_condition_display }}</span>
-          {% elif equipment.condition == "MEDIO" %}<span class="badge-warning">{{ equipment.get_condition_display }}</span>
-          {% else %}<span class="badge-danger">{{ equipment.get_condition_display }}</span>{% endif %}
-        </td>
-        {% if user.is_administrativo_ou_superior %}
-        <td class="whitespace-nowrap">
-          <div class="action-group">
-            <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="icon-btn-neutral"
-               aria-label="Ver QR Code de {{ equipment.patrimonio }}" title="Ver QR Code de {{ equipment.patrimonio }}">
-              {% icon "qr-code" size="compact" %}
-            </a>
-            <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" target="_blank" class="icon-btn-neutral"
-               aria-label="Baixar etiqueta de {{ equipment.patrimonio }}" title="Baixar etiqueta de {{ equipment.patrimonio }}">
-              {% icon "tag" size="compact" %}
-            </a>
-          </div>
-        </td>
-        {% endif %}
-      </tr>
-      {% empty %}
-      <tr><td class="empty-state" colspan="6">Nenhum equipamento cadastrado ainda.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+{% comment %}
+Listagem agrupada por modelo (melhoria de UX/consulta — rodada
+pós-homologação): com a frota crescendo, uma tabela única de centenas de
+patrimônios deixou de ser utilizável. Cada EquipmentModel com resultado
+no filtro atual vira um grupo recolhível (`context["model_groups"]`, via
+apps.equipment.grouping — 1 única query de agregação, sem N+1). Os
+equipamentos de um grupo só são carregados quando ele é expandido — via
+HTMX, em `EquipmentModelItemsView` — nunca todos de uma vez no HTML desta
+página. Cada grupo pagina internamente (20 por página), independente dos
+demais.
+{% endcomment %}
+{% if model_groups %}
+<div>
+  {% for group in model_groups %}
+  <div class="model-group-card">
+    <button type="button"
+            id="model-group-toggle-{{ group.model_id }}"
+            class="model-group-toggle"
+            aria-expanded="false"
+            aria-controls="model-group-items-{{ group.model_id }}"
+            data-model-group-toggle
+            {% if auto_expand_groups %}data-model-group-auto-expand="true"{% endif %}
+            hx-get="{% url 'equipment:model_items' group.model_id %}?{{ request.GET.urlencode }}"
+            hx-target="#model-group-items-{{ group.model_id }}"
+            hx-swap="innerHTML"
+            hx-trigger="click once">
+      <span class="flex items-center gap-3 min-w-0">
+        <span class="model-group-chevron">{% icon "chevron-down" size="compact" %}</span>
+        <span class="min-w-0 text-left">
+          <span class="block font-semibold text-brand-charcoal truncate">{{ group.model_name }}</span>
+          <span class="block text-xs text-gray-400">{{ group.category_name }}</span>
+        </span>
+      </span>
+      <span class="model-group-counts">
+        <span class="badge-neutral">{{ group.total }} equipamento{{ group.total|pluralize }}</span>
+        {% for label, count, css_class in group.status_badges %}
+        <span class="{{ css_class }}">{{ count }} {{ label }}</span>
+        {% endfor %}
+      </span>
+    </button>
+    <div id="model-group-items-{{ group.model_id }}" class="model-group-body">
+      <p class="empty-state text-xs">Carregando…</p>
+    </div>
+  </div>
+  {% endfor %}
 </div>
-
-{% if is_paginated %}
-<div class="flex gap-2 mt-4 text-sm">
-  {% if page_obj.has_previous %}
-    <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link icon-inline">{% icon "arrow-left" size="compact" %} Anterior</a>
-  {% endif %}
-  <span class="text-gray-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
-  {% if page_obj.has_next %}
-    <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link icon-inline">Próxima {% icon "arrow-right" size="compact" %}</a>
-  {% endif %}
+{% else %}
+<div class="table-wrap">
+  <p class="empty-state">Nenhum equipamento corresponde ao filtro atual.</p>
 </div>
 {% endif %}
+
+<script>
+  // Grupos recolhíveis da listagem de Equipamentos — vanilla JS, sem
+  // framework/dependência nova (mesma disciplina dos outros controladores
+  // do projeto: drawer mobile, sidebar, dropdowns). O único estado é o
+  // atributo `aria-expanded` do botão; o CSS (_design_tokens.html) decide
+  // sozinho, a partir dele, se o corpo do grupo aparece ou não — este
+  // script nunca alterna uma classe "hidden" à parte, então não existe
+  // como o atributo e a aparência visual ficarem dessincronizados.
+  //
+  // O carregamento dos equipamentos em si é feito pelo HTMX
+  // (`hx-get`/`hx-trigger="click once"` no próprio botão, declarado no
+  // HTML acima) — este script só cuida de abrir/fechar visualmente.
+  (function () {
+    var toggles = document.querySelectorAll("[data-model-group-toggle]");
+    toggles.forEach(function (button) {
+      button.addEventListener("click", function () {
+        var expanded = button.getAttribute("aria-expanded") === "true";
+        button.setAttribute("aria-expanded", expanded ? "false" : "true");
+      });
+    });
+
+    // Busca textual ativa (`?q=...`): os grupos com resultado já chegam
+    // marcados com `data-model-group-auto-expand="true"` — simula um
+    // clique em cada um assim que a página carrega, reaproveitando
+    // exatamente o mesmo caminho (listener acima + HTMX) de um clique
+    // manual, sem nenhuma lógica duplicada.
+    document.querySelectorAll('[data-model-group-auto-expand="true"]').forEach(function (button) {
+      button.click();
+    });
+  })();
+</script>
 {% endblock %}
