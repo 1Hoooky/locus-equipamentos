@@ -13,6 +13,11 @@ urlpatterns = [
     path("lote/confirmar/", views.EquipmentBatchConfirmView.as_view(), name="batch_confirm"),
     path("lote/<uuid:batch_id>/", views.EquipmentBatchResultView.as_view(), name="batch_result"),
     path("modelo/<int:model_id>/itens/", views.EquipmentModelItemsView.as_view(), name="model_items"),
+    path(
+        "modelo/<int:model_id>/codigos-legados/",
+        views.EquipmentLegacyCodeBulkFillView.as_view(),
+        name="legacy_code_bulk_fill",
+    ),
     path("exportar/", views.EquipmentExportView.as_view(), name="export"),
     path("importar/", views_import.LegacyImportUploadView.as_view(), name="import_upload"),
     path("importar/revisar/", views_import.LegacyImportReviewView.as_view(), name="import_review"),

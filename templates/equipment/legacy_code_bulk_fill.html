@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}Códigos legados em lote — {{ model.name }}{% endblock %}
+{% comment %}
+Ferramenta ADMINISTRATIVA (pedida em 31/08/2026): preenchimento
+sequencial de código legado, sempre restrito a UM modelo por vez
+(`model`, vindo da URL). Fluxo obrigatório em dois passos, nunca "digitar
+e já gravar":
+
+  1. Formulário GET (abaixo) — gera a prévia sem alterar o banco.
+  2. Se a prévia existir e NÃO estiver bloqueada, o botão "Confirmar
+     preenchimento" (POST, com `submission_token` do SubmissionGuard)
+     aparece — essa é a única ação que grava.
+
+Se a prévia estiver bloqueada (conflito, duplicidade, patrimônio
+não-ordenável, código inicial inválido), o motivo é sempre mostrado e o
+botão de confirmação não aparece — "correções de conflito devem ser
+conscientes", nunca um checkbox genérico de "sobrescrever tudo".
+{% endcomment %}
+{% block content %}
+<h1 class="page-title mb-1">Preencher códigos legados em lote</h1>
+<p class="page-subtitle mb-4">Modelo: <strong>{{ model.name }}</strong> ({{ model.code }})</p>
+
+<form method="get" class="card-pad max-w-lg space-y-4 mb-6">
+  <div>
+    <label class="field-label" for="id_codigo_inicial">Código inicial</label>
+    <input type="text" inputmode="numeric" name="codigo_inicial" id="id_codigo_inicial"
+           class="field-input" value="{{ seed_code }}"
+           placeholder="Ex.: 26101622101001">
+    <p class="field-hint">
+      Será atribuído ao primeiro equipamento (menor sequência de patrimônio); os demais recebem os
+      códigos seguintes, um por um, na mesma ordem do patrimônio.
+    </p>
+  </div>
+  <button type="submit" class="btn-neutral">{% icon "magnifying-glass" size="compact" %} Gerar prévia</button>
+</form>
+
+{% if preview %}
+  {% if preview.seed_error %}
+    <div class="alert-error max-w-lg mb-6">
+      <p>{{ preview.seed_error }}</p>
+    </div>
+  {% else %}
+
+    <div class="card-pad max-w-lg space-y-3 mb-6">
+      <dl class="grid grid-cols-2 gap-y-2 text-sm">
+        <dt class="text-gray-500">Equipamentos encontrados</dt>
+        <dd>{{ preview.total }}</dd>
+
+        {% if preview.total %}
+        <dt class="text-gray-500">Primeiro</dt>
+        <dd>{{ preview.rows.0.patrimonio }} &rarr; {{ preview.first_code }}</dd>
+
+        {% with preview.rows|last as last_row %}
+        <dt class="text-gray-500">Último</dt>
+        <dd>{{ last_row.patrimonio }} &rarr; {{ preview.last_code }}</dd>
+        {% endwith %}
+        {% endif %}
+      </dl>
+    </div>
+
+    {% if preview.blocked %}
+      <div class="alert-error max-w-lg mb-6">
+        <p class="font-medium mb-2">Esta operação está bloqueada e não pode ser confirmada:</p>
+        <ul class="list-disc list-inside space-y-1">
+          {% for reason in preview.block_reasons %}<li>{{ reason }}</li>{% endfor %}
+        </ul>
+      </div>
+
+      {% if preview.ordering_errors %}
+      <div class="table-wrap max-w-lg mb-6">
+        <p class="text-sm font-medium text-brand-charcoal p-3">Patrimônios com problema de ordenação</p>
+        <table class="table-base">
+          <thead><tr><th>Patrimônio</th><th>Problema</th></tr></thead>
+          <tbody>
+            {% for err in preview.ordering_errors %}
+            <tr><td>{{ err.patrimonio }}</td><td>{{ err.detail }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if preview.external_duplicates %}
+      <div class="table-wrap max-w-lg mb-6">
+        <p class="text-sm font-medium text-brand-charcoal p-3">Códigos já usados por outro equipamento</p>
+        <table class="table-base">
+          <thead><tr><th>Código</th><th>Equipamento atual</th><th>Receberia</th></tr></thead>
+          <tbody>
+            {% for dup in preview.external_duplicates %}
+            <tr><td>{{ dup.code }}</td><td>{{ dup.existing_patrimonio }}</td><td>{{ dup.target_patrimonio }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if preview.conflicts %}
+      <div class="table-wrap max-w-lg mb-6">
+        <p class="text-sm font-medium text-brand-charcoal p-3">Conflitos (código atual diferente do previsto)</p>
+        <table class="table-base">
+          <thead><tr><th>Patrimônio</th><th>Atual</th><th>Previsto</th></tr></thead>
+          <tbody>
+            {% for row in preview.conflicts %}
+            <tr><td>{{ row.patrimonio }}</td><td>{{ row.current_legacy_code }}</td><td>{{ row.predicted_code }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    {% elif preview.total %}
+      <form method="post" class="flex items-center gap-3 mb-6">
+        {% csrf_token %}
+        <input type="hidden" name="codigo_inicial" value="{{ seed_code }}">
+        <input type="hidden" name="submission_token" value="{{ submission_token }}">
+        <button type="submit" class="btn-primary">Confirmar preenchimento</button>
+      </form>
+    {% else %}
+      <p class="empty-state max-w-lg mb-6">Nenhum equipamento ativo encontrado para este modelo.</p>
+    {% endif %}
+
+    {% if preview.rows %}
+    <details class="max-w-lg mb-6">
+      <summary class="link text-sm cursor-pointer">Ver todos ({{ preview.total }})</summary>
+      <div class="table-wrap mt-2">
+        <table class="table-base">
+          <thead><tr><th>Patrimônio</th><th>Código atual</th><th>Código previsto</th><th>Situação</th></tr></thead>
+          <tbody>
+            {% for row in preview.rows %}
+            <tr>
+              <td>{{ row.patrimonio }}</td>
+              <td>{{ row.current_legacy_code|default:"—" }}</td>
+              <td>{{ row.predicted_code }}</td>
+              <td>
+                {% if row.state == "SEM_CODIGO" %}<span class="badge-neutral">Sem código</span>
+                {% elif row.state == "JA_PREENCHIDO" %}<span class="badge-success">Já preenchido</span>
+                {% else %}<span class="badge-danger">Conflito</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endif %}
+  {% endif %}
+{% endif %}
+
+<a href="{% url 'equipment:list' %}?model={{ model.pk }}" class="link text-sm">{% icon "arrow-left" size="compact" %} Voltar para {{ model.name }}</a>
+{% endblock %}

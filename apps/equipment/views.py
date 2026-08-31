@@ -26,8 +26,14 @@ from apps.accounts.permissions import (
     RoleRequiredMixin,
 )
 from apps.catalog.models import Category, EquipmentModel
+from apps.core.submission import SubmissionGuard
 from apps.equipment.filters import filter_equipment_queryset
 from apps.equipment.grouping import build_model_groups
+from apps.equipment.legacy_code_bulk import (
+    LegacyCodeBulkBlocked,
+    apply_legacy_code_bulk_fill,
+    build_legacy_code_bulk_preview,
+)
 from apps.equipment.movement_panel import available_movement_actions
 from apps.equipment.forms import (
     ChangeConditionForm,
@@ -418,6 +424,93 @@ class EquipmentChangeConditionView(RoleRequiredMixin, View):
             messages.success(request, f"Condição de {equipment.patrimonio} atualizada.")
             return redirect("equipment:detail", patrimonio=equipment.patrimonio)
         return render(request, "equipment/change_condition.html", {"form": form, "equipment": equipment})
+
+
+class EquipmentLegacyCodeBulkFillView(RoleRequiredMixin, View):
+    """
+    Preenchimento sequencial de código legado em lote — ferramenta
+    ADMINISTRATIVA (pedida em 31/08/2026), não uma ação operacional por
+    equipamento: opera sobre TODOS os equipamentos ativos de UM modelo de
+    cada vez, nunca em outro modelo (isolamento estrito por
+    `model_id`, sempre reafirmado no servidor).
+
+    Mesma permissão já usada para editar `legacy_code` individualmente
+    (`EquipmentUpdateView` exige `CAN_MANAGE_EQUIPMENT`) — nenhuma
+    permissão nova paralela. Esconder o link no template
+    (`templates/equipment/list.html`) é só UX: quem tenta acessar esta
+    URL diretamente sem o papel exigido recebe 403 daqui
+    (`RoleRequiredMixin.test_func()`), não só uma ausência de botão.
+
+    Fluxo obrigatório (nunca "digitar e já gravar"):
+      1. GET sem `codigo_inicial`: só o formulário.
+      2. GET com `?codigo_inicial=...`: também calcula e mostra a prévia
+         (`build_legacy_code_bulk_preview()` — só leitura, nunca grava).
+      3. POST: SEMPRE recalcula a prévia do zero no servidor (dentro do
+         lock do modelo, em `apply_legacy_code_bulk_fill()`) — nunca
+         confia na prévia como veio do navegador/sessão. Só grava se a
+         prévia recalculada não estiver bloqueada (conflito, duplicidade,
+         patrimônio não-ordenável, código inicial inválido).
+
+    Idempotência: reusa `SubmissionGuard` (mesmo mecanismo do resto do
+    sistema, `apps/core/submission.py`) — um clique duplo em "Confirmar
+    preenchimento" não executa a operação duas vezes. Nenhuma segunda
+    solução caseira de idempotência.
+    """
+
+    allowed_roles = CAN_MANAGE_EQUIPMENT
+
+    @staticmethod
+    def _guard(model_id) -> SubmissionGuard:
+        return SubmissionGuard(f"equipment_legacy_bulk:{model_id}")
+
+    def get(self, request, model_id):
+        model = get_object_or_404(EquipmentModel, pk=model_id)
+        seed_code = request.GET.get("codigo_inicial", "").strip()
+        preview = build_legacy_code_bulk_preview(model_id=model.pk, seed_code=seed_code) if seed_code else None
+        token = self._guard(model.pk).issue(request)
+        return render(
+            request,
+            "equipment/legacy_code_bulk_fill.html",
+            {"model": model, "seed_code": seed_code, "preview": preview, "submission_token": token},
+        )
+
+    def post(self, request, model_id):
+        model = get_object_or_404(EquipmentModel, pk=model_id)
+        seed_code = request.POST.get("codigo_inicial", "").strip()
+        guard = self._guard(model.pk)
+
+        if not guard.consume_if_valid(request):
+            preview = build_legacy_code_bulk_preview(model_id=model.pk, seed_code=seed_code) if seed_code else None
+            token = guard.issue(request)
+            messages.error(request, "Este envio já foi processado ou expirou. Revise a prévia e confirme de novo.")
+            return render(
+                request,
+                "equipment/legacy_code_bulk_fill.html",
+                {"model": model, "seed_code": seed_code, "preview": preview, "submission_token": token},
+                status=400,
+            )
+
+        try:
+            preview = apply_legacy_code_bulk_fill(model_id=model.pk, seed_code=seed_code, changed_by=request.user)
+        except LegacyCodeBulkBlocked as exc:
+            preview = exc.preview or build_legacy_code_bulk_preview(model_id=model.pk, seed_code=seed_code)
+            token = guard.issue(request)
+            messages.error(request, str(exc))
+            return render(
+                request,
+                "equipment/legacy_code_bulk_fill.html",
+                {"model": model, "seed_code": seed_code, "preview": preview, "submission_token": token},
+                status=400,
+            )
+
+        messages.success(
+            request, f"Códigos legados preenchidos com sucesso para {model.name} ({preview.updated_count})."
+        )
+        return render(
+            request,
+            "equipment/legacy_code_bulk_fill_result.html",
+            {"model": model, "preview": preview},
+        )
 
 
 class EquipmentReclassifyView(RoleRequiredMixin, View):

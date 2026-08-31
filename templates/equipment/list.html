@@ -148,6 +148,23 @@ demais.
     <div id="model-group-items-{{ group.model_id }}" class="model-group-body">
       <p class="empty-state text-xs">Carregando…</p>
     </div>
+    {% comment %}
+    Ação ADMINISTRATIVA (preenchimento de código legado em lote, pedida
+    em 31/08/2026) — deliberadamente FORA do par
+    `.model-group-toggle`/`.model-group-body` acima (a regra CSS de
+    recolher/expandir depende dos dois serem irmãos ADJACENTES, ver
+    templates/_design_tokens.html) e deliberadamente de baixa ênfase
+    (`.low-emphasis-link`): não é uma ação operacional por equipamento,
+    é uma ferramenta administrativa por modelo — nunca o destaque
+    principal do cartão do grupo.
+    {% endcomment %}
+    {% if user.is_administrativo_ou_superior %}
+    <div class="px-3 sm:px-4 py-2 border-t border-gray-100 text-right">
+      <a href="{% url 'equipment:legacy_code_bulk_fill' group.model_id %}" class="low-emphasis-link">
+        {% icon "pencil" size="compact" %} Preencher códigos legados
+      </a>
+    </div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

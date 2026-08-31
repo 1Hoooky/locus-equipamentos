@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Códigos legados preenchidos — {{ model.name }}{% endblock %}
+{% block content %}
+<h1 class="page-title mb-4">Códigos legados preenchidos com sucesso.</h1>
+
+<div class="card-pad max-w-lg space-y-3 mb-6">
+  <dl class="grid grid-cols-2 gap-y-2 text-sm">
+    <dt class="text-gray-500">Modelo</dt>
+    <dd>{{ model.name }} ({{ model.code }})</dd>
+
+    <dt class="text-gray-500">Equipamentos atualizados</dt>
+    <dd>{{ preview.updated_count }}</dd>
+
+    {% if preview.total %}
+    <dt class="text-gray-500">Primeiro</dt>
+    <dd>{{ preview.first_code }}</dd>
+
+    <dt class="text-gray-500">Último</dt>
+    <dd>{{ preview.last_code }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+<a href="{% url 'equipment:list' %}?model={{ model.pk }}" class="btn-primary">Voltar para {{ model.name }}</a>
+{% endblock %}
