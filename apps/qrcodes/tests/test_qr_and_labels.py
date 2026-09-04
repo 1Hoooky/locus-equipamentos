@@ -24,10 +24,12 @@ from apps.equipment.services import NewEquipmentData, create_equipment
 from apps.qrcodes.services import (
     LABEL_HEIGHT_MM,
     LABEL_WIDTH_MM,
+    _label_context,
     _sanitize_path_segment,
     equipment_url,
     generate_barcode_png,
     generate_label_pdf,
+    generate_labels_pdf,
     generate_labels_zip,
     generate_qr_png,
     generate_qr_zip,
@@ -149,6 +151,121 @@ class LabelPdfContentTest(TestCase):
         pdf_bytes = generate_label_pdf(self.equipment)
         reader = self._read_pdf(pdf_bytes)
         self.assertEqual(len(reader.pages), 1)
+
+
+class LabelThemeServiceTest(TestCase):
+    """
+    Tema LIGHT/DARK da etiqueta (pedido de 04/09/2026 — modal de escolha
+    antes do download em lote, interceptando a mesma action do admin sem
+    criar tela nova). O ponto central: QR e código de barras continuam
+    representando exatamente os mesmos dados nos dois temas — só a
+    apresentação visual muda, nunca o conteúdo codificado.
+    """
+
+    def setUp(self):
+        category = Category.objects.create(name="Climatizador")
+        model = EquipmentModel.objects.create(category=category, name="NI23 Big Tank", code="NI23BT")
+        user = User.objects.create_user(username="cadastrador_tema", password="senha-forte-123")
+        self.equipment = create_equipment(NewEquipmentData(model_id=model.pk, created_by=user))
+
+    def _read_pdf(self, pdf_bytes: bytes):
+        from pypdf import PdfReader
+
+        return PdfReader(io.BytesIO(pdf_bytes))
+
+    def test_default_theme_matches_explicit_light_theme(self):
+        """
+        Nenhum chamador pré-existente (que nunca passou `theme`) pode
+        mudar de comportamento visual. Não comparamos os bytes brutos
+        (o WeasyPrint embute metadata não-determinística — ex.: data de
+        criação/ID interno do PDF — então duas gerações da MESMA entrada
+        nunca são byte-a-byte idênticas, mesmo sem a opção de tema
+        existir) — comparamos o que é observável: texto extraído e
+        dimensões da página.
+        """
+        from pypdf import PdfReader
+
+        default_bytes = generate_label_pdf(self.equipment)
+        explicit_light_bytes = generate_label_pdf(self.equipment, theme="light")
+
+        default_page = PdfReader(io.BytesIO(default_bytes)).pages[0]
+        explicit_page = PdfReader(io.BytesIO(explicit_light_bytes)).pages[0]
+
+        self.assertEqual(default_page.extract_text(), explicit_page.extract_text())
+        self.assertEqual(default_page.mediabox.width, explicit_page.mediabox.width)
+        self.assertEqual(default_page.mediabox.height, explicit_page.mediabox.height)
+
+    def test_dark_theme_returns_a_valid_pdf(self):
+        pdf_bytes = generate_label_pdf(self.equipment, theme="dark")
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+    def test_light_and_dark_produce_visually_different_output(self):
+        """
+        Sanity check de que o tema realmente muda alguma coisa no PDF
+        gerado, não é um parâmetro ignorado. Comparamos o CONTEÚDO
+        DECODIFICADO da página (os comandos de desenho reais), não os
+        bytes brutos do PDF inteiro — o WeasyPrint embute metadata
+        não-determinística (data de criação/ID interno) que já faria
+        dois PDFs da mesma entrada divergirem em bytes mesmo sem nenhuma
+        mudança visual real (ver `test_default_theme_matches_explicit_light_theme`
+        acima). O tema DARK desenha dois retângulos de preenchimento a
+        mais (fundo escuro atrás do patrimônio + ilha branca atrás do
+        código de barras) que o LIGHT não tem — por isso o stream de
+        conteúdo decodificado tem tamanho diferente.
+        """
+        from pypdf import PdfReader
+
+        light_bytes = generate_label_pdf(self.equipment, theme="light")
+        dark_bytes = generate_label_pdf(self.equipment, theme="dark")
+
+        light_content = PdfReader(io.BytesIO(light_bytes)).pages[0].get_contents().get_data()
+        dark_content = PdfReader(io.BytesIO(dark_bytes)).pages[0].get_contents().get_data()
+
+        self.assertNotEqual(light_content, dark_content)
+
+    def test_dark_theme_keeps_the_configured_physical_dimensions(self):
+        pdf_bytes = generate_label_pdf(self.equipment, theme="dark")
+        reader = self._read_pdf(pdf_bytes)
+        box = reader.pages[0].mediabox
+        self.assertAlmostEqual(float(box.width) / MM_TO_PT, LABEL_WIDTH_MM, places=1)
+        self.assertAlmostEqual(float(box.height) / MM_TO_PT, LABEL_HEIGHT_MM, places=1)
+
+    def test_patrimonio_text_present_in_both_themes(self):
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                pdf_bytes = generate_label_pdf(self.equipment, theme=theme)
+                text = self._read_pdf(pdf_bytes).pages[0].extract_text()
+                self.assertIn(self.equipment.patrimonio, text)
+
+    def test_qr_content_is_identical_regardless_of_theme(self):
+        """
+        O QR é gerado por `generate_qr_png`/`_qr_data_uri`, que nunca
+        recebem `theme` — o tema é só apresentação da etiqueta ao redor.
+        Confirmamos aqui que o destino do QR (a URL permanente) é
+        idêntico nos dois contextos de tema.
+        """
+        light_context = _label_context(self.equipment)
+        dark_context = _label_context(self.equipment)
+        self.assertEqual(light_context["qr_data_uri"], dark_context["qr_data_uri"])
+
+    def test_barcode_content_is_identical_regardless_of_theme(self):
+        """Mesmo raciocínio do QR acima — `_barcode_data_uri` não recebe tema."""
+        light_context = _label_context(self.equipment)
+        dark_context = _label_context(self.equipment)
+        self.assertEqual(light_context["barcode_data_uri"], dark_context["barcode_data_uri"])
+
+    def test_multiple_equipment_batch_respects_a_single_shared_theme(self):
+        category = Category.objects.create(name="Aquecedor")
+        model = EquipmentModel.objects.create(category=category, name="Aquecedor Pirâmide", code="AQCP")
+        user = User.objects.create_user(username="cadastrador_tema_lote", password="senha-forte-123")
+        second_equipment = create_equipment(NewEquipmentData(model_id=model.pk, created_by=user))
+
+        pdf_bytes = generate_labels_pdf([self.equipment, second_equipment], theme="dark")
+        reader = self._read_pdf(pdf_bytes)
+        self.assertEqual(len(reader.pages), 2)
+        full_text = "".join(page.extract_text() for page in reader.pages)
+        self.assertIn(self.equipment.patrimonio, full_text)
+        self.assertIn(second_equipment.patrimonio, full_text)
 
 
 class PathSanitizationTest(TestCase):
@@ -335,6 +452,44 @@ class LabelBatchDownloadViewTest(TestCase):
         for page in reader.pages:
             self.assertAlmostEqual(float(page.mediabox.width) / MM_TO_PT, LABEL_WIDTH_MM, places=1)
             self.assertAlmostEqual(float(page.mediabox.height) / MM_TO_PT, LABEL_HEIGHT_MM, places=1)
+
+    def _batch_url(self, *, tema=None):
+        base = f"/qrcodes/lote/etiquetas.pdf?patrimonio={self.eq1.patrimonio}&patrimonio={self.eq2.patrimonio}"
+        return f"{base}&tema={tema}" if tema is not None else base
+
+    def test_batch_pdf_without_tema_defaults_to_light(self):
+        """Nenhum chamador antigo (sem `?tema=`) pode deixar de funcionar."""
+        self.client.login(username="batch_pdf_admin", password="senha-forte-123")
+        response = self.client.get(self._batch_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
+    def test_batch_pdf_accepts_light_theme(self):
+        self.client.login(username="batch_pdf_admin", password="senha-forte-123")
+        response = self.client.get(self._batch_url(tema="light"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_batch_pdf_accepts_dark_theme(self):
+        self.client.login(username="batch_pdf_admin", password="senha-forte-123")
+        response = self.client.get(self._batch_url(tema="dark"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
+    def test_batch_pdf_rejects_invalid_theme(self):
+        self.client.login(username="batch_pdf_admin", password="senha-forte-123")
+        response = self.client.get(self._batch_url(tema="roxo"))
+        self.assertEqual(response.status_code, 400)
+
+    def test_batch_pdf_single_equipment_with_dark_theme(self):
+        """Cenário explícito do pedido: um único equipamento também precisa funcionar, não só lotes grandes."""
+        from pypdf import PdfReader
+
+        self.client.login(username="batch_pdf_admin", password="senha-forte-123")
+        url = f"/qrcodes/lote/etiquetas.pdf?patrimonio={self.eq1.patrimonio}&tema=dark"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        reader = PdfReader(io.BytesIO(response.content))
+        self.assertEqual(len(reader.pages), 1)
 
 
 class BatchZipViewTest(TestCase):

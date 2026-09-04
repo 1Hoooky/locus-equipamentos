@@ -153,23 +153,65 @@
     min-height: 0;
     overflow: hidden;
   }
-  .identity-barcode {
-    display: block;
+  .identity-barcode-wrap {
     /*
       92% da largura da área de conteúdo — a referência mostra um código
       de barras que ocupa quase toda a largura da faixa branca (~87%
-      medido na imagem). A altura vem do aspect ratio do PNG gerado
-      (ajustado em `module_width`, em services.py, para barras mais
-      largas/baixas como na referência), não de um max-height artificial
-      — foi exatamente um max-height pequeno combinado com esse aspect
-      ratio que deixou o código de barras minúsculo na rodada anterior.
+      medido na imagem). Isolado num wrapper próprio (em vez de aplicar
+      a largura direto na <img>, como antes) só para que o tema DARK
+      abaixo possa desenhar uma "ilha" branca atrás do código de barras
+      sem mexer no dimensionamento em si — no tema LIGHT este wrapper não
+      tem nenhum estilo próprio, então o resultado visual continua
+      idêntico ao de antes desta mudança.
     */
+    display: block;
     width: 92%;
+    margin: 0 auto;
+  }
+  .identity-barcode {
+    display: block;
+    /*
+      A altura vem do aspect ratio do PNG gerado (ajustado em
+      `module_width`, em services.py, para barras mais largas/baixas como
+      na referência), não de um max-height artificial — foi exatamente um
+      max-height pequeno combinado com esse aspect ratio que deixou o
+      código de barras minúsculo na rodada anterior.
+    */
+    width: 100%;
     height: auto;
     max-height: 8mm;
     object-fit: contain;
-    margin: 0 auto;
     image-rendering: pixelated;
+  }
+
+  /*
+    Tema DARK (pedido de 04/09/2026 — modal LIGHT/DARK antes do download
+    em lote, ver apps/equipment/admin.py e
+    apps/qrcodes/views.py::LabelBatchDownloadView). Mesma estrutura da
+    etiqueta de sempre — só troca claro↔escuro na área de
+    patrimônio/código de barras (`.identity-block`). Tudo abaixo só se
+    aplica quando `theme == "dark"` (classe `theme-dark` no <body>, ver
+    fim deste arquivo) — sem essa classe, nenhuma regra daqui tem efeito,
+    então o tema LIGHT (padrão) permanece byte-a-byte igual ao que já
+    existia antes desta opção existir.
+
+    `.brand-block`/`.footer-bar` já são pretos em QUALQUER tema (ver
+    acima) — não precisam de regra extra aqui. `.qr-half` também já é
+    branco fixo em qualquer tema (garantia de leitura do QR, pedido
+    explícito) — também não muda. Só `.identity-barcode-wrap` recebe uma
+    "ilha" branca no tema escuro, pelo mesmo motivo do QR: um código de
+    barras preto sobre fundo escuro perderia contraste para o leitor.
+  */
+  body.theme-dark .identity-block {
+    background: var(--locus-black);
+  }
+  body.theme-dark .identity-patrimonio {
+    color: #fff;
+  }
+  body.theme-dark .identity-barcode-wrap {
+    background: #fff;
+    padding: 1mm 1.5mm;
+    border-radius: 1mm;
   }
   .identity-patrimonio {
     width: 100%;
@@ -227,7 +269,7 @@
   }
 </style>
 </head>
-<body>
+<body{% if theme == "dark" %} class="theme-dark"{% endif %}>
   {% for label in labels %}
   <div class="label">
     <div class="id-half">
@@ -243,7 +285,9 @@
         <p class="brand-tagline">Identificação de equipamento</p>
       </div>
       <div class="identity-block">
-        <img class="identity-barcode" src="{{ label.barcode_data_uri }}" alt="Código de barras {{ label.patrimonio }}">
+        <div class="identity-barcode-wrap">
+          <img class="identity-barcode" src="{{ label.barcode_data_uri }}" alt="Código de barras {{ label.patrimonio }}">
+        </div>
         <p class="identity-patrimonio">{{ label.patrimonio }}</p>
       </div>
       <div class="footer-bar">

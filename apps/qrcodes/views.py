@@ -13,6 +13,8 @@ from django.views import View
 from apps.accounts.permissions import CAN_MANAGE_EQUIPMENT, RoleRequiredMixin
 from apps.equipment.models import Equipment
 from apps.qrcodes.services import (
+    LABEL_THEME_LIGHT,
+    VALID_LABEL_THEMES,
     generate_label_pdf,
     generate_labels_pdf,
     generate_labels_zip,
@@ -48,14 +50,30 @@ class LabelBatchDownloadView(RoleRequiredMixin, View):
     Impressão em lote — usada pela action do admin
     (`apps/equipment/admin.py`, "Baixar etiquetas em PDF") e reutilizável
     por qualquer outra tela que precise gerar várias etiquetas de uma vez.
+
+    `?tema=light|dark` (pedido de 04/09/2026 — modal de escolha de tema
+    antes do download, interceptando a mesma action do admin sem criar
+    nenhuma tela nova): validado aqui, no backend — nunca confiamos que o
+    JS do modal vai sempre mandar um valor correto (usuário pode desabilitar
+    JS, forjar a URL, etc.). Ausente ou omitido cai no padrão "light", que
+    é o comportamento de sempre desta rota; qualquer valor que não seja
+    exatamente "light" ou "dark" é rejeitado com 400, nunca silenciosamente
+    tratado como um dos dois.
     """
 
     allowed_roles = CAN_MANAGE_EQUIPMENT
 
     def get(self, request):
+        theme = request.GET.get("tema", LABEL_THEME_LIGHT)
+        if theme not in VALID_LABEL_THEMES:
+            return HttpResponse(
+                f"Tema de etiqueta inválido: {theme!r}. Use 'light' ou 'dark'.",
+                content_type="text/plain",
+                status=400,
+            )
         patrimonios = request.GET.getlist("patrimonio")
         equipment_list = list(Equipment.objects.filter(patrimonio__in=patrimonios).select_related("model", "category"))
-        pdf_bytes = generate_labels_pdf(equipment_list)
+        pdf_bytes = generate_labels_pdf(equipment_list, theme=theme)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = 'attachment; filename="etiquetas-locus.pdf"'
         return response

@@ -5,6 +5,7 @@ from simple_history.admin import SimpleHistoryAdmin
 
 from apps.equipment.models import Equipment
 from apps.equipment.services import NewEquipmentData, create_equipment
+from apps.qrcodes.services import LABEL_THEME_LIGHT
 
 
 @admin.register(Equipment)
@@ -30,6 +31,17 @@ class EquipmentAdmin(SimpleHistoryAdmin):
     )
     actions = ["download_labels_pdf"]
 
+    class Media:
+        # Modal LIGHT/DARK antes do download em lote (pedido de
+        # 04/09/2026) — intercepta o envio desta MESMA action no
+        # JavaScript, sem criar nenhuma tela/URL nova. Ver o próprio
+        # arquivo para o fluxo completo; a validação de verdade do tema
+        # continua sendo feita no backend
+        # (apps/qrcodes/views.py::LabelBatchDownloadView), este script
+        # só evita o caso comum de esquecer de escolher.
+        css = {"all": ("qrcodes/admin/label_theme_modal.css",)}
+        js = ("qrcodes/admin/label_theme_modal.js",)
+
     @admin.display(description="QR / Etiqueta")
     def qr_etiqueta_links(self, obj: Equipment):
         qr_url = reverse("qrcodes:qr_png", kwargs={"patrimonio": obj.patrimonio})
@@ -38,11 +50,26 @@ class EquipmentAdmin(SimpleHistoryAdmin):
 
     @admin.action(description="Baixar etiquetas em PDF (lote)")
     def download_labels_pdf(self, request, queryset):
+        """
+        Redireciona para `qrcodes:label_batch`, que de fato gera o PDF —
+        esta action nunca gera o arquivo ela mesma (mesmo comportamento
+        de sempre). `tema` (pedido de 04/09/2026: modal LIGHT/DARK antes
+        do download, ver `Media` acima) vem do campo oculto que o modal
+        injeta no form antes de reenviá-lo; sem JS (ou se o campo faltar
+        por qualquer motivo), cai no padrão "light" — o comportamento de
+        sempre desta action, nunca quebra por ausência do modal. Quem
+        valida de fato o valor é `LabelBatchDownloadView` (backend,
+        aceita só "light"/"dark") — esta action não duplica essa
+        validação, só repassa o que recebeu.
+        """
         from django.http import HttpResponseRedirect
         from django.urls import reverse as url_reverse
         from urllib.parse import urlencode
 
-        params = urlencode([("patrimonio", p) for p in queryset.values_list("patrimonio", flat=True)])
+        theme = request.POST.get("tema") or LABEL_THEME_LIGHT
+        params = urlencode(
+            [("patrimonio", p) for p in queryset.values_list("patrimonio", flat=True)] + [("tema", theme)]
+        )
         return HttpResponseRedirect(f"{url_reverse('qrcodes:label_batch')}?{params}")
 
     fields = (

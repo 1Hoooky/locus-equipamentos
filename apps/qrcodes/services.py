@@ -50,6 +50,18 @@ LABEL_HEIGHT_MM = 50
 # adequada para uma etiqueta física aprovada pelo layout de referência.
 LABEL_FOOTER_TEXT = "www.locuslocacoes.com.br"
 
+# Tema visual da etiqueta (pedido de 04/09/2026: modal LIGHT/DARK antes
+# do download em lote — ver apps/equipment/admin.py e
+# apps/qrcodes/views.py::LabelBatchDownloadView). Só estes dois valores
+# são aceitos, em qualquer camada que receba um tema vindo de fora
+# (query string/POST) — nunca um valor livre. "light" é o padrão em
+# TODAS as funções abaixo, então nenhum chamador pré-existente (etiqueta
+# individual, exportação em .zip) muda de comportamento por não informar
+# tema nenhum.
+LABEL_THEME_LIGHT = "light"
+LABEL_THEME_DARK = "dark"
+VALID_LABEL_THEMES = {LABEL_THEME_LIGHT, LABEL_THEME_DARK}
+
 
 def equipment_url(equipment: Equipment) -> str:
     path = reverse("equipment:detail", kwargs={"patrimonio": equipment.patrimonio})
@@ -114,7 +126,7 @@ def _label_context(equipment: Equipment) -> dict:
     }
 
 
-def generate_label_pdf(equipment: Equipment) -> bytes:
+def generate_label_pdf(equipment: Equipment, theme: str = LABEL_THEME_LIGHT) -> bytes:
     """
     Etiqueta de um único equipamento (seção 1 do pedido): página única no
     tamanho físico exato (`LABEL_WIDTH_MM` × `LABEL_HEIGHT_MM`), com
@@ -127,11 +139,17 @@ def generate_label_pdf(equipment: Equipment) -> bytes:
     seja reclassificado depois: o QR aponta para a URL permanente do
     patrimônio, não para um snapshot; reimprimir só reflete os dados afixo
     atuais (modelo/categoria), sem invalidar o identificador em si.
+
+    `theme`: "light" (padrão, layout já existente, byte-a-byte igual ao
+    de antes desta opção existir) ou "dark" (mesma estrutura, ver
+    `templates/qrcodes/label.html`). Quem valida um tema vindo de fora
+    (query string/POST) é o chamador (`LabelBatchDownloadView`) — esta
+    função só aceita o valor já validado.
     """
-    return generate_labels_pdf([equipment])
+    return generate_labels_pdf([equipment], theme=theme)
 
 
-def generate_labels_pdf(equipment_list: list[Equipment]) -> bytes:
+def generate_labels_pdf(equipment_list: list[Equipment], theme: str = LABEL_THEME_LIGHT) -> bytes:
     """
     Etiquetas em lote — uma página por equipamento, cada página no
     tamanho físico exato da etiqueta (não um grid solto numa folha A4):
@@ -139,6 +157,11 @@ def generate_labels_pdf(equipment_list: list[Equipment]) -> bytes:
     é reaproveitado tanto por `generate_label_pdf` (uma etiqueta) quanto
     pela ação "Baixar etiquetas em PDF" do admin e por
     `generate_labels_zip` (uma etiqueta por arquivo, dentro do .zip).
+
+    `theme` é único para o PDF inteiro (todas as páginas geradas nesta
+    chamada usam o mesmo tema) — o pedido de 04/09/2026 é escolher
+    LIGHT/DARK uma vez, antes do download de um lote inteiro, nunca por
+    equipamento individual dentro do mesmo lote.
     """
     labels = [_label_context(eq) for eq in equipment_list]
     html_string = render_to_string(
@@ -147,6 +170,7 @@ def generate_labels_pdf(equipment_list: list[Equipment]) -> bytes:
             "labels": labels,
             "label_width_mm": LABEL_WIDTH_MM,
             "label_height_mm": LABEL_HEIGHT_MM,
+            "theme": theme,
         },
     )
     return HTML(string=html_string).write_pdf()
