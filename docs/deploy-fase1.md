@@ -1,6 +1,21 @@
 # Deploy de validação — Fase 1 (Patrimônio Digital)
 
-**Base:** commit `e93abd3`, tag `fase-1-concluida`. `Especificação Técnica v1.0`, seções 9, 10, 14, 17, 19, 22.
+> **AVISO (04/09/2026): topologia de rede substituída.** A hospedagem
+> real de produção não é mais o VPS HostGator terminando TLS localmente
+> — passou a ser Oracle Cloud VPS + túnel reverso FRP + notebook
+> Windows/WSL2, com a Oracle como único ponto responsável por HTTPS
+> público/certificado Let's Encrypt. Isso torna **desatualizadas** as
+> seções 3 (DNS→IP do VPS), 6/7 (Nginx com TLS local + `certbot`) e os
+> passos 1/7/8/9 da seção 14 deste documento. Para o procedimento e as
+> variáveis de ambiente corretos da arquitetura atual, ver
+> `docs/deploy-oracle-frp-notebook.md`. O restante deste documento
+> (variáveis de ambiente não relacionadas a TLS, Postgres, Gunicorn,
+> criação do primeiro Administrador, backup, rollback, teste pós-deploy
+> não relacionado a certificado, e o checklist de validação no celular)
+> continua válido e é referenciado a partir do documento novo — mantido
+> aqui como registro histórico da decisão original, não removido.
+>
+> **Base:** commit `e93abd3`, tag `fase-1-concluida`. `Especificação Técnica v1.0`, seções 9, 10, 14, 17, 19, 22.
 **Objetivo deste documento:** colocar a Fase 1, já congelada, no ar no VPS da Locus para validação real — sem alterar nenhuma regra de negócio nem código de aplicação. Tudo aqui é infraestrutura/operação; a infraestrutura de deploy (Dockerfile, docker-compose.yml, docker/nginx.conf, docker/entrypoint.sh, config/settings/prod.py) já existe no repositório desde o primeiro commit e não foi alterada para produzir este documento — o que segue é o procedimento para usá-la corretamente, mais os pontos que exigem atenção humana.
 
 **Nota de atualização:** `docker/entrypoint.sh` ganhou depois um passo extra (`python manage.py bootstrap_admin`), adicionado para o deploy alternativo Render (ver `docs/deploy-render-neon.md`). No VPS ele não faz nada — só age se `BOOTSTRAP_ADMIN_USERNAME`/`PASSWORD` estiverem definidas no ambiente, e isso nunca acontece no `.env` do VPS. O procedimento de criação do primeiro admin no VPS (seção 10 abaixo) continua exatamente o mesmo.

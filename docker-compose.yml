@@ -1,8 +1,27 @@
-# Produção — VPS HostGator NVMe 4 (especificação, seção 10).
-# Uso: docker compose up -d
+# Produção — notebook Windows/WSL2 atrás de túnel reverso FRP + Oracle
+# Cloud VPS (procedimento completo: docs/deploy-oracle-frp-notebook.md).
+# Uso: docker compose up -d --build
 #
 # Pressupõe um .env real na raiz (nunca commitado — ver .env.example)
 # com DJANGO_SETTINGS_MODULE=config.settings.prod.
+#
+# Arquitetura atual (04/09/2026 — substitui a hospedagem HostGator VPS
+# original, ver docs/deploy-fase1.md para o histórico dessa decisão
+# anterior):
+#
+#   Internet → HTTPS → Oracle Cloud VPS (Nginx público + Let's Encrypt)
+#     → túnel reverso FRP → este host (notebook) → HTTP local
+#     → Nginx deste Compose (serviço `nginx`, só porta 80)
+#     → Gunicorn (serviço `web`) → PostgreSQL (serviço `db`)
+#
+# A Oracle é agora o ÚNICO ponto responsável por HTTPS público, emissão e
+# renovação do certificado Let's Encrypt, e redirecionamento HTTP→HTTPS —
+# por isso o Nginx abaixo não expõe mais a porta 443 nem monta volume
+# nenhum de certificado (não há mais serviço `certbot` neste Compose; a
+# emissão/renovação acontece inteiramente do lado da Oracle, fora deste
+# repositório). Ver `docker/nginx.conf` para como o header
+# `X-Forwarded-Proto` que a Oracle envia é repassado (nunca recalculado)
+# até o Django.
 
 services:
   db:
@@ -37,32 +56,19 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     ports:
+      # Só HTTP local — o FRP client rodando no notebook encaminha para
+      # esta porta; a Oracle é quem fala HTTPS com a internet. Nenhuma
+      # porta 443 aqui (nenhum certificado é montado/servido por este
+      # Nginx).
       - "80:80"
-      - "443:443"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - static_volume:/app/staticfiles:ro
       - media_volume:/app/media:ro
-      - certbot_conf:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
     depends_on:
       - web
-
-  certbot:
-    image: certbot/certbot
-    volumes:
-      - certbot_conf:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
-    entrypoint: ""
-    # Emissão inicial do certificado — rodar uma vez manualmente:
-    # docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
-    #   -d estoque.locuslocacoes.com.br --email seu-email@locuslocacoes.com.br --agree-tos
-    # Renovação automática (cron no host chamando este serviço) fica
-    # documentada no README, seção de deploy.
 
 volumes:
   locus_db_data:
   static_volume:
   media_volume:
-  certbot_conf:
-  certbot_www:

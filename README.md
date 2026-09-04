@@ -92,16 +92,16 @@ Em `apps/accounts/tests/test_permissions.py` — a matriz de permissões da espe
 
 Em `apps/accounts/tests/test_password_reset.py`: fluxo HTTP completo de recuperação de senha (pedido → e-mail real no backend de teste → link → nova senha → login com a senha nova), incluindo e-mail para endereço desconhecido (não revela se existe) e link adulterado (rejeitado). Esse teste revelou e cobriu a correção de um `NoReverseMatch` real que quebrava o envio do e-mail e o sucesso do fluxo — as views genéricas de auth do Django assumem nomes de rota sem namespace, e este projeto registra tudo sob `accounts:`; corrigido com `success_url` explícito em `apps/accounts/urls.py` e um `templates/registration/password_reset_email.html` próprio.
 
-## Deploy em produção (HostGator VPS NVMe 4)
+## Deploy em produção (Oracle Cloud VPS + túnel FRP + notebook)
 
-1. Provisionar o VPS (Ubuntu/AlmaLinux/Rocky), instalar Docker e Docker Compose.
-2. Apontar o DNS de `estoque.locuslocacoes.com.br` (subdomínio, especificação seção 22) para o IP do VPS.
-3. Clonar o repositório no servidor, criar o `.env` real (nunca o mesmo do dev) com `DJANGO_SETTINGS_MODULE=config.settings.prod`.
-4. Emitir o certificado TLS (ver comentário em `docker-compose.yml`, serviço `certbot`).
-5. `docker compose up -d --build`.
-6. Configurar backup automático (`pg_dump` diário + cópia externa) — ver seção 17/19 da especificação; ainda não incluído neste primeiro passo, é o próximo item de infraestrutura.
+Arquitetura atual (04/09/2026): a Oracle Cloud VPS é o único ponto responsável por HTTPS público/certificado Let's Encrypt; a aplicação (Docker Compose deste repositório — Postgres, Gunicorn, Nginx local só em HTTP) roda num notebook Windows/WSL2, alcançado pela Oracle através de um túnel reverso FRP.
 
-Procedimento operacional completo (pré-deploy, variáveis de ambiente, PostgreSQL/Gunicorn/Nginx, HTTPS, backup, rollback, teste pós-deploy e checklist de validação no celular) em `docs/deploy-fase1.md`.
+1. Pré-requisito (fora deste repositório): Oracle Cloud VPS com Nginx público + certificado Let's Encrypt para `estoque.locuslocacoes.com.br`, e túnel FRP conectando a Oracle ao notebook.
+2. Clonar o repositório no notebook, criar o `.env` real (nunca o mesmo do dev) com `DJANGO_SETTINGS_MODULE=config.settings.prod`.
+3. `docker compose up -d --build` — Postgres, migrations/collectstatic automáticos (`docker/entrypoint.sh`) e Nginx local (só porta 80, sem certificado nenhum) sobem juntos.
+4. Configurar backup automático (`pg_dump` diário + cópia externa) — ver seção 17/19 da especificação; ainda não incluído neste primeiro passo, é o próximo item de infraestrutura.
+
+Procedimento operacional completo desta arquitetura (variáveis de ambiente, por que o `X-Forwarded-Proto` é repassado da Oracle em vez de recalculado localmente, deploy inicial e redeploys) em `docs/deploy-oracle-frp-notebook.md`. Backup, rollback, criação do primeiro Administrador e checklist de validação no celular continuam documentados em `docs/deploy-fase1.md` (histórico da hospedagem HostGator anterior, com aviso no topo apontando o que mudou).
 
 ### Deploy alternativo de validação (Render Free + Neon)
 
