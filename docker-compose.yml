@@ -60,7 +60,7 @@ services:
       # esta porta; a Oracle é quem fala HTTPS com a internet. Nenhuma
       # porta 443 aqui (nenhum certificado é montado/servido por este
       # Nginx).
-      - "80:80"
+      - "127.0.0.1:80:80"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - static_volume:/app/staticfiles:ro
