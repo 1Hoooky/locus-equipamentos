@@ -4,13 +4,18 @@
 <meta charset="UTF-8">
 <style>
   /*
-    Etiqueta 6x6 ("padrão novo" — correção de requisito de 08/09/2026):
-    quadrada, `label_size_mm` x `label_size_mm` (60x60mm por padrão, vem
-    do Python — apps/qrcodes/services.py::SQUARE_LABEL_SIZE_MM — nunca
-    fixo aqui). Conteúdo, de cima para baixo: QR Code (com margem/quiet
-    zone adequada), nome do equipamento, identificador legado — só isso,
-    nesta ordem, por instrução explícita. Sem logo, sem patrimônio, sem
-    código de barras, sem URL escrita, sem título.
+    Etiqueta 6x6 ("padrão novo"): quadrada, `label_size_mm` x
+    `label_size_mm` (60x60mm por padrão, vem do Python —
+    apps/qrcodes/services.py::SQUARE_LABEL_SIZE_MM — nunca fixo aqui).
+
+    Conteúdo, de cima para baixo, sem nenhum título/rótulo antes de cada
+    linha (ajuste visual de 08/09/2026 — pedido explícito: "NI23BT",
+    nunca "Código do modelo: NI23BT"):
+      1. QR Code — elemento visual PREDOMINANTE, maior área da etiqueta.
+      2. Código do modelo (`model.code`, ex. "NI23BT") — negrito, grande.
+      3. Identificador legado — menor, ainda bem legível; linha omitida
+         por completo quando o equipamento não tem um.
+    Sem logo, sem patrimônio, sem código de barras, sem URL escrita.
 
     Uma página por etiqueta, no tamanho físico exato — mesmo raciocínio
     de templates/qrcodes/label.html (a etiqueta ANTIGA, intocada por
@@ -31,12 +36,10 @@
   .label {
     width: {{ label_size_mm }}mm;
     height: {{ label_size_mm }}mm;
-    padding: 3mm 3mm 3mm;
+    padding: 2.5mm 3mm 2mm;
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* QR "na parte superior" (pedido explícito) — a pilha fica ancorada
-       no topo, não centralizada verticalmente no quadrado inteiro. */
     justify-content: flex-start;
     page-break-after: always;
     overflow: hidden;
@@ -44,14 +47,14 @@
 
   /*
     Wrapper do QR: SEMPRE fundo branco, nos dois temas — nunca invertido
-    por estética (pedido explícito: "priorize leitura confiável"). No
-    tema LIGHT isto já é redundante com o fundo da página (branco), mas
-    manter a regra incondicional (em vez de só dentro de
+    por estética (pedido explícito: "priorize confiabilidade de
+    leitura"). No tema LIGHT isto já é redundante com o fundo da página
+    (branco), mas manter a regra incondicional (em vez de só dentro de
     `body.theme-dark`) é o que garante que o QR nunca fica sem essa
     "ilha" branca, mesmo que o tema geral mude no futuro. O padding aqui
-    é a margem/quiet zone visual pedida ao redor do QR, além da quiet
-    zone que a própria imagem do QR já embute (biblioteca `qrcode`,
-    borda padrão de 4 módulos).
+    é a margem/quiet zone visual ao redor do QR, além da quiet zone que
+    a própria imagem do QR já embute (biblioteca `qrcode`, borda padrão
+    de 4 módulos).
   */
   .qr-wrap {
     background: #fff;
@@ -61,47 +64,63 @@
   }
   .qr-image {
     display: block;
-    width: 38mm;
-    height: 38mm;
+    /* Maior área da etiqueta, de propósito (pedido explícito: "o QR
+       Code deve ser o elemento visual predominante"). */
+    width: 40mm;
+    height: 40mm;
     object-fit: contain;
     image-rendering: pixelated;
   }
 
-  .equipment-name {
-    margin: 2mm 0 0 0;
-    font-size: 9pt;
+  /*
+    Código do modelo — identificação visual principal abaixo do QR
+    (nunca o nome comercial/descritivo, ver `_square_label_context` em
+    apps/qrcodes/services.py). Negrito, tamanho grande "para leitura
+    rápida" (pedido explícito), sem rótulo/título antes.
+  */
+  .model-code {
+    margin: 1.5mm 0 0 0;
+    font-size: 16pt;
     font-weight: bold;
-    line-height: 1.15;
+    letter-spacing: 0.2pt;
+    line-height: 1.1;
     text-align: center;
     color: #000;
-    max-width: 100%;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .legacy-code {
-    margin: 1mm 0 0 0;
-    font-size: 7.5pt;
-    line-height: 1.15;
-    text-align: center;
-    color: #000;
-    max-width: 100%;
+    max-width: 92%;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   /*
-    Tema DARK (pedido de 08/09/2026): fundo escuro, textos claros. QR
-    NUNCA é invertido — continua preto sobre a "ilha" branca de
-    `.qr-wrap` acima (regra incondicional, já vale nos dois temas), só
-    para garantir leitura confiável por leitor/impressora.
+    Identificador legado — menor que o código do modelo, mas ainda
+    "perfeitamente legível na impressão real" (pedido explícito). Linha
+    inteira omitida (condicional mais abaixo, no HTML do corpo) quando
+    vazio — nunca um traço/placeholder.
+  */
+  .legacy-code {
+    margin: 1mm 0 0 0;
+    font-size: 9.5pt;
+    line-height: 1.1;
+    text-align: center;
+    color: #000;
+    max-width: 92%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /*
+    Tema DARK: fundo escuro, textos claros. QR NUNCA é invertido —
+    continua preto sobre a "ilha" branca de `.qr-wrap` acima (regra
+    incondicional, já vale nos dois temas), só para garantir leitura
+    confiável por leitor/impressora — mesmo numa "etiqueta escura da
+    Locus" (pedido explícito), a estética nunca compromete o scanner.
   */
   body.theme-dark {
     background: #0a0a0a;
   }
-  body.theme-dark .equipment-name,
+  body.theme-dark .model-code,
   body.theme-dark .legacy-code {
     color: #fff;
   }
@@ -111,9 +130,9 @@
   {% for label in labels %}
   <div class="label">
     <div class="qr-wrap">
-      <img class="qr-image" src="{{ label.qr_data_uri }}" alt="QR Code {{ label.model_name }}">
+      <img class="qr-image" src="{{ label.qr_data_uri }}" alt="QR Code {{ label.model_code }}">
     </div>
-    <p class="equipment-name">{{ label.model_name }}</p>
+    <p class="model-code">{{ label.model_code }}</p>
     {% if label.legacy_code %}<p class="legacy-code">{{ label.legacy_code }}</p>{% endif %}
   </div>
   {% endfor %}

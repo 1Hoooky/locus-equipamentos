@@ -258,12 +258,14 @@ def generate_labels_zip(equipment_list: list[Equipment]) -> bytes:
 
 
 # --------------------------------------------------------------------------
-# Etiqueta 6x6 ("padrão novo" — correção de requisito de 08/09/2026):
-# etiqueta quadrada de 60x60mm com SÓ QR Code, nome do equipamento e
-# identificador legado, nesta ordem, de cima para baixo. Sem logo, sem
-# patrimônio novo, sem código de barras, sem URL escrita, sem título —
-# tudo isso é próprio da etiqueta ANTIGA (100x50mm, `generate_label_pdf`
-# acima) e permanece intocado lá.
+# Etiqueta 6x6 ("padrão novo" — correção de requisito de 08/09/2026,
+# ajuste visual de conteúdo também em 08/09/2026): etiqueta quadrada de
+# 60x60mm com SÓ QR Code, código do modelo (`model.code`, ex. "NI23BT"
+# — NUNCA o nome comercial/descritivo, ex. "Big Tank") e identificador
+# legado, nesta ordem, de cima para baixo, sem título/rótulo antes de
+# cada linha. Sem logo, sem patrimônio novo, sem código de barras, sem
+# URL escrita — tudo isso é próprio da etiqueta ANTIGA (100x50mm,
+# `generate_label_pdf` acima) e permanece intocado lá.
 #
 # Deliberadamente um conjunto de funções/template SEPARADO (nunca uma
 # alteração de `generate_label_pdf`/`generate_labels_pdf`/`label.html`):
@@ -285,14 +287,23 @@ SQUARE_LABEL_SIZE_MM = 60
 
 def _square_label_context(equipment: Equipment) -> dict:
     """
-    Só os 3 dados exigidos pelo padrão 6x6: QR, nome do equipamento
-    (`model.name` — não existe um campo "nome" próprio em `Equipment`,
-    seção 14 da especificação original) e identificador legado
-    (`legacy_code`, pode estar em branco — quem decide omitir a linha
-    quando vazio é o template, não esta função).
+    Só os 3 dados exigidos pelo padrão 6x6: QR, código do modelo e
+    identificador legado.
+
+    Ajuste visual de 08/09/2026: a etiqueta mostra `model.code` (ex.:
+    "NI23BT"), nunca `model.name` (o nome comercial/descritivo, ex.:
+    "Big Tank") — pedido explícito para uma etiqueta de identificação de
+    patrimônio limpa e técnica, sem depender do comprimento variável de
+    um nome de exibição. `model.code` já é a fonte da verdade existente
+    no cadastro do modelo (`apps/catalog/models.py`, único, validado por
+    regex, usado também na composição do patrimônio) — nenhuma tabela
+    nova foi criada para essa tradução.
+
+    `legacy_code` pode estar em branco — quem decide omitir a linha
+    quando vazio é o template, não esta função.
     """
     return {
-        "model_name": equipment.model.name,
+        "model_code": equipment.model.code,
         "legacy_code": equipment.legacy_code,
         "qr_data_uri": _qr_data_uri(equipment),
     }

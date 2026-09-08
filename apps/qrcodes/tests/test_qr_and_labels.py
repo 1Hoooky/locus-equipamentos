@@ -275,11 +275,13 @@ class LabelThemeServiceTest(TestCase):
 
 class SquareLabelServiceTest(TestCase):
     """
-    Etiqueta 6x6 ("padrão novo" — correção de requisito de 08/09/2026):
-    template/funções SEPARADOS de `generate_label_pdf`/`label.html` (a
-    etiqueta antiga, 100x50mm — ver `LabelThemeServiceTest` acima, que
-    continua intacta). Conteúdo esperado: só QR, nome do equipamento
-    (`model.name`) e identificador legado (omitido quando vazio) —
+    Etiqueta 6x6 ("padrão novo" — correção de requisito de 08/09/2026,
+    ajuste visual de conteúdo também em 08/09/2026): template/funções
+    SEPARADOS de `generate_label_pdf`/`label.html` (a etiqueta antiga,
+    100x50mm — ver `LabelThemeServiceTest` acima, que continua intacta).
+    Conteúdo esperado: só QR, CÓDIGO DO MODELO (`model.code`, ex.
+    "NI23BT" — nunca `model.name`, o nome comercial/descritivo, ex.
+    "NI23 Big Tank") e identificador legado (omitido quando vazio) —
     nada de logo, patrimônio, código de barras, URL ou título.
     """
 
@@ -341,11 +343,20 @@ class SquareLabelServiceTest(TestCase):
         dark_text = self._read_pdf(generate_square_label_pdf(self.equipment, theme="dark")).pages[0].extract_text()
         self.assertEqual(light_text, dark_text)
 
-    def test_model_name_present_in_both_themes(self):
+    def test_model_code_present_in_both_themes(self):
         for theme in ("light", "dark"):
             with self.subTest(theme=theme):
                 text = self._read_pdf(generate_square_label_pdf(self.equipment, theme=theme)).pages[0].extract_text()
-                self.assertIn(self.equipment.model.name, text)
+                self.assertIn(self.equipment.model.code, text)
+
+    def test_commercial_model_name_never_appears(self):
+        """
+        Ajuste visual de 08/09/2026: a etiqueta mostra o código do
+        modelo, nunca o nome comercial/descritivo (que pode ser longo e
+        quebrar a composição) — checagem negativa explícita.
+        """
+        text = self._read_pdf(generate_square_label_pdf(self.equipment)).pages[0].extract_text()
+        self.assertNotIn(self.equipment.model.name, text)
 
     def test_legacy_code_present_when_set(self):
         text = self._read_pdf(generate_square_label_pdf(self.equipment)).pages[0].extract_text()
@@ -362,7 +373,7 @@ class SquareLabelServiceTest(TestCase):
         reader = self._read_pdf(pdf_bytes)
         self.assertEqual(len(reader.pages), 1)
         text = reader.pages[0].extract_text()
-        self.assertIn(self.equipment_no_legacy.model.name, text)
+        self.assertIn(self.equipment_no_legacy.model.code, text)
 
     def test_no_patrimonio_no_url_no_title_in_rendered_text(self):
         """
@@ -558,7 +569,7 @@ class QRDownloadPermissionTest(TestCase):
         box = reader.pages[0].mediabox
         self.assertAlmostEqual(float(box.width) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
         self.assertAlmostEqual(float(box.height) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
-        self.assertIn(self.equipment.model.name, reader.pages[0].extract_text())
+        self.assertIn(self.equipment.model.code, reader.pages[0].extract_text())
 
 
 class LabelBatchDownloadViewTest(TestCase):
@@ -686,8 +697,8 @@ class ModelLabelBatchDownloadViewTest(TestCase):
         reader = PdfReader(io.BytesIO(response.content))
         self.assertEqual(len(reader.pages), 2, "Só os 2 equipamentos ATIVOS do modelo A — nunca o inativo, nunca os do modelo B.")
         full_text = "".join(page.extract_text() for page in reader.pages)
-        self.assertIn(self.model_a.name, full_text)
-        self.assertNotIn(self.eq_b1.patrimonio, full_text)
+        self.assertIn(self.model_a.code, full_text)
+        self.assertNotIn(self.model_b.code, full_text)
 
     def test_without_tema_defaults_to_light(self):
         self.client.login(username="modelo_lote_admin", password="senha-forte-123")
