@@ -220,6 +220,13 @@ def generate_qr_zip(equipment_list: list[Equipment]) -> bytes:
     .zip com um PNG de QR por equipamento, organizado em
     Categoria/Código-do-modelo/Patrimônio.png (seção 3 do pedido). Só
     monta o .zip em memória (`io.BytesIO`) — nada é escrito em disco.
+
+    Nenhuma view usa mais esta função diretamente desde 08/09/2026 (o
+    botão "Exportar QR Codes" passou a baixar as etiquetas 6x6 — ver
+    `generate_square_labels_zip` abaixo) — mantida aqui, com sua
+    cobertura de teste, porque é código funcional que pode voltar a ser
+    reaproveitado (ex.: uma exportação de QR "cru" sem etiqueta, se
+    algum fluxo futuro precisar disso de novo).
     """
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
@@ -234,9 +241,102 @@ def generate_labels_zip(equipment_list: list[Equipment]) -> bytes:
     físico exato), na mesma organização Categoria/Código-do-modelo/
     Patrimônio.pdf usada por `generate_qr_zip` (seção 4 do pedido: "manter
     a mesma organização por categoria/modelo"). Também só em memória.
+
+    Continua gerando a etiqueta ANTIGA (100x50mm, `generate_label_pdf`/
+    `templates/qrcodes/label.html`) de propósito: é a função por trás do
+    botão "Exportar Etiquetas", que o pedido de 08/09/2026 (correção do
+    requisito de etiquetas) explicitamente decidiu manter como está,
+    sem tocar. O padrão novo 6x6 (`generate_square_labels_zip`) é uma
+    função à parte, nunca uma alteração desta aqui — do contrário
+    "Exportar Etiquetas" mudaria de formato/tema sem ter sido pedido.
     """
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for equipment in equipment_list:
             zip_file.writestr(_equipment_zip_path(equipment, "pdf"), generate_label_pdf(equipment))
+    return buffer.getvalue()
+
+
+# --------------------------------------------------------------------------
+# Etiqueta 6x6 ("padrão novo" — correção de requisito de 08/09/2026):
+# etiqueta quadrada de 60x60mm com SÓ QR Code, nome do equipamento e
+# identificador legado, nesta ordem, de cima para baixo. Sem logo, sem
+# patrimônio novo, sem código de barras, sem URL escrita, sem título —
+# tudo isso é próprio da etiqueta ANTIGA (100x50mm, `generate_label_pdf`
+# acima) e permanece intocado lá.
+#
+# Deliberadamente um conjunto de funções/template SEPARADO (nunca uma
+# alteração de `generate_label_pdf`/`generate_labels_pdf`/`label.html`):
+# essas funções antigas continuam alimentando "Exportar Etiquetas"
+# (`generate_labels_zip` acima) e a ação de lote do Django admin
+# (`LabelBatchDownloadView`/`apps/equipment/admin.py`), que o pedido de
+# 08/09/2026 decidiu manter exatamente como estão. Reaproveitar a mesma
+# função para os dois formatos faria "Exportar Etiquetas" mudar de
+# aparência sem ter sido pedido.
+#
+# O QR em si é gerado por `generate_qr_png`/`_qr_data_uri` acima, sem
+# nenhuma alteração — mesmo destino permanente do patrimônio, em
+# qualquer tema, exatamente a mesma regra de sempre (seção "Regra
+# central" no topo deste arquivo).
+# --------------------------------------------------------------------------
+
+SQUARE_LABEL_SIZE_MM = 60
+
+
+def _square_label_context(equipment: Equipment) -> dict:
+    """
+    Só os 3 dados exigidos pelo padrão 6x6: QR, nome do equipamento
+    (`model.name` — não existe um campo "nome" próprio em `Equipment`,
+    seção 14 da especificação original) e identificador legado
+    (`legacy_code`, pode estar em branco — quem decide omitir a linha
+    quando vazio é o template, não esta função).
+    """
+    return {
+        "model_name": equipment.model.name,
+        "legacy_code": equipment.legacy_code,
+        "qr_data_uri": _qr_data_uri(equipment),
+    }
+
+
+def generate_square_label_pdf(equipment: Equipment, theme: str = LABEL_THEME_LIGHT) -> bytes:
+    """Etiqueta 6x6 de um único equipamento — usada pelo download individual (`LabelDownloadView`)."""
+    return generate_square_labels_pdf([equipment], theme=theme)
+
+
+def generate_square_labels_pdf(equipment_list: list[Equipment], theme: str = LABEL_THEME_LIGHT) -> bytes:
+    """
+    Etiquetas 6x6 em lote — uma página por equipamento, mesmo raciocínio
+    de `generate_labels_pdf` (página única no tamanho físico exato, não
+    um grid solto numa folha A4). Usada pelo download em lote por
+    modelo (`ModelLabelBatchDownloadView`, um PDF combinado — "baixar
+    todas as etiquetas daquele modelo", pedido de 08/09/2026).
+
+    `theme` é único para o PDF inteiro, mesmo raciocínio de
+    `generate_labels_pdf`: escolhido uma vez no modal, nunca por
+    equipamento individual dentro do mesmo lote.
+    """
+    labels = [_square_label_context(eq) for eq in equipment_list]
+    html_string = render_to_string(
+        "qrcodes/label_square.html",
+        {
+            "labels": labels,
+            "label_size_mm": SQUARE_LABEL_SIZE_MM,
+            "theme": theme,
+        },
+    )
+    return HTML(string=html_string).write_pdf()
+
+
+def generate_square_labels_zip(equipment_list: list[Equipment], theme: str = LABEL_THEME_LIGHT) -> bytes:
+    """
+    .zip com uma etiqueta 6x6 em PDF por equipamento, mesma organização
+    Categoria/Código-do-modelo/Patrimônio.pdf de sempre — usada pelo
+    botão "Exportar QR Codes" (repaginado em 08/09/2026 para baixar as
+    etiquetas 6x6 no tema escolhido, em vez de PNGs de QR crus; ver
+    `QRCodeZipExportView`).
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for equipment in equipment_list:
+            zip_file.writestr(_equipment_zip_path(equipment, "pdf"), generate_square_label_pdf(equipment, theme=theme))
     return buffer.getvalue()

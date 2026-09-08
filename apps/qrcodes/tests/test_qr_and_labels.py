@@ -24,8 +24,10 @@ from apps.equipment.services import NewEquipmentData, create_equipment
 from apps.qrcodes.services import (
     LABEL_HEIGHT_MM,
     LABEL_WIDTH_MM,
+    SQUARE_LABEL_SIZE_MM,
     _label_context,
     _sanitize_path_segment,
+    _square_label_context,
     equipment_url,
     generate_barcode_png,
     generate_label_pdf,
@@ -33,6 +35,9 @@ from apps.qrcodes.services import (
     generate_labels_zip,
     generate_qr_png,
     generate_qr_zip,
+    generate_square_label_pdf,
+    generate_square_labels_pdf,
+    generate_square_labels_zip,
 )
 
 User = get_user_model()
@@ -268,6 +273,125 @@ class LabelThemeServiceTest(TestCase):
         self.assertIn(second_equipment.patrimonio, full_text)
 
 
+class SquareLabelServiceTest(TestCase):
+    """
+    Etiqueta 6x6 ("padrão novo" — correção de requisito de 08/09/2026):
+    template/funções SEPARADOS de `generate_label_pdf`/`label.html` (a
+    etiqueta antiga, 100x50mm — ver `LabelThemeServiceTest` acima, que
+    continua intacta). Conteúdo esperado: só QR, nome do equipamento
+    (`model.name`) e identificador legado (omitido quando vazio) —
+    nada de logo, patrimônio, código de barras, URL ou título.
+    """
+
+    def setUp(self):
+        category = Category.objects.create(name="Climatizador")
+        model = EquipmentModel.objects.create(category=category, name="NI23 Big Tank", code="NI23BT")
+        user = User.objects.create_user(username="cadastrador_quadrada", password="senha-forte-123")
+        self.equipment = create_equipment(NewEquipmentData(model_id=model.pk, created_by=user))
+        self.equipment.legacy_code = "PLANILHA-042"
+        self.equipment.save(update_fields=["legacy_code"])
+
+        self.equipment_no_legacy = create_equipment(NewEquipmentData(model_id=model.pk, created_by=user))
+
+    def _read_pdf(self, pdf_bytes: bytes):
+        from pypdf import PdfReader
+
+        return PdfReader(io.BytesIO(pdf_bytes))
+
+    def test_light_theme_is_a_valid_pdf_at_the_configured_square_size(self):
+        pdf_bytes = generate_square_label_pdf(self.equipment)
+        reader = self._read_pdf(pdf_bytes)
+        self.assertEqual(len(reader.pages), 1)
+        box = reader.pages[0].mediabox
+        self.assertAlmostEqual(float(box.width) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
+        self.assertAlmostEqual(float(box.height) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
+
+    def test_dark_theme_is_a_valid_pdf_at_the_same_square_size(self):
+        pdf_bytes = generate_square_label_pdf(self.equipment, theme="dark")
+        reader = self._read_pdf(pdf_bytes)
+        box = reader.pages[0].mediabox
+        self.assertAlmostEqual(float(box.width) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
+        self.assertAlmostEqual(float(box.height) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
+
+    def test_default_theme_matches_explicit_light_theme(self):
+        """Mesmo raciocínio de `LabelThemeServiceTest`: comparar texto/dimensões, nunca bytes brutos (metadata do WeasyPrint não é determinística)."""
+        default_bytes = generate_square_label_pdf(self.equipment)
+        explicit_bytes = generate_square_label_pdf(self.equipment, theme="light")
+
+        default_page = self._read_pdf(default_bytes).pages[0]
+        explicit_page = self._read_pdf(explicit_bytes).pages[0]
+
+        self.assertEqual(default_page.extract_text(), explicit_page.extract_text())
+        self.assertEqual(default_page.mediabox.width, explicit_page.mediabox.width)
+        self.assertEqual(default_page.mediabox.height, explicit_page.mediabox.height)
+
+    def test_light_and_dark_produce_visually_different_output(self):
+        """Mesma técnica de `LabelThemeServiceTest`: compara o stream de conteúdo decodificado, não os bytes brutos do PDF."""
+        light_bytes = generate_square_label_pdf(self.equipment, theme="light")
+        dark_bytes = generate_square_label_pdf(self.equipment, theme="dark")
+
+        light_content = self._read_pdf(light_bytes).pages[0].get_contents().get_data()
+        dark_content = self._read_pdf(dark_bytes).pages[0].get_contents().get_data()
+
+        self.assertNotEqual(light_content, dark_content)
+
+    def test_light_and_dark_have_identical_text_content(self):
+        """Tema muda só a aparência — o texto (nome do modelo + código legado) precisa ser idêntico nos dois."""
+        light_text = self._read_pdf(generate_square_label_pdf(self.equipment, theme="light")).pages[0].extract_text()
+        dark_text = self._read_pdf(generate_square_label_pdf(self.equipment, theme="dark")).pages[0].extract_text()
+        self.assertEqual(light_text, dark_text)
+
+    def test_model_name_present_in_both_themes(self):
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                text = self._read_pdf(generate_square_label_pdf(self.equipment, theme=theme)).pages[0].extract_text()
+                self.assertIn(self.equipment.model.name, text)
+
+    def test_legacy_code_present_when_set(self):
+        text = self._read_pdf(generate_square_label_pdf(self.equipment)).pages[0].extract_text()
+        self.assertIn("PLANILHA-042", text)
+
+    def test_legacy_code_omitted_when_blank_does_not_break_rendering(self):
+        """
+        Equipamento sem identificador legado (a maioria, até o backfill
+        mencionado no pedido de 08/09/2026 acontecer) — a etiqueta
+        continua válida, só sem essa terceira linha.
+        """
+        self.assertEqual(self.equipment_no_legacy.legacy_code, "")
+        pdf_bytes = generate_square_label_pdf(self.equipment_no_legacy)
+        reader = self._read_pdf(pdf_bytes)
+        self.assertEqual(len(reader.pages), 1)
+        text = reader.pages[0].extract_text()
+        self.assertIn(self.equipment_no_legacy.model.name, text)
+
+    def test_no_patrimonio_no_url_no_title_in_rendered_text(self):
+        """
+        Confirma negativamente os itens explicitamente excluídos do
+        padrão novo: patrimônio (novo) e URL escrita não podem aparecer
+        no texto renderizado (o QR em si é imagem, não conta).
+        """
+        text = self._read_pdf(generate_square_label_pdf(self.equipment)).pages[0].extract_text()
+        self.assertNotIn(self.equipment.patrimonio, text)
+        self.assertNotIn("locuslocacoes.com.br", text)
+
+    def test_qr_content_is_identical_regardless_of_theme(self):
+        """`_square_label_context` não recebe `theme` — mesmo raciocínio de `LabelThemeServiceTest`."""
+        light_context = _square_label_context(self.equipment)
+        dark_context = _square_label_context(self.equipment)
+        self.assertEqual(light_context["qr_data_uri"], dark_context["qr_data_uri"])
+
+    def test_qr_destination_matches_the_regular_qr_png(self):
+        """O QR da etiqueta 6x6 precisa apontar para exatamente a mesma URL permanente que `generate_qr_png` — nunca um destino próprio."""
+        self.assertEqual(_square_label_context(self.equipment)["qr_data_uri"], _label_context(self.equipment)["qr_data_uri"])
+
+    def test_multiple_equipment_batch_respects_a_single_shared_theme(self):
+        pdf_bytes = generate_square_labels_pdf([self.equipment, self.equipment_no_legacy], theme="dark")
+        reader = self._read_pdf(pdf_bytes)
+        self.assertEqual(len(reader.pages), 2)
+        full_text = "".join(page.extract_text() for page in reader.pages)
+        self.assertIn("PLANILHA-042", full_text)
+
+
 class PathSanitizationTest(TestCase):
     """Sanitização dos nomes de pasta/arquivo dentro dos .zip de exportação."""
 
@@ -419,6 +543,23 @@ class QRDownloadPermissionTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/pdf")
 
+    def test_label_pdf_download_uses_the_new_square_format(self):
+        """
+        Download individual (pedido de 08/09/2026: "downloads
+        individuais continuam como estão, mas também devem sair no
+        padrão 6 por 6") — mesma interação/URL de sempre, conteúdo no
+        novo tamanho quadrado.
+        """
+        from pypdf import PdfReader
+
+        self.client.login(username="qr_admin", password="senha-forte-123")
+        response = self.client.get(self._label_url())
+        reader = PdfReader(io.BytesIO(response.content))
+        box = reader.pages[0].mediabox
+        self.assertAlmostEqual(float(box.width) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
+        self.assertAlmostEqual(float(box.height) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
+        self.assertIn(self.equipment.model.name, reader.pages[0].extract_text())
+
 
 class LabelBatchDownloadViewTest(TestCase):
     """
@@ -492,6 +633,90 @@ class LabelBatchDownloadViewTest(TestCase):
         self.assertEqual(len(reader.pages), 1)
 
 
+class ModelLabelBatchDownloadViewTest(TestCase):
+    """
+    Etiquetas 6x6 em lote por modelo (pedido de 08/09/2026) — botão novo
+    no cabeçalho do card de cada modelo na listagem agrupada. Só
+    equipamento ATIVO do modelo entra; modelo inexistente ou sem
+    equipamento ativo nenhum não pode gerar um PDF vazio/quebrado.
+    """
+
+    def setUp(self):
+        self.category = Category.objects.create(name="Climatizador")
+        self.model_a = EquipmentModel.objects.create(category=self.category, name="NI23 Big Tank", code="NI23BT")
+        self.model_b = EquipmentModel.objects.create(category=self.category, name="9 Pro", code="9PRO")
+        creator = User.objects.create_user(username="cadastrador_modelo_lote", password="senha-forte-123")
+
+        self.eq_a1 = create_equipment(NewEquipmentData(model_id=self.model_a.pk, created_by=creator))
+        self.eq_a2 = create_equipment(NewEquipmentData(model_id=self.model_a.pk, created_by=creator))
+        self.eq_b1 = create_equipment(NewEquipmentData(model_id=self.model_b.pk, created_by=creator))
+        self.inactive_a = create_equipment(NewEquipmentData(model_id=self.model_a.pk, created_by=creator))
+        self.inactive_a.is_active = False
+        self.inactive_a.save(update_fields=["is_active"])
+
+        for role in (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA):
+            User.objects.create_user(username=f"modelo_lote_{role.lower()}", password="senha-forte-123", role=role)
+
+    def _url(self, model_id, *, tema=None):
+        base = f"/qrcodes/modelo/{model_id}/etiquetas.pdf"
+        return f"{base}?tema={tema}" if tema is not None else base
+
+    def test_admin_and_administrativo_can_download(self):
+        for role in (Role.ADMIN, Role.ADMINISTRATIVO):
+            with self.subTest(role=role):
+                self.client.login(username=f"modelo_lote_{role.lower()}", password="senha-forte-123")
+                response = self.client.get(self._url(self.model_a.pk))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["Content-Type"], "application/pdf")
+                self.client.logout()
+
+    def test_operacional_and_consulta_are_forbidden(self):
+        for role in (Role.OPERACIONAL, Role.CONSULTA):
+            with self.subTest(role=role):
+                self.client.login(username=f"modelo_lote_{role.lower()}", password="senha-forte-123")
+                response = self.client.get(self._url(self.model_a.pk))
+                self.assertEqual(response.status_code, 403)
+                self.client.logout()
+
+    def test_includes_only_active_equipment_of_the_requested_model(self):
+        from pypdf import PdfReader
+
+        self.client.login(username="modelo_lote_admin", password="senha-forte-123")
+        response = self.client.get(self._url(self.model_a.pk))
+        reader = PdfReader(io.BytesIO(response.content))
+        self.assertEqual(len(reader.pages), 2, "Só os 2 equipamentos ATIVOS do modelo A — nunca o inativo, nunca os do modelo B.")
+        full_text = "".join(page.extract_text() for page in reader.pages)
+        self.assertIn(self.model_a.name, full_text)
+        self.assertNotIn(self.eq_b1.patrimonio, full_text)
+
+    def test_without_tema_defaults_to_light(self):
+        self.client.login(username="modelo_lote_admin", password="senha-forte-123")
+        response = self.client.get(self._url(self.model_a.pk))
+        self.assertEqual(response.status_code, 200)
+
+    def test_accepts_dark_theme(self):
+        self.client.login(username="modelo_lote_admin", password="senha-forte-123")
+        response = self.client.get(self._url(self.model_a.pk, tema="dark"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
+    def test_rejects_invalid_theme(self):
+        self.client.login(username="modelo_lote_admin", password="senha-forte-123")
+        response = self.client.get(self._url(self.model_a.pk, tema="roxo"))
+        self.assertEqual(response.status_code, 400)
+
+    def test_nonexistent_model_returns_404(self):
+        self.client.login(username="modelo_lote_admin", password="senha-forte-123")
+        response = self.client.get(self._url(999999))
+        self.assertEqual(response.status_code, 404)
+
+    def test_model_with_no_active_equipment_returns_404(self):
+        empty_model = EquipmentModel.objects.create(category=self.category, name="Modelo Vazio", code="VAZIO1")
+        self.client.login(username="modelo_lote_admin", password="senha-forte-123")
+        response = self.client.get(self._url(empty_model.pk))
+        self.assertEqual(response.status_code, 404)
+
+
 class BatchZipViewTest(TestCase):
     """
     As duas rotas de exportação em lote (`qrcodes:qr_zip` e
@@ -499,6 +724,14 @@ class BatchZipViewTest(TestCase):
     exclusão de equipamento inativo, tudo através do client HTTP de
     verdade (não chamando o serviço direto), igual ao resto da suíte de
     permissões do projeto.
+
+    `qr_zip` foi repaginada em 08/09/2026 (correção do requisito de
+    etiquetas): deixou de baixar PNGs de QR crus e passou a baixar as
+    etiquetas 6x6 (`generate_square_labels_zip`) no tema escolhido —
+    "é o botão que já existe" (Exportar QR Codes), reaproveitado em vez
+    de criar uma rota nova. `label_zip` continua exatamente como estava
+    (etiqueta antiga, sempre clara, sem tema) — decisão explícita do
+    pedido, não tocada aqui.
     """
 
     def setUp(self):
@@ -554,14 +787,37 @@ class BatchZipViewTest(TestCase):
                     self.client.logout()
 
     def test_qr_zip_includes_multiple_equipment_and_models_but_excludes_inactive(self):
+        """
+        `qr_zip` agora entrega etiquetas 6x6 em .pdf (não mais PNGs de
+        QR crus) — mesma organização de pastas de sempre, só a
+        extensão do arquivo mudou de acordo com o novo conteúdo.
+        """
         self.client.login(username="zip_admin", password="senha-forte-123")
         response = self.client.get(self._qr_zip_url())
         names = self._namelist(response)
 
-        self.assertIn(f"Climatizador/NI23BT/{self.active_a.patrimonio}.png", names)
-        self.assertIn(f"Climatizador/9PRO/{self.active_b.patrimonio}.png", names)
-        self.assertNotIn(f"Climatizador/NI23BT/{self.inactive.patrimonio}.png", names)
+        self.assertIn(f"Climatizador/NI23BT/{self.active_a.patrimonio}.pdf", names)
+        self.assertIn(f"Climatizador/9PRO/{self.active_b.patrimonio}.pdf", names)
+        self.assertNotIn(f"Climatizador/NI23BT/{self.inactive.patrimonio}.pdf", names)
         self.assertEqual(len(names), 2, "Só os dois equipamentos ativos deveriam estar no .zip.")
+
+    def test_qr_zip_without_tema_defaults_to_light(self):
+        self.client.login(username="zip_admin", password="senha-forte-123")
+        response = self.client.get(self._qr_zip_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/zip")
+
+    def test_qr_zip_accepts_dark_theme(self):
+        self.client.login(username="zip_admin", password="senha-forte-123")
+        response = self.client.get(f"{self._qr_zip_url()}?tema=dark")
+        self.assertEqual(response.status_code, 200)
+        names = self._namelist(response)
+        self.assertEqual(len(names), 2)
+
+    def test_qr_zip_rejects_invalid_theme(self):
+        self.client.login(username="zip_admin", password="senha-forte-123")
+        response = self.client.get(f"{self._qr_zip_url()}?tema=roxo")
+        self.assertEqual(response.status_code, 400)
 
     def test_labels_zip_includes_multiple_equipment_and_models_but_excludes_inactive(self):
         self.client.login(username="zip_admin", password="senha-forte-123")

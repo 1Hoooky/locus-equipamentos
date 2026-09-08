@@ -359,3 +359,72 @@ class GroupedListingQueryBudgetTest(TestCase):
             self.client.get(f"/equipamentos/modelo/{model.pk}/itens/")
 
         self.assertEqual(len(small.captured_queries), len(large.captured_queries))
+
+
+class LabelThemeModalMarkupTest(TestCase):
+    """
+    Modal LIGHT/DARK antes do download de etiquetas (pedido de
+    08/09/2026) — cobre só a metade que `manage.py test` consegue
+    exercitar (o modal em si é JS puro, não executado pelo test
+    runner): que os gatilhos (`data-label-theme-trigger`) e o script
+    compartilhado aparecem no HTML certo, com a permissão certa, e que
+    o botão de etiquetas em lote por modelo aponta para a rota nova.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        category = Category.objects.create(name="Climatizador")
+        cls.model = EquipmentModel.objects.create(category=category, name="NI23 Big Tank", code="NI23BT")
+        creator = User.objects.create_user(username="modal_markup_creator", password="senha-forte-123")
+        cls.equipment = create_equipment(NewEquipmentData(model_id=cls.model.pk, created_by=creator))
+
+        for role in (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA):
+            User.objects.create_user(username=f"modal_markup_{role.lower()}", password="senha-forte-123", role=role)
+
+    def test_exportar_qr_codes_link_is_a_theme_trigger(self):
+        self.client.login(username="modal_markup_administrativo", password="senha-forte-123")
+        content = self.client.get("/equipamentos/").content.decode()
+        self.assertRegex(content, r'data-label-theme-trigger[^>]*href="/qrcodes/lote/qr\.zip"|href="/qrcodes/lote/qr\.zip"[^>]*data-label-theme-trigger')
+
+    def test_exportar_etiquetas_link_is_not_a_theme_trigger(self):
+        """
+        Decisão explícita do pedido de 08/09/2026: "Exportar Etiquetas"
+        continua exatamente como está — sem modal.
+        """
+        self.client.login(username="modal_markup_administrativo", password="senha-forte-123")
+        content = self.client.get("/equipamentos/").content.decode()
+        label_zip_tag = re.search(r'<a[^>]*href="/qrcodes/lote/etiquetas\.zip"[^>]*>', content)
+        self.assertIsNotNone(label_zip_tag)
+        self.assertNotIn("data-label-theme-trigger", label_zip_tag.group(0))
+
+    def test_shared_modal_script_is_loaded_on_the_listing_page(self):
+        self.client.login(username="modal_markup_administrativo", password="senha-forte-123")
+        content = self.client.get("/equipamentos/").content.decode()
+        self.assertIn("qrcodes/label_theme_modal.js", content)
+
+    def test_model_batch_label_button_present_for_administrativo(self):
+        self.client.login(username="modal_markup_administrativo", password="senha-forte-123")
+        content = self.client.get("/equipamentos/").content.decode()
+        self.assertIn(f'href="/qrcodes/modelo/{self.model.pk}/etiquetas.pdf"', content)
+        self.assertIn("data-label-theme-trigger", content)
+
+    def test_model_batch_label_button_hidden_for_consulta(self):
+        self.client.login(username="modal_markup_consulta", password="senha-forte-123")
+        content = self.client.get("/equipamentos/").content.decode()
+        self.assertNotIn(f'/qrcodes/modelo/{self.model.pk}/etiquetas.pdf', content)
+
+    def test_batch_result_qr_export_link_is_also_a_theme_trigger(self):
+        from apps.equipment.models import EquipmentBatch
+
+        self.client.login(username="modal_markup_admin", password="senha-forte-123")
+        self.client.post("/equipamentos/lote/novo/", {"model": self.model.pk, "quantity": 2, "condition": "BOM"})
+        self.client.post("/equipamentos/lote/confirmar/")
+        batch = EquipmentBatch.objects.get()
+
+        content = self.client.get(f"/equipamentos/lote/{batch.id}/").content.decode()
+        self.assertIn("qrcodes/label_theme_modal.js", content)
+        self.assertRegex(
+            content,
+            r'data-label-theme-trigger[^>]*href="/qrcodes/lote/qr\.zip\?batch=%s"|href="/qrcodes/lote/qr\.zip\?batch=%s"[^>]*data-label-theme-trigger'
+            % (batch.id, batch.id),
+        )

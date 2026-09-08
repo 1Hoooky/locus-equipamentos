@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load icons %}
+{% load static %}
 {% block title %}Equipamentos — Locus{% endblock %}
 {% block content %}
 <div class="page-header">
@@ -18,7 +19,7 @@
     <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="link icon-inline">
       {% icon "arrow-down-tray" size="compact" %} Exportar Excel
     </a>
-    <a href="{% url 'qrcodes:qr_zip' %}" class="link icon-inline">
+    <a href="{% url 'qrcodes:qr_zip' %}" data-label-theme-trigger class="link icon-inline">
       {% icon "arrow-down-tray" size="compact" %} Exportar QR Codes
     </a>
     <a href="{% url 'qrcodes:label_zip' %}" class="link icon-inline">
@@ -119,10 +120,36 @@ demais.
 {% if model_groups %}
 <div>
   {% for group in model_groups %}
-  <div class="model-group-card">
+  <div class="model-group-card relative">
+    {% comment %}
+    Botão de etiquetas em lote por modelo (pedido de 08/09/2026) —
+    deliberadamente um IRMÃO do `.model-group-toggle` que vem ANTES dele
+    no HTML (nunca um filho): um `<a>` dentro de um `<button>` (o
+    toggle) seria HTML inválido (conteúdo interativo dentro de conteúdo
+    interativo) e quebraria o clique de expandir/recolher. Posicionado
+    de forma absoluta (por isso `.model-group-card` ganhou `relative`
+    acima) para ficar visualmente "no cabeçalho, à direita, perto das
+    quantidades" sem depender da altura do corpo do grupo (que muda
+    quando expandido) — e continua vindo ANTES do toggle no HTML, então
+    `.model-group-toggle` + `.model-group-body` continuam irmãos
+    ADJACENTES logo abaixo, preservando a regra CSS de recolher/
+    expandir (`_design_tokens.html`) sem nenhuma alteração nela.
+    {% endcomment %}
+    {% if user.is_administrativo_ou_superior %}
+    <a href="{% url 'qrcodes:model_label_batch' group.model_id %}"
+       data-label-theme-trigger
+       class="icon-btn-neutral absolute top-2 right-3 sm:top-2.5 z-10"
+       aria-label="Baixar etiquetas em lote do modelo {{ group.model_name }}"
+       title="Etiquetas em lote">
+      <span class="relative inline-flex">
+        {% icon "tag" size="compact" %}
+        <span class="icon-batch-badge" aria-hidden="true">{% icon "plus" extra_class="w-2 h-2 text-brand-black" %}</span>
+      </span>
+    </a>
+    {% endif %}
     <button type="button"
             id="model-group-toggle-{{ group.model_id }}"
-            class="model-group-toggle"
+            class="model-group-toggle pr-12 sm:pr-14"
             aria-expanded="false"
             aria-controls="model-group-items-{{ group.model_id }}"
             data-model-group-toggle
@@ -205,4 +232,11 @@ demais.
     });
   })();
 </script>
+{% comment %}
+Modal LIGHT/DARK antes do download de etiquetas (pedido de 08/09/2026) —
+intercepta qualquer elemento com `data-label-theme-trigger` nesta página
+("Exportar QR Codes" e os botões de etiquetas em lote por modelo acima).
+Ver static/qrcodes/label_theme_modal.js.
+{% endcomment %}
+<script src="{% static 'qrcodes/label_theme_modal.js' %}"></script>
 {% endblock %}

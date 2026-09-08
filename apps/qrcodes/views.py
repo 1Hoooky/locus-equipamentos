@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 from django.views import View
 
 from apps.accounts.permissions import CAN_MANAGE_EQUIPMENT, RoleRequiredMixin
+from apps.catalog.models import EquipmentModel
 from apps.equipment.models import Equipment
 from apps.qrcodes.services import (
     LABEL_THEME_LIGHT,
@@ -19,8 +20,34 @@ from apps.qrcodes.services import (
     generate_labels_pdf,
     generate_labels_zip,
     generate_qr_png,
-    generate_qr_zip,
+    generate_square_label_pdf,
+    generate_square_labels_pdf,
+    generate_square_labels_zip,
 )
+
+
+def _validated_theme(request):
+    """
+    Lê `?tema=` da querystring e valida — só "light"/"dark" são aceitos,
+    em qualquer rota que receba tema vindo de fora (nunca confiamos só
+    no JS do modal). Ausente cai no padrão "light" (comportamento de
+    sempre de qualquer rota que ainda não tinha tema nenhum). Retorna
+    `(theme, error_response)`: quando `error_response` não é `None`, o
+    chamador deve devolvê-lo imediatamente (tema inválido, HTTP 400) e
+    nunca prosseguir para gerar nada.
+
+    Compartilhado entre as rotas de etiqueta 6x6 (pedido de 08/09/2026)
+    — mesmo raciocínio de validação já usado por `LabelBatchDownloadView`
+    abaixo, só extraído para não repetir o mesmo bloco em cada view nova.
+    """
+    theme = request.GET.get("tema", LABEL_THEME_LIGHT)
+    if theme not in VALID_LABEL_THEMES:
+        return theme, HttpResponse(
+            f"Tema de etiqueta inválido: {theme!r}. Use 'light' ou 'dark'.",
+            content_type="text/plain",
+            status=400,
+        )
+    return theme, None
 
 
 class QRCodeDownloadView(RoleRequiredMixin, View):
@@ -35,11 +62,20 @@ class QRCodeDownloadView(RoleRequiredMixin, View):
 
 
 class LabelDownloadView(RoleRequiredMixin, View):
+    """
+    Download individual — passou a gerar a etiqueta no padrão novo 6x6
+    (`generate_square_label_pdf`, pedido de 08/09/2026: "downloads
+    individuais continuam como estão, mas também devem sair no padrão
+    6 por 6"). Interação inalterada: mesmo link direto de sempre, sem
+    modal, sempre tema claro (mesmo padrão default de qualquer outra
+    rota que não pede tema explicitamente).
+    """
+
     allowed_roles = CAN_MANAGE_EQUIPMENT
 
     def get(self, request, patrimonio: str):
         equipment = get_object_or_404(Equipment, patrimonio=patrimonio)
-        pdf_bytes = generate_label_pdf(equipment)
+        pdf_bytes = generate_square_label_pdf(equipment)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{equipment.patrimonio}-etiqueta.pdf"'
         return response
@@ -108,20 +144,74 @@ def _active_equipment_for_export(request=None):
 
 class QRCodeZipExportView(RoleRequiredMixin, View):
     """
-    Exportação em lote dos QR Codes de todos os equipamentos ativos (ou,
-    com `?batch=<uuid>`, só os de um lote de cadastro específico) — .zip
-    organizado em Categoria/Código-do-modelo/Patrimônio.png (seção 3 do
-    pedido). Botão "Exportar QR Codes" na listagem de equipamentos e
-    "Exportar QR Codes deste lote" na tela de resultado do cadastro em
-    lote.
+    Botão "Exportar QR Codes" na listagem de equipamentos e "Exportar QR
+    Codes deste lote" na tela de resultado do cadastro em lote (mesma
+    rota nos dois lugares).
+
+    Repaginada em 08/09/2026 (correção do requisito de etiquetas): antes
+    baixava um .zip de PNGs de QR crus (`generate_qr_zip`); passou a
+    baixar um .zip com as etiquetas no padrão novo 6x6
+    (`generate_square_labels_zip`), no tema escolhido no modal
+    LIGHT/DARK que agora intercepta este botão — "é o botão que já
+    existe", reaproveitado em vez de criar uma tela nova. Mesma
+    organização de pastas Categoria/Código-do-modelo/Patrimônio de
+    sempre; só o conteúdo de cada arquivo (e a extensão, .pdf em vez de
+    .png) mudou. `generate_qr_zip` continua existindo em services.py,
+    só não é mais chamada por nenhuma view (ver comentário lá).
+
+    `?tema=light|dark` validado no backend (nunca só confiado do JS do
+    modal) — mesmo raciocínio de `LabelBatchDownloadView` abaixo.
+    `?batch=<uuid>` continua funcionando exatamente como antes (via
+    `_active_equipment_for_export`), sem nenhuma mudança de escopo.
     """
 
     allowed_roles = CAN_MANAGE_EQUIPMENT
 
     def get(self, request):
-        zip_bytes = generate_qr_zip(_active_equipment_for_export(request))
+        theme, error_response = _validated_theme(request)
+        if error_response is not None:
+            return error_response
+        zip_bytes = generate_square_labels_zip(_active_equipment_for_export(request), theme=theme)
         response = HttpResponse(zip_bytes, content_type="application/zip")
-        response["Content-Disposition"] = 'attachment; filename="qrcodes-locus.zip"'
+        response["Content-Disposition"] = 'attachment; filename="etiquetas-locus.zip"'
+        return response
+
+
+class ModelLabelBatchDownloadView(RoleRequiredMixin, View):
+    """
+    Etiquetas 6x6 em lote de UM modelo — botão novo no cabeçalho do card
+    de cada modelo na listagem agrupada (pedido de 08/09/2026), ao lado
+    das contagens. Abre o mesmo modal LIGHT/DARK dos outros fluxos e
+    baixa um único PDF combinado (uma página por equipamento — mesmo
+    raciocínio de `LabelBatchDownloadView`, não um .zip: um único modelo
+    não tem "organização de pastas" para preservar, e um PDF só é mais
+    prático para imprimir todas de uma vez).
+
+    Só equipamento ATIVO do modelo entra (mesma regra de sempre das
+    outras exportações em lote). Modelo inexistente → 404 padrão do
+    Django. Modelo existente mas sem nenhum equipamento ativo → 404 com
+    mensagem explicativa (nada para gerar).
+    """
+
+    allowed_roles = CAN_MANAGE_EQUIPMENT
+
+    def get(self, request, model_id: int):
+        equipment_model = get_object_or_404(EquipmentModel, pk=model_id)
+        theme, error_response = _validated_theme(request)
+        if error_response is not None:
+            return error_response
+        equipment_list = list(
+            Equipment.objects.filter(model_id=model_id, is_active=True).select_related("model", "category")
+        )
+        if not equipment_list:
+            return HttpResponse(
+                "Nenhum equipamento ativo para este modelo.",
+                content_type="text/plain",
+                status=404,
+            )
+        pdf_bytes = generate_square_labels_pdf(equipment_list, theme=theme)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="etiquetas-{equipment_model.code}.pdf"'
         return response
 
 
