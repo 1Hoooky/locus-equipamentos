@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Importar clientes do Auvo — Locus{% endblock %}
+{% block content %}
+<h1 class="page-title mb-2">Importar clientes do Auvo</h1>
+<p class="page-subtitle mb-4">
+  Envie o arquivo <code>.xlsx</code> exportado diretamente do Auvo (não é preciso editar,
+  reorganizar ou converter a planilha antes). Nada é gravado ainda — a próxima tela mostra
+  cada cliente já classificado (novo, já existente, possível duplicado ou inválido) para você
+  revisar antes de confirmar.
+</p>
+
+<form method="post" enctype="multipart/form-data" class="card-pad max-w-lg">
+  {% csrf_token %}
+  <input type="file" name="file" accept=".xlsx" required class="block w-full text-sm mb-4">
+  <button type="submit" class="btn-primary">
+    Enviar e analisar
+  </button>
+</form>
+{% endblock %}

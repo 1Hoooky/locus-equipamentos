@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Importação de clientes concluída — Locus{% endblock %}
+{% block content %}
+<h1 class="page-title mb-4">Importação concluída</h1>
+<p class="page-subtitle mb-4">Arquivo <strong>{{ filename|default:"—" }}</strong> — {{ total }} registro(s) analisado(s).</p>
+
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
+  <div class="card-pad">
+    <p class="text-2xl font-bold text-green-700">{{ created_count }}</p>
+    <p class="text-sm text-gray-600">cliente(s) criado(s)</p>
+  </div>
+  <div class="card-pad">
+    <p class="text-2xl font-bold text-gray-500">{{ ja_existente_count }}</p>
+    <p class="text-sm text-gray-600">já existente(s)</p>
+  </div>
+  <div class="card-pad">
+    <p class="text-2xl font-bold text-amber-700">{{ possivel_duplicado_count }}</p>
+    <p class="text-sm text-gray-600">possível(is) duplicado(s)</p>
+  </div>
+  <div class="card-pad">
+    <p class="text-2xl font-bold text-red-700">{{ invalido_count }}</p>
+    <p class="text-sm text-gray-600">inválido(s)</p>
+  </div>
+  <div class="card-pad">
+    <p class="text-2xl font-bold text-red-700">{{ failed_count }}</p>
+    <p class="text-sm text-gray-600">falha(s) inesperada(s)</p>
+  </div>
+</div>
+
+{% if created %}
+<h2 class="font-semibold mb-2 text-brand-charcoal">Clientes criados</h2>
+<div class="card-pad mb-6 text-sm">
+  <div class="flex flex-wrap gap-2">
+    {% for item in created %}
+      <a href="{% url 'clients:detail' item.pk %}" class="link">{{ item.label }}</a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if not_imported %}
+<h2 class="font-semibold mb-2 text-brand-charcoal">Registros não importados</h2>
+<div class="table-wrap mb-6">
+  <table class="table-base">
+    <thead>
+      <tr><th>Linha</th><th>Cliente</th><th>Classificação</th><th>Motivo</th></tr>
+    </thead>
+    <tbody>
+      {% for item in not_imported %}
+      <tr>
+        <td>{{ item.row_number }}</td>
+        <td>{{ item.label }}</td>
+        <td>{{ item.classification }}</td>
+        <td>{{ item.reason }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="field-hint mb-6">
+  Já existentes, possíveis duplicados e inválidos podem ser resolvidos depois (corrigir a
+  planilha ou o cadastro já existente, conforme o caso) e reenviados — clientes já importados
+  (por código Auvo ou CPF/CNPJ) não são duplicados numa nova importação.
+</p>
+{% endif %}
+
+<a href="{% url 'clients:list' %}" class="link text-sm">Ver clientes</a>
+{% endblock %}

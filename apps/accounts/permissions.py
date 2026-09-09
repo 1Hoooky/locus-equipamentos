@@ -74,6 +74,13 @@ CAN_VIEW_DIAGNOSTICS = (Role.ADMIN,)  # telas internas de diagnóstico somente-l
 # para instalar/retirar/transferir equipamento (nenhuma constante nova para isso).
 CAN_VIEW_CLIENTS = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA)
 CAN_MANAGE_CLIENTS = (Role.ADMIN, Role.ADMINISTRATIVO)
+# Importação de clientes do Auvo (LocusHub, 08/09/2026) — operação
+# administrativa de alto impacto, deliberadamente mais restrita que
+# `CAN_MANAGE_CLIENTS` (que também inclui ADMINISTRATIVO): só Administrador
+# vê o botão, acessa a interface, envia arquivo, vê a prévia e confirma.
+# Mesmo padrão de constante de perfil único já usado por
+# `CAN_IMPORT_LEGACY_SPREADSHEET` acima.
+CAN_IMPORT_CLIENTS = (Role.ADMIN,)
 CAN_MANAGE_LOCATIONS = (Role.ADMIN, Role.ADMINISTRATIVO)
 CAN_VIEW_MOVEMENTS = (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA)
 

@@ -5,11 +5,18 @@
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Clientes</h1>
-  {% if user.is_administrativo_ou_superior or user.is_superuser %}
-  <a href="{% url 'clients:create' %}" class="btn-primary">
-    {% icon "plus" size="compact" %} Novo cliente
-  </a>
-  {% endif %}
+  <div class="flex gap-2">
+    {% if user.is_admin or user.is_superuser %}
+    <a href="{% url 'clients:import_upload' %}" class="btn-neutral icon-inline">
+      {% icon "arrow-up-tray" size="compact" %} Importar clientes
+    </a>
+    {% endif %}
+    {% if user.is_administrativo_ou_superior or user.is_superuser %}
+    <a href="{% url 'clients:create' %}" class="btn-primary">
+      {% icon "plus" size="compact" %} Novo cliente
+    </a>
+    {% endif %}
+  </div>
 </div>
 
 <form method="get" class="mb-4">

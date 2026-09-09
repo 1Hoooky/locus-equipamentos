@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Revisar importação de clientes — Locus{% endblock %}
+{% block content %}
+<h1 class="page-title mb-2">Revisar importação de clientes</h1>
+<p class="page-subtitle mb-4">
+  Arquivo <strong>{{ filename|default:"—" }}</strong> — {{ total }} registro(s) analisado(s).
+  Nada foi gravado ainda: só os registros marcados como <strong>Novo</strong> serão criados ao
+  confirmar. Já existentes, possíveis duplicados e inválidos nunca são importados
+  automaticamente nesta etapa.
+</p>
+
+<div class="flex flex-wrap gap-2 mb-4 text-sm">
+  <a href="{% url 'clients:import_review' %}" class="btn-neutral {% if not categoria_ativa %}ring-2 ring-brand-gold{% endif %}">
+    Todos ({{ total }})
+  </a>
+  <a href="?categoria=NOVO" class="btn-neutral {% if categoria_ativa == 'NOVO' %}ring-2 ring-brand-gold{% endif %}">
+    Novos ({{ counts.NOVO }})
+  </a>
+  <a href="?categoria=JA_EXISTENTE" class="btn-neutral {% if categoria_ativa == 'JA_EXISTENTE' %}ring-2 ring-brand-gold{% endif %}">
+    Já existentes ({{ counts.JA_EXISTENTE }})
+  </a>
+  <a href="?categoria=POSSIVEL_DUPLICADO" class="btn-neutral {% if categoria_ativa == 'POSSIVEL_DUPLICADO' %}ring-2 ring-brand-gold{% endif %}">
+    Possíveis duplicados ({{ counts.POSSIVEL_DUPLICADO }})
+  </a>
+  <a href="?categoria=INVALIDO" class="btn-neutral {% if categoria_ativa == 'INVALIDO' %}ring-2 ring-brand-gold{% endif %}">
+    Inválidos ({{ counts.INVALIDO }})
+  </a>
+</div>
+
+<div class="table-wrap mb-4">
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Linha</th>
+        <th>Nome</th>
+        <th>Razão social</th>
+        <th>CPF/CNPJ</th>
+        <th>Cidade/UF</th>
+        <th>Classificação</th>
+        <th>Motivo</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td class="text-gray-500">{{ row.row_number }}</td>
+        <td>{{ row.nome|default:"—" }}</td>
+        <td>{{ row.razao_social|default:"—" }}</td>
+        <td>{{ row.documento_display }}</td>
+        <td>{{ row.cidade_uf|default:"—" }}</td>
+        <td>
+          {% if row.classification == "NOVO" %}
+          <span class="badge-success">Novo</span>
+          {% elif row.classification == "JA_EXISTENTE" %}
+          <span class="badge-neutral">Já existente</span>
+          {% elif row.classification == "POSSIVEL_DUPLICADO" %}
+          <span class="badge-warning">Possível duplicado</span>
+          {% else %}
+          <span class="badge-danger">Inválido</span>
+          {% endif %}
+        </td>
+        <td class="text-xs text-gray-600">{{ row.reason|default:"—" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td class="empty-state" colspan="7">Nenhum registro nesta categoria.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<form method="post" action="{% url 'clients:import_review' %}">
+  {% csrf_token %}
+  <button type="submit" class="btn-primary">
+    Confirmar importação
+  </button>
+  <a href="{% url 'clients:import_upload' %}" class="btn-neutral ml-3">Cancelar e enviar outro arquivo</a>
+</form>
+{% endblock %}

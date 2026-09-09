@@ -30,6 +30,16 @@ def _validate_document_unique(normalized_document: str, *, exclude_pk: int | Non
         raise ValueError(f"Já existe um cliente cadastrado com o documento {normalized_document}.")
 
 
+def _validate_auvo_code_unique(auvo_code: str, *, exclude_pk: int | None = None) -> None:
+    if not auvo_code:
+        return
+    queryset = Client.objects.filter(auvo_code=auvo_code)
+    if exclude_pk is not None:
+        queryset = queryset.exclude(pk=exclude_pk)
+    if queryset.exists():
+        raise ValueError(f"Já existe um cliente importado com o código Auvo {auvo_code}.")
+
+
 @dataclass
 class NewClientData:
     client_type: str
@@ -42,6 +52,13 @@ class NewClientData:
     email: str = ""
     contact_name: str = ""
     notes: str = ""
+    # Campos de importação Auvo — todos opcionais, string vazia em qualquer
+    # fluxo que não seja a importação (ver apps.clients.import_auvo).
+    auvo_code: str = ""
+    external_code: str = ""
+    municipal_registration: str = ""
+    icms_taxpayer: str = ""
+    billing_email: str = ""
     fiscal_address: AddressData | None = None
     # Nome da unidade inicial — OPCIONAL desde o 2º reteste manual: a
     # Location operacional principal é criada SEMPRE junto com o cliente
@@ -68,20 +85,31 @@ DEFAULT_INITIAL_LOCATION_NAME = "Unidade principal"
 
 
 @transaction.atomic
-def create_client(data: NewClientData) -> Client:
+def create_client(data: NewClientData, *, require_document: bool = True) -> Client:
     """
     Cria um `Client`: normaliza e valida o documento, checa duplicidade,
     cria `fiscal_address` (se informado) e, opcionalmente, a unidade
     inicial — tudo na mesma transação atômica (rollback total em caso de
     falha em qualquer etapa).
+
+    `require_document`: mantém, por padrão (`True`), a regra de negócio já
+    em vigor — CNPJ/CPF obrigatório para cadastro manual (decisão revista a
+    pedido do usuário, ver comentário em `Client.document`). A única exceção
+    suportada é a importação de clientes do Auvo
+    (`apps.clients.import_auvo`/`views_import`), que passa
+    `require_document=False` explicitamente porque a planilha real de
+    origem tem clientes legítimos sem documento cadastrado — a exceção fica
+    restrita a esse único caminho, sem afetar `ClientCreateView`/`ClientForm`
+    nem qualquer outro chamador que não passe o argumento.
     """
     normalized_document = validate_document_for_type(data.document, data.client_type)
     # Decisão revista a pedido do usuário: o CNPJ/CPF (não a razão social)
     # é o campo obrigatório — o inverso do que valia antes. `company_name`
     # agora é opcional (ver `Client.company_name`/`display_name()`).
-    if not normalized_document:
+    if require_document and not normalized_document:
         raise ValueError("CNPJ é obrigatório.")
     _validate_document_unique(normalized_document)
+    _validate_auvo_code_unique(data.auvo_code.strip())
 
     fiscal_address = create_address(data.fiscal_address)
 
@@ -96,6 +124,11 @@ def create_client(data: NewClientData) -> Client:
         email=data.email,
         contact_name=data.contact_name,
         notes=data.notes,
+        auvo_code=data.auvo_code.strip(),
+        external_code=data.external_code.strip(),
+        municipal_registration=data.municipal_registration.strip(),
+        icms_taxpayer=data.icms_taxpayer.strip(),
+        billing_email=data.billing_email.strip(),
         fiscal_address=fiscal_address,
     )
     client._change_reason = data.change_reason  # consumido pelo django-simple-history
