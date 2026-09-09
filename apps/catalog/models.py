@@ -73,6 +73,14 @@ class EquipmentModel(TimeStampedModel, SoftDeleteModel):
         verbose_name = "modelo de equipamento"
         verbose_name_plural = "modelos de equipamento"
         ordering = ["category__name", "name"]
+        # Permissões "reais" da arquitetura de Cargos (09/09/2026) — ver
+        # apps/accounts/permission_catalog.py. Coexistem com os CAN_* de
+        # apps/accounts/permissions.py, que continuam sendo a autorização
+        # de fato nas views desta rodada.
+        permissions = [
+            ("manage_catalog", "Pode gerenciar catálogo (categorias e modelos de equipamento)"),
+            ("reclassify_equipment_model", "Pode reclassificar modelo de equipamento"),
+        ]
 
     def clean(self):
         super().clean()

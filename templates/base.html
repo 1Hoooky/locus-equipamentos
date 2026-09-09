@@ -111,6 +111,13 @@ login.
          {% if request.resolver_match.view_name == 'accounts:user_list' %}aria-current="page"{% endif %}>
         {% icon "user-group" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Usuários</span>
       </a>
+      {% if user.is_superuser %}
+      <a href="{% url 'accounts:role_list' %}" title="Cargos" aria-label="Cargos"
+         class="sidebar-link {% if request.resolver_match.view_name == 'accounts:role_list' or request.resolver_match.view_name == 'accounts:role_create' or request.resolver_match.view_name == 'accounts:role_update' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'accounts:role_list' %}aria-current="page"{% endif %}>
+        {% icon "cog-6-tooth" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Cargos</span>
+      </a>
+      {% endif %}
       <a href="{% url 'operations:duplicate_locations_report' %}" title="Diagnóstico de unidades" aria-label="Diagnóstico de unidades"
          class="sidebar-link {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}sidebar-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}aria-current="page"{% endif %}>
@@ -187,6 +194,12 @@ login.
          {% if request.resolver_match.view_name == 'accounts:user_list' %}aria-current="page"{% endif %}>
         {% icon "user-group" size="compact" %} Usuários
       </a>
+      {% if user.is_superuser %}
+      <a href="{% url 'accounts:role_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'accounts:role_list' or request.resolver_match.view_name == 'accounts:role_create' or request.resolver_match.view_name == 'accounts:role_update' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'accounts:role_list' %}aria-current="page"{% endif %}>
+        {% icon "cog-6-tooth" size="compact" %} Cargos
+      </a>
+      {% endif %}
       <a href="{% url 'operations:duplicate_locations_report' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}aria-current="page"{% endif %}>
         {% icon "magnifying-glass" size="compact" %} Diagnóstico de unidades

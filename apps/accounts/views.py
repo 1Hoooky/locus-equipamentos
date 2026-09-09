@@ -12,6 +12,7 @@ from django.views.generic import ListView
 from apps.accounts.forms import UserCreateForm, UserUpdateForm
 from apps.accounts.models import User
 from apps.accounts.permissions import CAN_MANAGE_USERS, RoleRequiredMixin
+from apps.accounts.services import set_user_cargo
 
 
 class UserListView(RoleRequiredMixin, ListView):
@@ -34,6 +35,7 @@ class UserCreateView(RoleRequiredMixin, View):
         form = UserCreateForm(request.POST)
         if form.is_valid():
             user = form.save()
+            set_user_cargo(user, form.cleaned_data["cargo"])
             messages.success(request, f"Usuário {user.username} criado com sucesso.")
             return redirect("accounts:user_list")
         return render(request, "accounts/user_form.html", {"form": form, "is_new": True})
@@ -60,6 +62,7 @@ class UserUpdateView(RoleRequiredMixin, View):
         form = UserUpdateForm(request.POST, instance=user)
         if form.is_valid():
             form.save()
+            set_user_cargo(user, form.cleaned_data["cargo"])
             messages.success(request, f"Usuário {user.username} atualizado.")
             return redirect("accounts:user_list")
         return render(request, "accounts/user_form.html", {"form": form, "is_new": False, "target_user": user})

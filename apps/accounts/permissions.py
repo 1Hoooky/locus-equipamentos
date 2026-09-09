@@ -54,6 +54,32 @@ class RoleRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         raise PermissionDenied("Seu perfil não tem acesso a esta ação.")
 
 
+class SuperuserRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    """
+    Mixin para views de "Nível C" — ações de segurança do próprio sistema
+    (arquitetura de Cargos/Permissões, 09/09/2026, ver
+    apps/accounts/permission_catalog.py): gestão de cargos e de quais
+    Permissions cada cargo tem.
+
+    Deliberadamente `is_superuser` PURO, nunca ligado a `role`/CAN_* nem
+    a uma `Permission` concedível — do contrário um cargo com a
+    permissão "editar cargos" poderia se auto-conceder qualquer outra
+    permissão (inclusive a de gerenciar cargos), uma escalação de
+    privilégio trivial. `Role.ADMIN`/`user.is_admin` sozinho NÃO basta
+    aqui, mesmo sendo suficiente para quase toda outra ação
+    administrativa do sistema (`CAN_*`) — é por isso que este mixin
+    existe separado de `RoleRequiredMixin`.
+    """
+
+    def test_func(self) -> bool:
+        return bool(self.request.user.is_superuser)
+
+    def handle_no_permission(self):
+        if not self.request.user.is_authenticated:
+            return super().handle_no_permission()
+        raise PermissionDenied("Esta ação é restrita a superusuários.")
+
+
 # Grupos de perfis reaproveitados nas views (espelham a matriz da seção 11)
 CAN_MANAGE_USERS = (Role.ADMIN,)
 CAN_MANAGE_CATALOG = (Role.ADMIN, Role.ADMINISTRATIVO)

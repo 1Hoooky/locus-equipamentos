@@ -102,6 +102,15 @@ class Client(TimeStampedModel, SoftDeleteModel):
                 fields=["auvo_code"], condition=~models.Q(auvo_code=""), name="uniq_client_auvo_code_when_present"
             ),
         ]
+        # Permissões "reais" da arquitetura de Cargos (09/09/2026) — ver
+        # apps/accounts/permission_catalog.py. Coexistem com os CAN_* de
+        # apps/accounts/permissions.py, que continuam sendo a autorização
+        # de fato nas views desta rodada.
+        permissions = [
+            ("view_clients", "Pode ver clientes"),
+            ("manage_clients", "Pode gerenciar clientes"),
+            ("import_clients", "Pode importar clientes (Auvo)"),
+        ]
 
     def clean(self):
         super().clean()

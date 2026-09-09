@@ -211,6 +211,23 @@ class Maintenance(TimeStampedModel, SoftDeleteModel):
                 name="uniq_maintenance_aberta_ativa_por_equipamento",
             ),
         ]
+        # Permissão "real" da arquitetura de Cargos (09/09/2026) — ver
+        # apps/accounts/permission_catalog.py. Coexiste com CAN_VIEW_MAINTENANCE
+        # de apps/accounts/permissions.py, que continua sendo a autorização
+        # de fato nas views desta rodada. Escrita reaproveita
+        # `operations.register_operations` (mesmo padrão já documentado em
+        # apps/accounts/permissions.py para CAN_REGISTER_OPERATIONS).
+        #
+        # Codename "view_maintenance_and_cleaning" (não "view_maintenance"):
+        # o Django já cria automaticamente uma permissão builtin chamada
+        # "view_maintenance" para este modelo (padrão `view_<nome-do-modelo>`)
+        # — usar o mesmo nome para a permissão customizada colide
+        # (`auth.E005`). O nome escolhido também é mais preciso: cobre
+        # tanto `Maintenance` quanto `Cleaning`, como o CAN_VIEW_MAINTENANCE
+        # legado já faz.
+        permissions = [
+            ("view_maintenance_and_cleaning", "Pode ver manutenção/higienização"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.equipment.patrimonio}: {self.get_maintenance_type_display()} ({self.get_status_display()})"

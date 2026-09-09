@@ -64,6 +64,14 @@ class Location(TimeStampedModel, SoftDeleteModel):
                 name="location_client_matches_type",
             ),
         ]
+        # Permissões "reais" da arquitetura de Cargos (09/09/2026) — ver
+        # apps/accounts/permission_catalog.py. Coexistem com os CAN_* de
+        # apps/accounts/permissions.py, que continuam sendo a autorização
+        # de fato nas views desta rodada.
+        permissions = [
+            ("view_diagnostics", "Pode ver diagnósticos internos (ex.: locais duplicados)"),
+            ("manage_locations", "Pode gerenciar locais"),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -130,6 +138,15 @@ class Movement(models.Model):
                 check=~models.Q(movement_type=MovementType.OUTRO) | ~models.Q(reason=""),
                 name="movement_outro_requires_reason",
             ),
+        ]
+        # Permissões "reais" da arquitetura de Cargos (09/09/2026) — ver
+        # apps/accounts/permission_catalog.py. `register_operations`
+        # também cobre, por reaproveitamento deliberado, a escrita em
+        # apps.maintenance (Maintenance/Cleaning) — mesmo raciocínio já
+        # documentado em apps/accounts/permissions.py para CAN_REGISTER_OPERATIONS.
+        permissions = [
+            ("register_operations", "Pode registrar operações (manutenção/higienização/movimentação)"),
+            ("view_movements", "Pode ver movimentações"),
         ]
 
     def __str__(self) -> str:

@@ -1,7 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path, reverse_lazy
 
-from apps.accounts import views
+from apps.accounts import views, views_roles
 
 app_name = "accounts"
 
@@ -19,6 +19,12 @@ urlpatterns = [
     path("usuarios/", views.UserListView.as_view(), name="user_list"),
     path("usuarios/novo/", views.UserCreateView.as_view(), name="user_create"),
     path("usuarios/<int:pk>/editar/", views.UserUpdateView.as_view(), name="user_update"),
+    # Gestão de Cargos (arquitetura de Cargos/Permissões, 09/09/2026) —
+    # restrita a superusuário (SuperuserRequiredMixin), não a Administrador.
+    path("cargos/", views_roles.RoleListView.as_view(), name="role_list"),
+    path("cargos/novo/", views_roles.RoleCreateView.as_view(), name="role_create"),
+    path("cargos/<int:pk>/editar/", views_roles.RoleUpdateView.as_view(), name="role_update"),
+    path("cargos/<int:pk>/excluir/", views_roles.RoleDeleteView.as_view(), name="role_delete"),
     path(
         "senha/redefinir/",
         auth_views.PasswordResetView.as_view(

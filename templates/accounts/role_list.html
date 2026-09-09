@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}Cargos — Locus{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Cargos</h1>
+  <a href="{% url 'accounts:role_create' %}" class="btn-primary">
+    {% icon "plus" size="compact" %} Novo cargo
+  </a>
+</div>
+
+<p class="text-sm text-gray-600 mb-4">
+  Cada cargo agrupa um conjunto de permissões. Um usuário tem no máximo um cargo por vez
+  (atribuído na tela de edição do usuário). O cargo <strong>Administrador</strong> é protegido
+  pelo sistema — tem acesso total e não pode ser editado ou excluído por aqui.
+</p>
+
+<div class="table-wrap">
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Cargo</th>
+        <th>Descrição</th>
+        <th>Permissões</th>
+        <th>Usuários</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for cargo in cargos %}
+      <tr>
+        <td>
+          {{ cargo.name }}
+          {% if cargo.profile.is_protected %}
+            <span class="badge-neutral" title="Cargo protegido pelo sistema">Protegido</span>
+          {% endif %}
+        </td>
+        <td>{{ cargo.profile.description|default:"—" }}</td>
+        <td>{{ cargo.permissions.count }}</td>
+        <td>{{ cargo.user_set.count }}</td>
+        <td class="flex items-center gap-2">
+          {% if cargo.profile.is_protected %}
+            <span class="text-xs text-gray-500">Acesso total — não editável</span>
+          {% else %}
+            <a href="{% url 'accounts:role_update' cargo.pk %}" class="icon-btn-neutral"
+               aria-label="Editar cargo {{ cargo.name }}" title="Editar cargo {{ cargo.name }}">
+              {% icon "pencil" size="compact" %}
+            </a>
+            <form method="post" action="{% url 'accounts:role_delete' cargo.pk %}"
+                  onsubmit="return confirm('Excluir o cargo \'{{ cargo.name }}\'? Só é possível se nenhum usuário estiver com este cargo.');">
+              {% csrf_token %}
+              <button type="submit" class="icon-btn-neutral" aria-label="Excluir cargo {{ cargo.name }}" title="Excluir cargo {{ cargo.name }}">
+                {% icon "x-mark" size="compact" %}
+              </button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td class="empty-state" colspan="5">Nenhum cargo cadastrado ainda.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -159,6 +159,19 @@ class Equipment(TimeStampedModel, SoftDeleteModel):
             models.Index(fields=["condition"]),
             models.Index(fields=["category"]),
         ]
+        # Permissões "reais" da arquitetura de Cargos (09/09/2026) — ver
+        # apps/accounts/permission_catalog.py. Coexistem com os CAN_* de
+        # apps/accounts/permissions.py, que continuam sendo a autorização
+        # de fato nas views desta rodada.
+        permissions = [
+            ("manage_equipment", "Pode gerenciar equipamentos"),
+            ("view_acquisition_value", "Pode ver valor de aquisição do equipamento"),
+            ("change_status_condition", "Pode alterar status/condição do equipamento"),
+            ("add_photos", "Pode adicionar fotos/anexos de equipamento"),
+            ("export_data", "Pode exportar dados (etiquetas/QR codes)"),
+            ("import_legacy_spreadsheet", "Pode importar planilha legada de equipamentos"),
+            ("supersede_equipment", "Pode reemitir patrimônio (superseder equipamento)"),
+        ]
 
     def clean(self):
         super().clean()
