@@ -14,7 +14,15 @@
   </p>
 </div>
 {% else %}
-<form method="post" class="card-pad max-w-3xl space-y-4">
+{% comment %}
+Só esta tela precisa de mais largura que o max-w-6xl padrão do layout —
+escopado aqui via seletor com a própria classe do <main> em vez de
+alterar templates/base.html (que afetaria toda tela do sistema).
+{% endcomment %}
+<style>
+  main.max-w-6xl { max-width: 1300px; }
+</style>
+<form method="post" class="card-pad space-y-6">
   {% csrf_token %}
 
   {% if form.non_field_errors %}
@@ -23,16 +31,18 @@
     </div>
   {% endif %}
 
-  <div>
-    <label class="field-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
-    {{ form.name }}
-    {% for error in form.name.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
+    <div>
+      <label class="field-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+      {{ form.name }}
+      {% for error in form.name.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
 
-  <div>
-    <label class="field-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
-    {{ form.description }}
-    {% for error in form.description.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    <div>
+      <label class="field-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}
+      {% for error in form.description.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
   </div>
 
   <div>
@@ -40,13 +50,13 @@
     {% for error in form.permissions.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
     <div class="space-y-4 mt-2">
       {% for group in permission_groups %}
-        <fieldset class="border border-gray-200 rounded-md p-3">
+        <fieldset class="border border-gray-200 rounded-md p-4">
           <legend class="text-sm font-semibold text-gray-700 px-1">{{ group.module_label }}</legend>
-          <div class="space-y-1">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
             {% for item in group.items %}
-              <label class="flex items-start gap-2 text-sm py-0.5">
+              <label class="flex items-start gap-2 text-sm py-1">
                 <input type="checkbox" name="permissions" value="{{ item.id }}" {% if item.checked %}checked{% endif %}
-                       class="mt-0.5">
+                       class="mt-0.5 shrink-0">
                 <span>{{ item.label }}</span>
               </label>
             {% endfor %}
