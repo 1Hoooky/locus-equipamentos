@@ -24,16 +24,21 @@ alterar templates/base.html (que afetaria toda tela do sistema).
   main.max-w-6xl { max-width: 1300px; }
 
   {% comment %}
-  Ajuste visual de 10/09/2026 (só CSS/template — nada de backend):
-  "Descrição" é informação secundária e não deve chamar mais atenção
-  que Nome/Permissões. Mantém a MESMA classe .field-input (borda,
-  radius, tipografia, foco — templates/_design_tokens.html) e o
-  widget/validação do form intocados; só reduz a altura visível de 3
-  para ~2 linhas e troca o resize livre (both) por só vertical, em vez
-  de deixar o textarea crescer sem necessidade.
+  Ajuste visual de 10/09/2026, revisado no mesmo dia (pedido: altura
+  ainda desproporcional em relação a "Nome do cargo" — não "~2 linhas",
+  e sim a MESMA altura do input de uma linha). Mantém a MESMA classe
+  .field-input (borda, radius, tipografia, foco —
+  templates/_design_tokens.html) e o widget/validação do form
+  intocados; só iguala a altura inicial à de um <input> de uma linha
+  com essa classe (2.375rem = padding py-2 + line-height text-sm +
+  borda, medido de verdade em #id_name — não um valor arredondado a
+  olho) e troca o resize livre (both) por só vertical, para o campo
+  poder crescer se o usuário digitar uma descrição longa sem já nascer
+  mais alto que "Nome do cargo".
   {% endcomment %}
   #{{ form.description.id_for_label }} {
-    height: 3.75rem;
+    height: 2.375rem;
+    min-height: 2.375rem;
     resize: vertical;
   }
 
