@@ -8,6 +8,10 @@ urlpatterns = [
     path("lote/etiquetas.pdf", views.LabelBatchDownloadView.as_view(), name="label_batch"),
     path("lote/qr.zip", views.QRCodeZipExportView.as_view(), name="qr_zip"),
     path("lote/etiquetas.zip", views.LabelZipExportView.as_view(), name="label_zip"),
+    # QR "puro" em lote (pedido de 10/09/2026) — rota própria, distinta de
+    # "lote/qr.zip" acima (que, apesar do nome da view, hoje baixa
+    # etiquetas 6x6, não QR puro). Ver docstring de QRCodeOnlyZipExportView.
+    path("lote/qr-puro.zip", views.QRCodeOnlyZipExportView.as_view(), name="qr_only_zip"),
     # Etiquetas 6x6 em lote por modelo (pedido de 08/09/2026) — precisa
     # vir antes do catch-all "<str:patrimonio>/..." abaixo, mesmo
     # raciocínio defensivo já usado para as rotas "lote/..." acima.

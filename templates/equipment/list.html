@@ -22,6 +22,19 @@
     <a href="{% url 'qrcodes:qr_zip' %}" data-label-theme-trigger class="link icon-inline">
       {% icon "arrow-down-tray" size="compact" %} Exportar QR Codes
     </a>
+    <a href="{% url 'qrcodes:label_zip' %}" class="link icon-inline">
+      {% icon "arrow-down-tray" size="compact" %} Exportar Etiquetas
+    </a>
+    {% comment %}
+    "Exportar QR Codes (puro)" (pedido de 10/09/2026) — botão distinto do
+    "Exportar QR Codes" acima (que, apesar do nome, baixa etiquetas 6x6
+    desde 08/09/2026). Sem `data-label-theme-trigger`: QR puro não tem
+    "etiqueta" nenhuma para ter tema LIGHT/DARK. Ver
+    apps/qrcodes/views.QRCodeOnlyZipExportView.
+    {% endcomment %}
+    <a href="{% url 'qrcodes:qr_only_zip' %}" class="link icon-inline">
+      {% icon "qr-code" size="compact" %} Exportar QR Codes (puro)
+    </a>
     {% endif %}
   </div>
 </div>

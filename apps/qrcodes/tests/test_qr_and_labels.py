@@ -20,6 +20,7 @@ from django.test import TestCase
 
 from apps.accounts.models import Role
 from apps.catalog.models import Category, EquipmentModel
+from apps.equipment.models import Equipment
 from apps.equipment.services import NewEquipmentData, create_equipment
 from apps.qrcodes.services import (
     LABEL_HEIGHT_MM,
@@ -839,3 +840,173 @@ class BatchZipViewTest(TestCase):
         self.assertIn(f"Climatizador/9PRO/{self.active_b.patrimonio}.pdf", names)
         self.assertNotIn(f"Climatizador/NI23BT/{self.inactive.patrimonio}.pdf", names)
         self.assertEqual(len(names), 2, "Só os dois equipamentos ativos deveriam estar no .zip.")
+
+
+class QRCodeOnlyZipExportViewTest(TestCase):
+    """
+    Botão "Exportar QR Codes (puro)" (pedido de 10/09/2026) —
+    `qrcodes:qr_only_zip` / `QRCodeOnlyZipExportView`.
+
+    Deliberadamente uma suíte separada de `BatchZipViewTest` acima: aquela
+    classe testa as duas rotas já existentes (`qr_zip`, hoje etiqueta 6x6,
+    e `label_zip`); esta aqui testa só a rota nova, que devolve QR "cru" —
+    exatamente o que `generate_qr_zip` já fazia e que `BatchZipServiceTest`
+    já cobre no nível de serviço (estrutura de pastas, nenhum arquivo
+    gravado em disco). Aqui o foco é: a MESMA seleção/permissão das outras
+    exportações em lote, um PNG por equipamento sem nenhuma composição de
+    etiqueta, o mesmo destino de sempre codificado no QR, nenhuma escrita
+    no banco, e que as duas rotas antigas (`qr_zip`, `label_zip`)
+    continuam se comportando exatamente como antes — regressão explícita
+    pedida junto com esta função.
+    """
+
+    def setUp(self):
+        self.category = Category.objects.create(name="Climatizador")
+        self.model_a = EquipmentModel.objects.create(category=self.category, name="NI23 Big Tank", code="NI23BT")
+        self.model_b = EquipmentModel.objects.create(category=self.category, name="9 Pro", code="9PRO")
+        creator = User.objects.create_user(username="cadastrador_qronly_view", password="senha-forte-123")
+
+        self.active_a = create_equipment(NewEquipmentData(model_id=self.model_a.pk, created_by=creator))
+        self.active_b = create_equipment(NewEquipmentData(model_id=self.model_b.pk, created_by=creator))
+        self.inactive = create_equipment(NewEquipmentData(model_id=self.model_a.pk, created_by=creator))
+        self.inactive.is_active = False
+        self.inactive.save(update_fields=["is_active"])
+
+        for role in (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA):
+            User.objects.create_user(username=f"qronly_{role.lower()}", password="senha-forte-123", role=role)
+
+    def _qr_only_zip_url(self):
+        return "/qrcodes/lote/qr-puro.zip"
+
+    def _namelist(self, response) -> set:
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+            return set(zf.namelist())
+
+    # 1. Usuário autorizado consegue exportar.
+    def test_admin_and_administrativo_can_export(self):
+        for role in (Role.ADMIN, Role.ADMINISTRATIVO):
+            with self.subTest(role=role):
+                self.client.login(username=f"qronly_{role.lower()}", password="senha-forte-123")
+                response = self.client.get(self._qr_only_zip_url())
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["Content-Type"], "application/zip")
+                self.client.logout()
+
+    # 2. Usuário sem permissão recebe 403 — mesma matriz das outras
+    # exportações em lote (CAN_MANAGE_EQUIPMENT), backend valida de
+    # verdade, não só esconde o botão.
+    def test_operacional_and_consulta_are_forbidden(self):
+        for role in (Role.OPERACIONAL, Role.CONSULTA):
+            with self.subTest(role=role):
+                self.client.login(username=f"qronly_{role.lower()}", password="senha-forte-123")
+                response = self.client.get(self._qr_only_zip_url())
+                self.assertEqual(response.status_code, 403)
+                self.client.logout()
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        # Sem login, `LoginRequiredMixin` (herdado por `RoleRequiredMixin`)
+        # redireciona para a tela de login — 403 só vale para quem já
+        # está autenticado mas sem o cargo/role exigido (teste acima).
+        response = self.client.get(self._qr_only_zip_url())
+        self.assertEqual(response.status_code, 302)
+
+    # 3. Um arquivo por equipamento selecionado (e só os ativos — mesma
+    # seleção de sempre, via `_active_equipment_for_export`).
+    def test_zip_contains_one_file_per_active_equipment_and_excludes_inactive(self):
+        self.client.login(username="qronly_admin", password="senha-forte-123")
+        response = self.client.get(self._qr_only_zip_url())
+        names = self._namelist(response)
+
+        self.assertIn(f"Climatizador/NI23BT/{self.active_a.patrimonio}.png", names)
+        self.assertIn(f"Climatizador/9PRO/{self.active_b.patrimonio}.png", names)
+        self.assertNotIn(f"Climatizador/NI23BT/{self.inactive.patrimonio}.png", names)
+        self.assertEqual(len(names), 2, "Só os dois equipamentos ativos deveriam estar no .zip.")
+
+    # 4. Nomes de arquivo únicos (um patrimônio nunca se repete, mesmo com
+    # vários equipamentos do mesmo modelo/categoria).
+    def test_filenames_are_unique_per_patrimonio(self):
+        extra = create_equipment(NewEquipmentData(model_id=self.model_a.pk, created_by=self.active_a.created_by))
+        self.client.login(username="qronly_admin", password="senha-forte-123")
+        response = self.client.get(self._qr_only_zip_url())
+        names = list(self._namelist(response))
+
+        self.assertEqual(len(names), len(set(names)), "Nomes de arquivo duplicados dentro do .zip.")
+        self.assertIn(f"Climatizador/NI23BT/{extra.patrimonio}.png", names)
+        self.assertEqual(len(names), 3)
+
+    # 5. O PNG contém SOMENTE o QR — nenhuma composição de etiqueta (sem
+    # código do modelo, sem legado, sem borda/texto). Comparamos byte a
+    # byte com `generate_qr_png`, a mesma função usada em
+    # `qrcodes:qr_png` (o download individual) — não um "segundo padrão".
+    def test_png_is_the_bare_qr_with_no_label_composition(self):
+        self.client.login(username="qronly_admin", password="senha-forte-123")
+        response = self.client.get(self._qr_only_zip_url())
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+            png_bytes = zf.read(f"Climatizador/NI23BT/{self.active_a.patrimonio}.png")
+
+        self.assertTrue(png_bytes.startswith(b"\x89PNG"))
+        self.assertEqual(
+            png_bytes,
+            generate_qr_png(self.active_a),
+            "O PNG do .zip deveria ser byte a byte igual ao QR puro gerado por generate_qr_png "
+            "— nenhuma composição de etiqueta (modelo/legado/borda/texto) pode ter sido adicionada.",
+        )
+
+    # 6. O QR aponta para o mesmo destino do QR "de sempre" do equipamento
+    # (mesmo download individual, `qrcodes:qr_png`) — mesma origem/dado,
+    # nenhum segundo padrão de QR.
+    def test_qr_destination_matches_the_regular_individual_qr_download(self):
+        self.client.login(username="qronly_admin", password="senha-forte-123")
+        zip_response = self.client.get(self._qr_only_zip_url())
+        with zipfile.ZipFile(io.BytesIO(zip_response.content)) as zf:
+            png_bytes = zf.read(f"Climatizador/NI23BT/{self.active_a.patrimonio}.png")
+
+        individual_response = self.client.get(f"/qrcodes/{self.active_a.patrimonio}/qr.png")
+        self.assertEqual(png_bytes, individual_response.content)
+
+        from PIL import Image
+        from pyzbar.pyzbar import decode
+
+        decoded = decode(Image.open(io.BytesIO(png_bytes)))
+        self.assertEqual(len(decoded), 1)
+        self.assertEqual(decoded[0].data.decode(), equipment_url(self.active_a))
+
+    # 7. Exportar não altera nenhum registro no banco — operação
+    # estritamente de leitura.
+    def test_exporting_does_not_alter_any_equipment_record(self):
+        before = list(
+            Equipment.objects.filter(pk__in=[self.active_a.pk, self.active_b.pk, self.inactive.pk])
+            .order_by("pk")
+            .values()
+        )
+
+        self.client.login(username="qronly_admin", password="senha-forte-123")
+        response = self.client.get(self._qr_only_zip_url())
+        self.assertEqual(response.status_code, 200)
+
+        after = list(
+            Equipment.objects.filter(pk__in=[self.active_a.pk, self.active_b.pk, self.inactive.pk])
+            .order_by("pk")
+            .values()
+        )
+        self.assertEqual(before, after, "A exportação não deveria alterar nenhum campo de nenhum equipamento.")
+
+    # 8. Regressão: os dois exportadores antigos continuam se comportando
+    # exatamente como antes — nem a rota/nome/conteúdo de `qr_zip` (hoje
+    # etiqueta 6x6) nem os de `label_zip` foram tocados por esta função.
+    def test_old_exporters_qr_zip_and_label_zip_still_work_unchanged(self):
+        self.client.login(username="qronly_admin", password="senha-forte-123")
+
+        qr_zip_response = self.client.get("/qrcodes/lote/qr.zip")
+        self.assertEqual(qr_zip_response.status_code, 200)
+        self.assertEqual(qr_zip_response["Content-Type"], "application/zip")
+        qr_zip_names = self._namelist(qr_zip_response)
+        self.assertIn(f"Climatizador/NI23BT/{self.active_a.patrimonio}.pdf", qr_zip_names)
+        self.assertEqual(len(qr_zip_names), 2, "qr_zip continua entregando etiquetas 6x6, não QR puro.")
+
+        label_zip_response = self.client.get("/qrcodes/lote/etiquetas.zip")
+        self.assertEqual(label_zip_response.status_code, 200)
+        self.assertEqual(label_zip_response["Content-Type"], "application/zip")
+        label_zip_names = self._namelist(label_zip_response)
+        self.assertIn(f"Climatizador/NI23BT/{self.active_a.patrimonio}.pdf", label_zip_names)
+        self.assertEqual(len(label_zip_names), 2)

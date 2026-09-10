@@ -20,6 +20,7 @@ from apps.qrcodes.services import (
     generate_labels_pdf,
     generate_labels_zip,
     generate_qr_png,
+    generate_qr_zip,
     generate_square_label_pdf,
     generate_square_labels_pdf,
     generate_square_labels_zip,
@@ -156,8 +157,12 @@ class QRCodeZipExportView(RoleRequiredMixin, View):
     existe", reaproveitado em vez de criar uma tela nova. Mesma
     organização de pastas Categoria/Código-do-modelo/Patrimônio de
     sempre; só o conteúdo de cada arquivo (e a extensão, .pdf em vez de
-    .png) mudou. `generate_qr_zip` continua existindo em services.py,
-    só não é mais chamada por nenhuma view (ver comentário lá).
+    .png) mudou.
+
+    `generate_qr_zip` voltou a ter um chamador em 10/09/2026 —
+    `QRCodeOnlyZipExportView` abaixo, o botão "Exportar QR Codes (puro)",
+    pedido justamente porque este botão aqui (apesar do nome) não baixa
+    mais QR "cru" nenhum desde a repaginação acima.
 
     `?tema=light|dark` validado no backend (nunca só confiado do JS do
     modal) — mesmo raciocínio de `LabelBatchDownloadView` abaixo.
@@ -174,6 +179,42 @@ class QRCodeZipExportView(RoleRequiredMixin, View):
         zip_bytes = generate_square_labels_zip(_active_equipment_for_export(request), theme=theme)
         response = HttpResponse(zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = 'attachment; filename="etiquetas-locus.zip"'
+        return response
+
+
+class QRCodeOnlyZipExportView(RoleRequiredMixin, View):
+    """
+    Botão "Exportar QR Codes (puro)" (pedido de 10/09/2026) — QR Code
+    "cru", sem nenhuma composição de etiqueta: sem código do modelo, sem
+    identificador legado, sem borda, sem texto, sem logo. Reaproveita
+    `generate_qr_zip` (services.py) tal como já existia — mesma origem/
+    dado do QR de sempre (`generate_qr_png`/`equipment_url`, a MESMA URL
+    permanente do patrimônio codificada em qualquer outro QR do sistema),
+    nenhum segundo padrão de QR criado.
+
+    Deliberadamente uma view/rota separada de `QRCodeZipExportView`
+    acima (o botão "Exportar QR Codes" já existente, que desde
+    08/09/2026 baixa as etiquetas 6x6, não QR puro) — o nome antigo já
+    estava em uso para outra coisa, então esta função ganhou um botão e
+    uma rota próprios em vez de reaproveitar o texto/rota já ocupados
+    (ver ajuste de 10/09/2026 para o raciocínio completo).
+
+    Sem tema (`?tema=`): QR puro não tem "etiqueta" nenhuma para ter
+    LIGHT/DARK — não intercepta o modal de tema (sem
+    `data-label-theme-trigger` no botão do template).
+
+    Mesma seleção de equipamentos, mesma permissão (`CAN_MANAGE_EQUIPMENT`,
+    igual a toda outra view deste arquivo) e mesma organização de pastas
+    Categoria/Código-do-modelo/Patrimônio.png dos outros dois zips em
+    lote — nenhuma UX nova inventada para esta ação.
+    """
+
+    allowed_roles = CAN_MANAGE_EQUIPMENT
+
+    def get(self, request):
+        zip_bytes = generate_qr_zip(_active_equipment_for_export(request))
+        response = HttpResponse(zip_bytes, content_type="application/zip")
+        response["Content-Disposition"] = 'attachment; filename="qrcodes-locus.zip"'
         return response
 
 
