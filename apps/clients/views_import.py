@@ -19,6 +19,8 @@ extensão é `ClientImportReviewView.post()` — o parser em
 `apps.clients.import_auvo` não precisa mudar para isso.
 """
 
+import logging
+
 from django.core.exceptions import ValidationError
 from django.contrib import messages
 from django.shortcuts import redirect, render
@@ -37,6 +39,8 @@ from apps.clients.import_auvo import (
 )
 from apps.clients.services import NewClientData, create_client
 from apps.core.services import AddressData
+
+logger = logging.getLogger(__name__)
 
 SESSION_KEY_ROWS = "clients_import_auvo_rows"
 SESSION_KEY_FILENAME = "clients_import_auvo_filename"
@@ -208,7 +212,15 @@ class ClientImportReviewView(RoleRequiredMixin, View):
                 )
                 continue
             except Exception as exc:  # nunca deixar uma linha ruim derrubar as demais
-                reason = f"Falha inesperada: {exc}"
+                # `str(exc)` aqui pode ser um IntegrityError/erro interno
+                # técnico (às vezes em inglês) — fica só no log; a tela de
+                # revisão mostra uma mensagem genérica em português
+                # (auditoria de idioma, ago/2026). O detalhe completo
+                # continua disponível no log técnico para investigação.
+                logger.exception(
+                    "Falha inesperada ao importar linha %s da planilha de clientes.", row.row_number
+                )
+                reason = "Falha inesperada ao importar esta linha. Veja o log do servidor para detalhes."
                 failed.append({"row_number": row.row_number, "label": _row_label(row), "reason": reason})
                 not_imported.append(
                     {"row_number": row.row_number, "label": _row_label(row), "classification": "FALHA", "reason": reason}

@@ -18,6 +18,7 @@ class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
         fields = ("name", "is_active")
+        labels = {"name": "Nome", "is_active": "Ativo"}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -30,6 +31,13 @@ class EquipmentModelForm(forms.ModelForm):
     class Meta:
         model = EquipmentModel
         fields = ("category", "name", "code", "manufacturer", "is_active")
+        labels = {
+            "category": "Categoria",
+            "name": "Nome",
+            "code": "Código",
+            "manufacturer": "Fabricante",
+            "is_active": "Ativo",
+        }
         help_texts = {
             "code": "Usado na composição do patrimônio (LOC-{CODE}-{SEQUENCE}). Maiúsculas e números, 2 a 20 caracteres.",
         }

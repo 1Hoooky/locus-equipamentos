@@ -37,9 +37,13 @@ class ExportTest(TestCase):
         response = self.client.get("/equipamentos/exportar/?format=csv")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "text/csv")
+        self.assertEqual(response["Content-Type"], "text/csv; charset=utf-8")
 
-        content = response.content.decode("utf-8")
+        # BOM UTF-8 (compatibilidade Excel/Windows, auditoria de idioma/
+        # encoding ago/2026): "utf-8-sig" descarta o BOM automaticamente se
+        # presente e se comporta como "utf-8" comum se ausente.
+        self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
+        content = response.content.decode("utf-8-sig")
         rows = list(csv.reader(io.StringIO(content)))
         header = rows[0]
         for expected_col in ("Patrimônio", "Código do modelo", "Status", "Condição", "Código legado"):
@@ -77,7 +81,7 @@ class ExportTest(TestCase):
         self.client.login(username="exporter_admin", password="senha-forte-123")
         response = self.client.get("/equipamentos/exportar/?format=csv&status=MANUTENCAO")
 
-        content = response.content.decode("utf-8")
+        content = response.content.decode("utf-8-sig")
         rows = list(csv.reader(io.StringIO(content)))
         self.assertEqual(len(rows), 2)  # header + 1 linha
         self.assertIn(self.eq1.patrimonio, rows[1])
@@ -95,6 +99,6 @@ class ExportTest(TestCase):
         response = self.client.get("/equipamentos/exportar/?format=csv&model=xyz")
 
         self.assertEqual(response.status_code, 200)
-        content = response.content.decode("utf-8")
+        content = response.content.decode("utf-8-sig")
         rows = list(csv.reader(io.StringIO(content)))
         self.assertEqual(len(rows), 3)  # header + eq1 + eq2 (filtro inválido ignorado)

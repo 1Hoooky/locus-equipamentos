@@ -159,6 +159,7 @@ class CommercialSourceForm(forms.ModelForm):
     class Meta:
         model = CommercialSource
         fields = ("name", "order", "is_active")
+        labels = {"name": "Nome", "order": "Ordem", "is_active": "Ativo"}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -169,6 +170,13 @@ class OpportunityStageForm(forms.ModelForm):
     class Meta:
         model = OpportunityStage
         fields = ("name", "order", "is_won", "is_lost", "is_active")
+        labels = {
+            "name": "Nome",
+            "order": "Ordem",
+            "is_won": "É etapa de ganho",
+            "is_lost": "É etapa de perda",
+            "is_active": "Ativo",
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -185,6 +193,7 @@ class LossReasonForm(forms.ModelForm):
     class Meta:
         model = LossReason
         fields = ("name", "order", "is_active")
+        labels = {"name": "Nome", "order": "Ordem", "is_active": "Ativo"}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

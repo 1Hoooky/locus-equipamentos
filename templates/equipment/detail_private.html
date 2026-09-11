@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load icons %}
+{% load currency %}
 {% block title %}{{ equipment.patrimonio }} — Locus Equipamentos{% endblock %}
 {% block content %}
 <a href="{% url 'equipment:list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
@@ -57,10 +58,10 @@ clique extra, mas visualmente subordinado ao cabeçalho.
     <dd>{{ equipment.supplier|default:"—" }}</dd>
 
     <dt class="text-gray-500">Data de aquisição</dt>
-    <dd>{{ equipment.acquisition_date|default:"—" }}</dd>
+    <dd>{{ equipment.acquisition_date|date:"d/m/Y"|default:"—" }}</dd>
 
     <dt class="text-gray-500">Valor de aquisição</dt>
-    <dd>{{ equipment.acquisition_value|default:"—" }}</dd>
+    <dd>{{ equipment.acquisition_value|brl }}</dd>
     {% endif %}
   </dl>
 

@@ -7,6 +7,7 @@ Django admin como interface operacional (fechamento da Fase 1).
 """
 
 import datetime
+import logging
 from decimal import Decimal
 
 from django.contrib import messages
@@ -56,6 +57,8 @@ from apps.equipment.services import (
     reclassify_model,
     supersede_equipment,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class EquipmentListView(LoginRequiredMixin, ListView):
@@ -314,7 +317,16 @@ class EquipmentBatchConfirmView(RoleRequiredMixin, View):
                     notes=pending["notes"],
                 )
             )
-        except (ValueError, EquipmentModel.DoesNotExist) as exc:
+        except EquipmentModel.DoesNotExist:
+            # O modelo escolhido no passo anterior foi desativado/removido
+            # nesse meio-tempo (corrida entre a prévia e a confirmação) —
+            # `str(exc)` aqui seria o texto interno do Django em inglês
+            # ("EquipmentModel matching query does not exist."), nunca
+            # apropriado para o usuário final (auditoria de idioma, ago/2026).
+            logger.warning("Lote de equipamentos: modelo não encontrado na confirmação (usuário=%s).", request.user)
+            messages.error(request, "O modelo escolhido não está mais disponível. Selecione novamente.")
+            return redirect("equipment:batch_create")
+        except ValueError as exc:
             messages.error(request, str(exc) or "Não foi possível criar o lote de equipamentos.")
             return redirect("equipment:batch_create")
 

@@ -95,6 +95,14 @@ class EquipmentUpdateForm(forms.ModelForm):
     class Meta:
         model = Equipment
         fields = ("serial_number", "legacy_code", "supplier", "acquisition_date", "acquisition_value", "notes")
+        labels = {
+            "serial_number": "Serial do fabricante",
+            "legacy_code": "Código legado",
+            "supplier": "Fornecedor",
+            "acquisition_date": "Data de aquisição",
+            "acquisition_value": "Valor de aquisição",
+            "notes": "Observações",
+        }
         widgets = {
             "acquisition_date": forms.DateInput(attrs={"type": "date"}),
             "notes": forms.Textarea(attrs={"rows": 3}),

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load icons %}
 {% load pagination_tags %}
+{% load currency %}
 {% block title %}Oportunidades — Locus{% endblock %}
 {% block content %}
 <div class="page-header">
@@ -94,7 +95,7 @@
           {% else %}<span class="badge-info">{{ opportunity.stage.name }}</span>{% endif %}
         </td>
         <td>{{ opportunity.owner }}</td>
-        <td>{% if opportunity.estimated_value is not None %}R$ {{ opportunity.estimated_value }}{% else %}—{% endif %}</td>
+        <td>{{ opportunity.estimated_value|brl }}</td>
         <td>
           <a href="{% url 'crm:opportunity_detail' opportunity.pk %}" class="icon-btn-neutral"
              aria-label="Ver oportunidade {{ opportunity.title }}" title="Ver oportunidade {{ opportunity.title }}">

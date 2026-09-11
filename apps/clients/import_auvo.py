@@ -20,6 +20,7 @@ pela posição.
 """
 
 import io
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -28,6 +29,8 @@ from difflib import SequenceMatcher
 from openpyxl import load_workbook
 
 from apps.clients.validators import is_valid_cnpj, is_valid_cpf, normalize_document
+
+logger = logging.getLogger(__name__)
 
 # Todas as colunas que este importador efetivamente lê (mapeamento completo,
 # relatório de 08/09/2026) — usadas também para validar que o arquivo
@@ -331,7 +334,14 @@ def parse_client_workbook(uploaded_file) -> list[ParsedClientRow]:
     try:
         wb = load_workbook(io.BytesIO(uploaded_file.read()), data_only=True)
     except Exception as exc:  # openpyxl levanta várias exceções diferentes para arquivo inválido
-        raise ClientImportError(f"Não foi possível ler o arquivo como planilha Excel: {exc}") from exc
+        # O texto de `exc` é interno do openpyxl/Python (em inglês, às vezes
+        # com caminho de arquivo/traceback) — nunca deve chegar ao usuário
+        # final; fica só no log técnico (auditoria de idioma, ago/2026).
+        logger.warning("Falha ao ler planilha de importação de clientes: %s", exc, exc_info=True)
+        raise ClientImportError(
+            "Não foi possível ler o arquivo como planilha Excel. Verifique se o arquivo não está "
+            "corrompido e se é realmente um .xlsx."
+        ) from exc
 
     ws = wb.worksheets[0]
     rows_iter = ws.iter_rows(min_row=1)

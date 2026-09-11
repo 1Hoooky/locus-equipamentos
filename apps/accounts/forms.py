@@ -70,6 +70,7 @@ class UserCreateForm(_CargoAssignmentMixin, UserCreationForm):
     class Meta(UserCreationForm.Meta):
         model = User
         fields = ("username", "first_name", "last_name", "email", "role")
+        labels = {"role": "Perfil"}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -89,6 +90,7 @@ class UserUpdateForm(_CargoAssignmentMixin, forms.ModelForm):
     class Meta:
         model = User
         fields = ("first_name", "last_name", "email", "role", "is_active")
+        labels = {"role": "Perfil"}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

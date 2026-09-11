@@ -16,6 +16,7 @@ usar em cada linha é sempre humana, na tela de revisão.
 
 import difflib
 import io
+import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -23,6 +24,8 @@ from decimal import Decimal, InvalidOperation
 from openpyxl import load_workbook
 
 from apps.catalog.models import Category, EquipmentModel
+
+logger = logging.getLogger(__name__)
 
 SHEET_NAME = "TOTAL EQUIPAMENTOS"
 
@@ -180,7 +183,14 @@ def parse_legacy_workbook(uploaded_file) -> list[ParsedRow]:
     try:
         wb = load_workbook(io.BytesIO(uploaded_file.read()), data_only=True)
     except Exception as exc:  # openpyxl levanta várias exceções diferentes para arquivo inválido
-        raise LegacyImportError(f"Não foi possível ler o arquivo como planilha Excel: {exc}") from exc
+        # Mesmo raciocínio de `apps.clients.import_auvo.parse_client_workbook`:
+        # o texto de `exc` é interno/em inglês — só no log técnico, nunca na
+        # tela (auditoria de idioma, ago/2026).
+        logger.warning("Falha ao ler planilha de importação legada: %s", exc, exc_info=True)
+        raise LegacyImportError(
+            "Não foi possível ler o arquivo como planilha Excel. Verifique se o arquivo não está "
+            "corrompido e se é realmente um .xlsx."
+        ) from exc
 
     if SHEET_NAME not in wb.sheetnames:
         raise LegacyImportError(

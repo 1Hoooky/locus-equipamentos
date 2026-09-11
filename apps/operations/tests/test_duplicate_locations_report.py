@@ -290,7 +290,7 @@ class DuplicateLocationsReportViewContentTest(TestCase):
     def test_no_duplicates_shows_empty_state(self):
         response = self.client.get(self.URL)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Nenhuma Location duplicada encontrada.")
+        self.assertContains(response, "Nenhuma unidade duplicada encontrada.")
 
     def test_duplicate_group_renders_required_fields_and_sem_referencias_marker(self):
         cliente = Client.objects.create(company_name="Cliente Tela LTDA")

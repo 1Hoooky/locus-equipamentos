@@ -16,6 +16,16 @@ class AddressForm(forms.ModelForm):
     class Meta:
         model = Address
         fields = ("cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf", "reference_notes")
+        labels = {
+            "cep": "CEP",
+            "logradouro": "Logradouro",
+            "numero": "Número",
+            "complemento": "Complemento",
+            "bairro": "Bairro",
+            "cidade": "Cidade",
+            "uf": "UF",
+            "reference_notes": "Observações de referência",
+        }
         widgets = {"reference_notes": forms.Textarea(attrs={"rows": 2})}
 
     def __init__(self, *args, **kwargs):

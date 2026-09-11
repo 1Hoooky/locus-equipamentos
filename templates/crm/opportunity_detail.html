@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load icons %}
+{% load currency %}
 {% block title %}{{ opportunity.title }} — Locus{% endblock %}
 {% block content %}
 <a href="{% url 'crm:opportunity_list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
@@ -31,23 +32,23 @@
     <dd>{{ opportunity.source.name }}</dd>
 
     <dt class="text-gray-500">Previsão de fechamento</dt>
-    <dd>{{ opportunity.expected_close_date|default:"—" }}</dd>
+    <dd>{{ opportunity.expected_close_date|date:"d/m/Y"|default:"—" }}</dd>
 
     <dt class="text-gray-500">Valor estimado</dt>
-    <dd>{% if opportunity.estimated_value is not None %}R$ {{ opportunity.estimated_value }}{% else %}—{% endif %}</dd>
+    <dd>{{ opportunity.estimated_value|brl }}</dd>
 
     {% if opportunity.won_at %}
     <dt class="text-gray-500">Ganha em</dt>
-    <dd>{{ opportunity.won_at }}{% if opportunity.closed_value is not None %} — R$ {{ opportunity.closed_value }}{% endif %}</dd>
+    <dd>{{ opportunity.won_at|date:"d/m/Y H:i" }}{% if opportunity.closed_value is not None %} — {{ opportunity.closed_value|brl }}{% endif %}</dd>
     {% endif %}
 
     {% if opportunity.lost_at %}
     <dt class="text-gray-500">Perdida em</dt>
-    <dd>{{ opportunity.lost_at }}{% if opportunity.loss_reason %} — {{ opportunity.loss_reason.name }}{% endif %}</dd>
+    <dd>{{ opportunity.lost_at|date:"d/m/Y H:i" }}{% if opportunity.loss_reason %} — {{ opportunity.loss_reason.name }}{% endif %}</dd>
     {% endif %}
 
     <dt class="text-gray-500">Criada por</dt>
-    <dd>{{ opportunity.created_by }} em {{ opportunity.created_at }}</dd>
+    <dd>{{ opportunity.created_by }} em {{ opportunity.created_at|date:"d/m/Y H:i" }}</dd>
   </dl>
 
   {% if opportunity.notes %}
@@ -88,7 +89,7 @@
     {% for change in stage_changes %}
     <li class="text-sm timeline-item py-1">
       {% if change.from_stage %}{{ change.from_stage.name }} → {% else %}(criação) → {% endif %}{{ change.to_stage.name }}
-      <span class="text-gray-500"> · {{ change.changed_by }} · {{ change.changed_at }}</span>
+      <span class="text-gray-500"> · {{ change.changed_by }} · {{ change.changed_at|date:"d/m/Y H:i" }}</span>
       {% if change.reason %}<p class="text-gray-600">{{ change.reason }}</p>{% endif %}
     </li>
     {% endfor %}
@@ -107,9 +108,9 @@
     {% for activity in activities %}
     <li class="text-sm timeline-item py-1">
       <span class="font-medium">{{ activity.get_activity_type_display }}</span>
-      <span class="text-gray-500"> · {{ activity.created_by }} · {{ activity.created_at }}</span>
+      <span class="text-gray-500"> · {{ activity.created_by }} · {{ activity.created_at|date:"d/m/Y H:i" }}</span>
       {% if activity.description %}<p class="text-gray-600">{{ activity.description }}</p>{% endif %}
-      {% if activity.scheduled_for %}<p class="text-gray-500">Próximo passo agendado: {{ activity.scheduled_for }}</p>{% endif %}
+      {% if activity.scheduled_for %}<p class="text-gray-500">Próximo passo agendado: {{ activity.scheduled_for|date:"d/m/Y H:i" }}</p>{% endif %}
     </li>
     {% endfor %}
   </ul>

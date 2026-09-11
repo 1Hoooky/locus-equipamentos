@@ -45,7 +45,7 @@ def _validated_theme(request):
     if theme not in VALID_LABEL_THEMES:
         return theme, HttpResponse(
             f"Tema de etiqueta inválido: {theme!r}. Use 'light' ou 'dark'.",
-            content_type="text/plain",
+            content_type="text/plain; charset=utf-8",
             status=400,
         )
     return theme, None
@@ -105,7 +105,7 @@ class LabelBatchDownloadView(RoleRequiredMixin, View):
         if theme not in VALID_LABEL_THEMES:
             return HttpResponse(
                 f"Tema de etiqueta inválido: {theme!r}. Use 'light' ou 'dark'.",
-                content_type="text/plain",
+                content_type="text/plain; charset=utf-8",
                 status=400,
             )
         patrimonios = request.GET.getlist("patrimonio")
@@ -247,7 +247,7 @@ class ModelLabelBatchDownloadView(RoleRequiredMixin, View):
         if not equipment_list:
             return HttpResponse(
                 "Nenhum equipamento ativo para este modelo.",
-                content_type="text/plain",
+                content_type="text/plain; charset=utf-8",
                 status=404,
             )
         pdf_bytes = generate_square_labels_pdf(equipment_list, theme=theme)

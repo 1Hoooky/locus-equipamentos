@@ -73,13 +73,13 @@
       "</div>" +
       '<div class="label-theme-modal-body">' +
       '<div class="label-theme-options" role="radiogroup" aria-label="Tema da etiqueta">' +
-      themeOptionHTML("light", "LIGHT") +
-      themeOptionHTML("dark", "DARK") +
+      themeOptionHTML("light", "CLARO") +
+      themeOptionHTML("dark", "ESCURO") +
       "</div>" +
       '<p class="label-theme-modal-hint">Ao imprimir, utilize tamanho real / escala 100%.</p>' +
       "</div>" +
       '<div class="label-theme-modal-footer">' +
-      '<button type="button" class="btn-primary label-theme-modal-download" disabled>Download</button>' +
+      '<button type="button" class="btn-primary label-theme-modal-download" disabled>Baixar</button>' +
       "</div>";
 
     backdrop.appendChild(modal);

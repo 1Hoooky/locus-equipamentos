@@ -40,7 +40,7 @@ login.
       <a href="{% url 'dashboard:home' %}" id="app-sidebar-brand-full" class="font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark truncate min-w-0">
         LOCUS <span class="text-white font-normal">Equipamentos</span>
       </a>
-      <a href="{% url 'dashboard:home' %}" id="app-sidebar-brand-compact" class="hidden font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark shrink-0" aria-label="LOCUS Equipamentos — ir para a Home" title="LOCUS Equipamentos">
+      <a href="{% url 'dashboard:home' %}" id="app-sidebar-brand-compact" class="hidden font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark shrink-0" aria-label="LOCUS Equipamentos — ir para o Início" title="LOCUS Equipamentos">
         L
       </a>
       <button type="button" id="app-sidebar-toggle" aria-expanded="true" aria-controls="app-sidebar"
@@ -54,10 +54,10 @@ login.
 
     <nav class="flex-1 overflow-y-auto px-2 pb-4" aria-label="Navegação principal">
       <p class="sidebar-group-title">Operação</p>
-      <a href="{% url 'dashboard:home' %}" title="Home" aria-label="Home"
+      <a href="{% url 'dashboard:home' %}" title="Início" aria-label="Início"
          class="sidebar-link {% if request.resolver_match.view_name == 'dashboard:home' %}sidebar-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'dashboard:home' %}aria-current="page"{% endif %}>
-        {% icon "home" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Home</span>
+        {% icon "home" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Início</span>
       </a>
       <a href="{% url 'equipment:list' %}" title="Equipamentos" aria-label="Equipamentos"
          class="sidebar-link {% if request.resolver_match.view_name == 'equipment:list' %}sidebar-link-active{% endif %}"
@@ -180,7 +180,7 @@ login.
       <p class="mobile-menu-group-title">Operação</p>
       <a href="{% url 'dashboard:home' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'dashboard:home' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'dashboard:home' %}aria-current="page"{% endif %}>
-        {% icon "home" size="compact" %} Home
+        {% icon "home" size="compact" %} Início
       </a>
       <a href="{% url 'equipment:list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:list' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'equipment:list' %}aria-current="page"{% endif %}>

@@ -115,7 +115,7 @@ class AcquisitionValueVisibilityByRoleTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "equipment/detail_private.html")
         content = response.content.decode()
-        self.assertIn("4321,55", content)
+        self.assertIn("4.321,55", content)
         self.assertIn("Fornecedor Só Para Quem Pode Ver", content)
 
         self.assertTrue(response.context["can_view_acquisition_value"])
@@ -126,7 +126,7 @@ class AcquisitionValueVisibilityByRoleTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "equipment/detail_private.html")
         content = response.content.decode()
-        self.assertIn("4321,55", content)
+        self.assertIn("4.321,55", content)
         self.assertIn("Fornecedor Só Para Quem Pode Ver", content)
 
         self.assertTrue(response.context["can_view_acquisition_value"])
@@ -137,7 +137,7 @@ class AcquisitionValueVisibilityByRoleTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "equipment/detail_private.html")
         content = response.content.decode()
-        self.assertNotIn("4321,55", content)
+        self.assertNotIn("4.321,55", content)
         self.assertNotIn("Fornecedor Só Para Quem Pode Ver", content)
 
         # Não é só o template escondendo: a permissão computada na view é
@@ -154,7 +154,7 @@ class AcquisitionValueVisibilityByRoleTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "equipment/detail_private.html")
         content = response.content.decode()
-        self.assertNotIn("4321,55", content)
+        self.assertNotIn("4.321,55", content)
         self.assertNotIn("Fornecedor Só Para Quem Pode Ver", content)
 
         self.assertFalse(response.context["can_view_acquisition_value"])
@@ -179,7 +179,7 @@ class AcquisitionValueVisibilityByRoleTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context["can_view_acquisition_value"])
-        self.assertIn("4321,55", response.content.decode())
+        self.assertIn("4.321,55", response.content.decode())
 
     def test_public_page_never_loads_acquisition_fields(self):
         """A rota pública (QR, sem login) reforça a mesma trava de banco."""

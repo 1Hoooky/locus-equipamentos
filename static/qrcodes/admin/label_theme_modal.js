@@ -101,13 +101,13 @@
       "</div>" +
       '<div class="locus-label-modal-body">' +
       '<div class="locus-label-theme-options" role="radiogroup" aria-label="Tema da etiqueta">' +
-      themeOptionHTML("light", "LIGHT") +
-      themeOptionHTML("dark", "DARK") +
+      themeOptionHTML("light", "CLARO") +
+      themeOptionHTML("dark", "ESCURO") +
       "</div>" +
       '<p class="locus-label-modal-hint">Ao imprimir, utilize tamanho real / escala 100%.</p>' +
       "</div>" +
       '<div class="locus-label-modal-footer">' +
-      '<button type="button" class="locus-label-modal-download" disabled>Download</button>' +
+      '<button type="button" class="locus-label-modal-download" disabled>Baixar</button>' +
       "</div>";
 
     backdrop.appendChild(modal);

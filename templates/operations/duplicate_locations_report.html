@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Diagnóstico — Locations duplicadas — Locus{% endblock %}
+{% block title %}Diagnóstico — Unidades duplicadas — Locus{% endblock %}
 {% block content %}
-<h1 class="page-title mb-1">Diagnóstico: Locations duplicadas</h1>
+<h1 class="page-title mb-1">Diagnóstico: Unidades duplicadas</h1>
 <p class="page-subtitle mb-4">
   Ferramenta interna somente-leitura, restrita a Administrador — equivalente ao comando
   <code class="bg-gray-100 px-1 rounded">python manage.py report_duplicate_locations</code>, usada onde não há acesso a
@@ -17,7 +17,7 @@
 
 {% if not groups %}
 <div class="card-pad text-sm text-gray-600">
-  Nenhuma Location duplicada encontrada.
+  Nenhuma unidade duplicada encontrada.
 </div>
 {% else %}
 <p class="text-sm text-gray-600 mb-4">{{ groups|length }} grupo(s) de duplicatas encontrados.</p>
@@ -35,8 +35,8 @@
         <th>Tipo</th>
         <th>Cliente</th>
         <th>Criada em</th>
-        <th>Movements como origem</th>
-        <th>Movements como destino</th>
+        <th>Movimentações como origem</th>
+        <th>Movimentações como destino</th>
         <th>Referências</th>
       </tr>
     </thead>
@@ -65,7 +65,7 @@
 {% endfor %}
 
 <p class="text-sm text-gray-500">
-  Nada foi apagado. Locations “SEM REFERÊNCIAS” são candidatas à limpeza; as “COM REFERÊNCIAS” precisam de decisão
+  Nada foi apagado. Unidades “SEM REFERÊNCIAS” são candidatas à limpeza; as “COM REFERÊNCIAS” precisam de decisão
   caso a caso (o histórico de movimentações aponta para elas).
 </p>
 {% endif %}

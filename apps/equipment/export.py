@@ -52,8 +52,16 @@ def _row_values(equipment) -> list:
 
 
 def export_to_csv(queryset) -> HttpResponse:
-    response = HttpResponse(content_type="text/csv")
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="equipamentos-locus.csv"'
+
+    # BOM UTF-8 escrito uma única vez, só nesta fronteira de exportação
+    # (nunca no banco, no código-fonte ou nos templates) — é o que faz o
+    # Excel no Windows abrir o arquivo direto (duplo-clique) reconhecendo
+    # UTF-8 em vez de assumir o codepage ANSI/cp1252 do sistema, que
+    # corrompe "Patrimônio"/"Condição" e qualquer outro texto acentuado
+    # (auditoria de idioma/localização/UTF-8, ago/2026).
+    response.write("﻿")
 
     writer = csv.writer(response)
     writer.writerow([label for _, label in COLUMNS])
