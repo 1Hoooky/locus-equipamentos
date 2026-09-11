@@ -2,7 +2,7 @@
 {% load icons %}
 {% load currency %}
 {% load static %}
-{% block title %}Funil de oportunidades — LocusHub{% endblock %}
+{% block title %}Funil de oportunidades — Locus Locações{% endblock %}
 {% comment %}
 [REFINAMENTO VISUAL — LocusHub, 11/09/2026] O Kanban é a tela mais larga
 do sistema (funil horizontal, várias colunas lado a lado) — sobrescreve
@@ -42,6 +42,17 @@ filtro de "Etapa" foi removido: no Kanban a própria COLUNA já é a etapa.
     <p class="page-subtitle">Arraste um card entre colunas para mudar a etapa.</p>
   </div>
   <div class="flex flex-wrap gap-2 items-center">
+    {% comment %}
+    [REORGANIZAÇÃO DA ARQUITETURA DE NAVEGAÇÃO, 11/09/2026] Decisão
+    documentada (não removido automaticamente, conforme pedido): agora
+    que Origens/Etapas/Motivos de perda têm itens DIRETOS no grupo CRM
+    da sidebar/drawer, este atalho deixou de ser o único caminho até lá
+    — mas continua valendo como conveniência de contexto (o usuário está
+    trabalhando no funil e pode querer ajustar uma configuração
+    comercial sem sair da tela para abrir a sidebar). Mantido apontando
+    para a mesma primeira tela de sempre (Origens); nenhuma URL/view
+    nova foi criada só para isto.
+    {% endcomment %}
     {% if can_manage_settings %}
     <a href="{% url 'crm:commercial_source_list' %}" class="btn-neutral icon-inline">
       {% icon "cog-6-tooth" size="compact" %} Configurações comerciais

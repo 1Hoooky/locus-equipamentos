@@ -3,41 +3,60 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}LocusHub{% endblock %}</title>
+  <title>{% block title %}Locus Locações{% endblock %}</title>
   {# Tokens/componentes compartilhados com base_public.html — ver templates/_design_tokens.html. #}
   {% include "_design_tokens.html" %}
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
   {% load icons %}
+  {% load nav %}
 </head>
 <body class="bg-gray-50 text-gray-900 min-h-screen">
 <div id="app-shell" class="flex min-h-screen">
 
 {% if user.is_authenticated %}
+{% active_nav_group as current_group %}
 {% comment %}
-[REFINAMENTO VISUAL — LocusHub, sidebar expansível + Kanban, 11/09/2026]
-Sidebar administrativa DESKTOP redesenhada: era colapsável por clique
-(botão + JS + localStorage); agora é COMPACTA por padrão (só ícones) e
-EXPANDE em CSS puro no :hover/:focus-within, sem nenhum JS novo — a
-sidebar de clique/JS foi removida por completo (inclusive o script no fim
-deste arquivo).
+[REFINAMENTO DA SIDEBAR / REORGANIZAÇÃO DA ARQUITETURA DE NAVEGAÇÃO,
+11/09/2026] Nova taxonomia de 4 grupos, nesta ordem fixa: CRM / OPERAÇÃO
+/ CADASTROS / CONFIGURAÇÕES DO SISTEMA (substitui a "Administração"
+anterior) — compartilhada entre a sidebar desktop (abaixo) e o drawer
+mobile (mais abaixo), ambos agora em formato de acordeão (grupo
+expansível/recolhível, com ícone + nome + indicador de seta), lendo o
+MESMO `current_group` (`apps.core.nav.active_nav_group`, ver
+apps/core/nav.py) para nunca divergir sobre qual grupo deve abrir
+sozinho na página atual. Início continua uma ação independente, FORA de
+qualquer grupo.
 
-A técnica evita qualquer "pulo"/instabilidade de layout no conteúdo
-principal: `#app-sidebar` (filho flex de #app-shell) reserva SEMPRE a
-mesma largura compacta (`.sidebar-shell`, ver _design_tokens.html); quem
-cresce visualmente é um painel filho `.sidebar-panel`
-(`position: absolute`) que se expande POR CIMA do conteúdo principal (com
-z-index maior), nunca empurrando-o. `:focus-within` garante o mesmo
-resultado para quem navega por teclado (Tab dentro da sidebar), não só
-para quem usa mouse — a marca (link) e todo item de navegação continuam
-com `aria-label`/`title` mesmo com o texto visualmente escondido em modo
-compacto, então a sidebar nunca depende só de hover para ser operável.
+Isto é uma reorganização de NAVEGAÇÃO/UI — nenhuma view, model, regra de
+negócio ou permissão foi alterada. Toda checagem de visibilidade abaixo
+(`perms.crm.*`, `user.is_administrativo_ou_superior`, `user.is_admin`,
+`user.is_superuser`) é EXATAMENTE a mesma que já existia antes desta
+rodada, só reagrupada visualmente — inclusive "Colaboradores" é apenas o
+novo RÓTULO da tela de Usuários (`accounts:user_list`, mesma URL, mesma
+`CAN_MANAGE_USERS`/`RoleRequiredMixin`): o model `User`, o app
+`accounts` e o banco não mudam em nada.
 
-Taxonomia compartilhada entre desktop (sidebar) e mobile (drawer, logo
-abaixo, que continua dependente de JS — nunca de hover, por não fazer
-sentido em touch): "Operação" / "CRM" / "Cadastros" / "Administração".
-Sidebar/drawer só existem para usuário autenticado — anônimo (ex.: tela
-de login) nunca vê nenhum dos dois, só o header abaixo (fora deste bloco
-condicional) com a marca apontando para o login.
+Grupo vazio nunca aparece: CRM só renderiza se houver ao menos uma
+permissão comercial; Configurações do sistema só renderiza para
+admin/superusuário (as 3 entradas de dentro dele exigem isso). Operação
+e Cadastros sempre têm ao menos um item sem restrição extra
+(Equipamentos/Manutenções/Higienizações e Clientes/Unidades,
+respectivamente), então sempre aparecem para qualquer autenticado.
+
+Abertura automática do grupo atual + expandir/colapsar demais grupos
+(clique, com `aria-expanded`) é JS puro (ver script no fim deste
+arquivo) que só LÊ/ESCREVE uma preferência de UI em localStorage (quais
+grupos ALÉM do atual o usuário abriu manualmente) — nunca decide
+permissão; a persistência nunca guarda o grupo da página atual (esse
+sempre reabre sozinho no próximo carregamento, sem exigir ação manual do
+usuário para "descobrir onde está").
+
+Sidebar compacta por padrão / expande em CSS puro no :hover/:focus-within
+— mecânica já existente (`.sidebar-shell`/`.sidebar-panel`, ver
+_design_tokens.html) mantida sem alteração; só o CONTEÚDO de dentro do
+painel muda nesta rodada. Em modo compacto, cada grupo renderizado
+mostra só o ícone do grupo (o corpo do grupo fica escondido até o hover/
+foco expandir o painel) — identificação visual adequada mesmo sem texto.
 {% endcomment %}
 
   {# ------------------------------------------------------------------- #}
@@ -49,131 +68,176 @@ condicional) com a marca apontando para o login.
     <div class="sidebar-panel">
       <a href="{% url 'dashboard:home' %}" id="app-sidebar-brand"
          class="flex items-center gap-2.5 px-3 py-4 border-b border-white/10 shrink-0 hover:bg-white/5"
-         aria-label="LocusHub — ir para o Início" title="LocusHub">
+         aria-label="Locus Locações — ir para o Início" title="Locus Locações">
         <span class="flex items-center justify-center w-9 h-9 rounded-md bg-brand-gold text-brand-black font-bold text-sm tracking-tight shrink-0" aria-hidden="true">LL</span>
         <span id="app-sidebar-brand-text" class="app-sidebar-brand-text font-bold text-lg tracking-tight text-white truncate min-w-0" aria-hidden="true">Locus Locações</span>
       </a>
       <p id="app-sidebar-subtitle" class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-gray-500 shrink-0">Sistema de Equipamentos</p>
 
       <nav class="flex-1 overflow-y-auto px-2 pb-4" aria-label="Navegação principal">
-        <p class="sidebar-group-title"><span class="sidebar-group-title-text">Operação</span></p>
         <a href="{% url 'dashboard:home' %}" title="Início" aria-label="Início"
            class="sidebar-link {% if request.resolver_match.view_name == 'dashboard:home' %}sidebar-link-active{% endif %}"
            {% if request.resolver_match.view_name == 'dashboard:home' %}aria-current="page"{% endif %}>
           {% icon "home" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Início</span>
         </a>
-        <a href="{% url 'equipment:list' %}" title="Equipamentos" aria-label="Equipamentos"
-           class="sidebar-link {% if request.resolver_match.view_name == 'equipment:list' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'equipment:list' %}aria-current="page"{% endif %}>
-          {% icon "archive-box" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Equipamentos</span>
-        </a>
-        <a href="{% url 'maintenance:maintenance_list' %}" title="Manutenções" aria-label="Manutenções"
-           class="sidebar-link {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}aria-current="page"{% endif %}>
-          {% icon "wrench" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Manutenções</span>
-        </a>
-        <a href="{% url 'maintenance:cleaning_list' %}" title="Higienizações" aria-label="Higienizações"
-           class="sidebar-link {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}aria-current="page"{% endif %}>
-          {% icon "sparkles" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Higienizações</span>
-        </a>
 
         {% comment %}
-        Grupo "CRM" (LocusHub, Etapa 1 — 10/09/2026): PRIMEIRO item de menu
-        gated pela arquitetura NOVA de permissões (`perms.crm.*`, via
-        `django.contrib.auth.context_processors.auth`, já registrado em
-        TEMPLATES) em vez do padrão legado `user.is_X_ou_superior`/
-        `is_superuser` usado no resto desta navegação — Administrador/
-        superusuário continuam vendo por causa do bypass automático de
-        `ModelBackend.has_perm()`, não por checagem de `role` aqui.
-        Ícone "funnel" (era "sparkles", duplicado com Higienizações) —
-        troca puramente visual desta rodada, nenhuma regra alterada. Todo
-        o grupo some por completo (nem o título aparece) para quem não
-        tem NENHUMA das duas permissões — nunca um título de grupo vazio.
+        Grupo "CRM" — some por completo (nem o botão do grupo aparece)
+        para quem não tem NENHUMA permissão comercial, nunca um grupo
+        vazio. "Configurações comerciais" deixou de ser um único link
+        agregador: Origens/Etapas/Motivos de perda agora são itens
+        diretos do grupo, cada um com a MESMA permissão de antes
+        (`perms.crm.manage_commercial_settings`).
         {% endcomment %}
         {% if perms.crm.view_opportunities or perms.crm.manage_commercial_settings %}
-        <p class="sidebar-group-title"><span class="sidebar-group-title-text">CRM</span></p>
-        {% if perms.crm.view_opportunities %}
-        <a href="{% url 'crm:opportunity_list' %}" title="Oportunidades" aria-label="Oportunidades"
-           class="sidebar-link {% if request.resolver_match.view_name == 'crm:opportunity_list' or request.resolver_match.view_name == 'crm:opportunity_detail' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'crm:opportunity_list' %}aria-current="page"{% endif %}>
-          {% icon "funnel" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Oportunidades</span>
-        </a>
-        {% endif %}
-        {% if perms.crm.manage_commercial_settings %}
-        <a href="{% url 'crm:commercial_source_list' %}" title="Configurações comerciais" aria-label="Configurações comerciais"
-           class="sidebar-link {% if 'crm:commercial_source' in request.resolver_match.view_name or 'crm:opportunity_stage' in request.resolver_match.view_name or 'crm:loss_reason' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
-          {% icon "cog-6-tooth" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Config. comerciais</span>
-        </a>
-        {% endif %}
+        <div class="sidebar-group">
+          <button type="button" data-group-toggle data-group-key="crm"
+                  {% if current_group == "crm" %}data-group-current="true"{% endif %}
+                  class="sidebar-group-toggle {% if current_group == "crm" %}sidebar-group-toggle-active{% endif %}"
+                  aria-expanded="{% if current_group == "crm" %}true{% else %}false{% endif %}"
+                  aria-controls="sidebar-group-body-crm">
+            {% icon "funnel" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">CRM</span>{% icon "chevron-down" size="compact" extra_class="sidebar-group-chevron" %}
+          </button>
+          <div class="sidebar-group-body" id="sidebar-group-body-crm">
+            {% if perms.crm.view_opportunities %}
+            <a href="{% url 'crm:opportunity_list' %}" title="Funil" aria-label="Funil"
+               class="sidebar-link {% if request.resolver_match.view_name == 'crm:opportunity_list' or request.resolver_match.view_name == 'crm:opportunity_detail' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'crm:opportunity_list' %}aria-current="page"{% endif %}>
+              {% icon "funnel" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Funil</span>
+            </a>
+            {% endif %}
+            {% if perms.crm.manage_commercial_settings %}
+            <a href="{% url 'crm:commercial_source_list' %}" title="Origens" aria-label="Origens"
+               class="sidebar-link {% if 'crm:commercial_source' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
+              {% icon "arrow-right-circle" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Origens</span>
+            </a>
+            <a href="{% url 'crm:opportunity_stage_list' %}" title="Etapas" aria-label="Etapas"
+               class="sidebar-link {% if 'crm:opportunity_stage' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
+              {% icon "arrows-right-left" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Etapas</span>
+            </a>
+            <a href="{% url 'crm:loss_reason_list' %}" title="Motivos de perda" aria-label="Motivos de perda"
+               class="sidebar-link {% if 'crm:loss_reason' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
+              {% icon "x-circle" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Motivos de perda</span>
+            </a>
+            {% endif %}
+          </div>
+        </div>
         {% endif %}
 
-        <p class="sidebar-group-title"><span class="sidebar-group-title-text">Cadastros</span></p>
-        <a href="{% url 'clients:list' %}" title="Clientes" aria-label="Clientes"
-           class="sidebar-link {% if request.resolver_match.view_name == 'clients:list' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'clients:list' %}aria-current="page"{% endif %}>
-          {% icon "users" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Clientes</span>
-        </a>
-        <a href="{% url 'operations:location_list' %}" title="Unidades" aria-label="Unidades"
-           class="sidebar-link {% if request.resolver_match.view_name == 'operations:location_list' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'operations:location_list' %}aria-current="page"{% endif %}>
-          {% icon "building-office" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Unidades</span>
-        </a>
-        {% if user.is_administrativo_ou_superior or user.is_superuser %}
-        <a href="{% url 'catalog:category_list' %}" title="Categorias" aria-label="Categorias"
-           class="sidebar-link {% if request.resolver_match.view_name == 'catalog:category_list' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'catalog:category_list' %}aria-current="page"{% endif %}>
-          {% icon "squares-2x2" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Categorias</span>
-        </a>
-        <a href="{% url 'catalog:model_list' %}" title="Modelos" aria-label="Modelos"
-           class="sidebar-link {% if request.resolver_match.view_name == 'catalog:model_list' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'catalog:model_list' %}aria-current="page"{% endif %}>
-          {% icon "cube" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Modelos</span>
-        </a>
-        {% endif %}
+        <div class="sidebar-group">
+          <button type="button" data-group-toggle data-group-key="operacao"
+                  {% if current_group == "operacao" %}data-group-current="true"{% endif %}
+                  class="sidebar-group-toggle {% if current_group == "operacao" %}sidebar-group-toggle-active{% endif %}"
+                  aria-expanded="{% if current_group == "operacao" %}true{% else %}false{% endif %}"
+                  aria-controls="sidebar-group-body-operacao">
+            {% icon "bolt" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">Operação</span>{% icon "chevron-down" size="compact" extra_class="sidebar-group-chevron" %}
+          </button>
+          <div class="sidebar-group-body" id="sidebar-group-body-operacao">
+            <a href="{% url 'equipment:list' %}" title="Equipamentos" aria-label="Equipamentos"
+               class="sidebar-link {% if request.resolver_match.view_name == 'equipment:list' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'equipment:list' %}aria-current="page"{% endif %}>
+              {% icon "archive-box" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Equipamentos</span>
+            </a>
+            <a href="{% url 'maintenance:maintenance_list' %}" title="Manutenções" aria-label="Manutenções"
+               class="sidebar-link {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}aria-current="page"{% endif %}>
+              {% icon "wrench" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Manutenções</span>
+            </a>
+            <a href="{% url 'maintenance:cleaning_list' %}" title="Higienizações" aria-label="Higienizações"
+               class="sidebar-link {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}aria-current="page"{% endif %}>
+              {% icon "sparkles" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Higienizações</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="sidebar-group">
+          <button type="button" data-group-toggle data-group-key="cadastros"
+                  {% if current_group == "cadastros" %}data-group-current="true"{% endif %}
+                  class="sidebar-group-toggle {% if current_group == "cadastros" %}sidebar-group-toggle-active{% endif %}"
+                  aria-expanded="{% if current_group == "cadastros" %}true{% else %}false{% endif %}"
+                  aria-controls="sidebar-group-body-cadastros">
+            {% icon "folder" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">Cadastros</span>{% icon "chevron-down" size="compact" extra_class="sidebar-group-chevron" %}
+          </button>
+          <div class="sidebar-group-body" id="sidebar-group-body-cadastros">
+            <a href="{% url 'clients:list' %}" title="Clientes" aria-label="Clientes"
+               class="sidebar-link {% if request.resolver_match.view_name == 'clients:list' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'clients:list' %}aria-current="page"{% endif %}>
+              {% icon "users" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Clientes</span>
+            </a>
+            {% if user.is_admin or user.is_superuser %}
+            <a href="{% url 'accounts:user_list' %}" title="Colaboradores" aria-label="Colaboradores"
+               class="sidebar-link {% if request.resolver_match.view_name == 'accounts:user_list' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'accounts:user_list' %}aria-current="page"{% endif %}>
+              {% icon "identification" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Colaboradores</span>
+            </a>
+            {% endif %}
+            <a href="{% url 'operations:location_list' %}" title="Unidades" aria-label="Unidades"
+               class="sidebar-link {% if request.resolver_match.view_name == 'operations:location_list' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'operations:location_list' %}aria-current="page"{% endif %}>
+              {% icon "building-office" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Unidades</span>
+            </a>
+            {% if user.is_administrativo_ou_superior or user.is_superuser %}
+            <a href="{% url 'catalog:category_list' %}" title="Categorias" aria-label="Categorias"
+               class="sidebar-link {% if request.resolver_match.view_name == 'catalog:category_list' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'catalog:category_list' %}aria-current="page"{% endif %}>
+              {% icon "squares-2x2" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Categorias</span>
+            </a>
+            <a href="{% url 'catalog:model_list' %}" title="Modelos" aria-label="Modelos"
+               class="sidebar-link {% if request.resolver_match.view_name == 'catalog:model_list' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'catalog:model_list' %}aria-current="page"{% endif %}>
+              {% icon "cube" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Modelos</span>
+            </a>
+            {% endif %}
+          </div>
+        </div>
 
         {% if user.is_admin or user.is_superuser %}
-        <p class="sidebar-group-title">
-          {% icon "shield-check" size="compact" extra_class="sidebar-group-title-icon" %}<span class="sidebar-group-title-text">Administração</span>
-        </p>
-        <a href="{% url 'equipment:import_upload' %}" title="Importar planilha" aria-label="Importar planilha"
-           class="sidebar-link {% if request.resolver_match.view_name == 'equipment:import_upload' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'equipment:import_upload' %}aria-current="page"{% endif %}>
-          {% icon "arrow-up-tray" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Importar planilha</span>
-        </a>
-        <a href="{% url 'accounts:user_list' %}" title="Usuários" aria-label="Usuários"
-           class="sidebar-link {% if request.resolver_match.view_name == 'accounts:user_list' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'accounts:user_list' %}aria-current="page"{% endif %}>
-          {% icon "user-group" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Usuários</span>
-        </a>
-        {% if user.is_superuser %}
-        <a href="{% url 'accounts:role_list' %}" title="Cargos" aria-label="Cargos"
-           class="sidebar-link {% if request.resolver_match.view_name == 'accounts:role_list' or request.resolver_match.view_name == 'accounts:role_create' or request.resolver_match.view_name == 'accounts:role_update' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'accounts:role_list' %}aria-current="page"{% endif %}>
-          {% icon "cog-6-tooth" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Cargos</span>
-        </a>
-        {% endif %}
-        <a href="{% url 'operations:duplicate_locations_report' %}" title="Diagnóstico de unidades" aria-label="Diagnóstico de unidades"
-           class="sidebar-link {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}sidebar-link-active{% endif %}"
-           {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}aria-current="page"{% endif %}>
-          {% icon "magnifying-glass" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Diagnóstico de unidades</span>
-        </a>
+        <div class="sidebar-group">
+          <button type="button" data-group-toggle data-group-key="configuracoes"
+                  {% if current_group == "configuracoes" %}data-group-current="true"{% endif %}
+                  class="sidebar-group-toggle {% if current_group == "configuracoes" %}sidebar-group-toggle-active{% endif %}"
+                  aria-expanded="{% if current_group == "configuracoes" %}true{% else %}false{% endif %}"
+                  aria-controls="sidebar-group-body-configuracoes">
+            {% icon "cog-6-tooth" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">Configurações do sistema</span>{% icon "chevron-down" size="compact" extra_class="sidebar-group-chevron" %}
+          </button>
+          <div class="sidebar-group-body" id="sidebar-group-body-configuracoes">
+            <a href="{% url 'equipment:import_upload' %}" title="Importar planilha" aria-label="Importar planilha"
+               class="sidebar-link {% if request.resolver_match.view_name == 'equipment:import_upload' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'equipment:import_upload' %}aria-current="page"{% endif %}>
+              {% icon "arrow-up-tray" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Importar planilha</span>
+            </a>
+            {% if user.is_superuser %}
+            <a href="{% url 'accounts:role_list' %}" title="Cargos" aria-label="Cargos"
+               class="sidebar-link {% if request.resolver_match.view_name == 'accounts:role_list' or request.resolver_match.view_name == 'accounts:role_create' or request.resolver_match.view_name == 'accounts:role_update' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'accounts:role_list' %}aria-current="page"{% endif %}>
+              {% icon "shield-check" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Cargos</span>
+            </a>
+            {% endif %}
+            <a href="{% url 'operations:duplicate_locations_report' %}" title="Diagnóstico de unidades" aria-label="Diagnóstico de unidades"
+               class="sidebar-link {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}sidebar-link-active{% endif %}"
+               {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}aria-current="page"{% endif %}>
+              {% icon "magnifying-glass" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Diagnóstico de unidades</span>
+            </a>
+          </div>
+        </div>
         {% endif %}
       </nav>
     </div>
   </aside>
 
   {# ------------------------------------------------------------------- #}
-  {# Drawer do menu MOBILE (< 640px) — mesma taxonomia da sidebar acima  #}
-  {# (Operação/Cadastros/Administração), mesmas permissões, mecânica     #}
-  {# preservada (backdrop, X, Escape, foco, 44px de toque, scroll        #}
-  {# interno) da etapa anterior — só a estrutura de grupos foi realinhada.#}
+  {# Drawer do menu MOBILE (< 640px) — mesma taxonomia/ordem/permissões  #}
+  {# da sidebar acima (CRM/Operação/Cadastros/Configurações do sistema), #}
+  {# agora também em acordeão (mesmo `current_group`); mecânica do       #}
+  {# drawer em si (backdrop, X, Escape, foco, 44px de toque, scroll      #}
+  {# interno) preservada sem alteração — só a estrutura de grupos.       #}
   {# ------------------------------------------------------------------- #}
   <div id="mobile-menu-backdrop" class="hidden sm:hidden fixed inset-0 bg-black/50 z-40"></div>
   <nav id="mobile-menu-drawer" class="hidden sm:hidden fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-white shadow-xl flex flex-col"
        aria-label="Menu principal" tabindex="-1">
     <div class="flex items-center justify-between px-4 py-3 bg-brand-black text-white shrink-0">
-      <span class="font-bold text-brand-gold text-sm">LocusHub</span>
+      <span class="font-bold text-brand-gold text-sm">Locus Locações</span>
       <button type="button" id="mobile-menu-close"
               class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md text-white hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold"
               aria-label="Fechar menu">
@@ -182,79 +246,128 @@ condicional) com a marca apontando para o login.
     </div>
 
     <div class="flex-1 overflow-y-auto px-2 pb-3">
-      <p class="mobile-menu-group-title">Operação</p>
       <a href="{% url 'dashboard:home' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'dashboard:home' %}mobile-menu-link-active{% endif %}"
          {% if request.resolver_match.view_name == 'dashboard:home' %}aria-current="page"{% endif %}>
         {% icon "home" size="compact" %} Início
       </a>
-      <a href="{% url 'equipment:list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:list' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'equipment:list' %}aria-current="page"{% endif %}>
-        {% icon "archive-box" size="compact" %} Equipamentos
-      </a>
-      <a href="{% url 'maintenance:maintenance_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}aria-current="page"{% endif %}>
-        {% icon "wrench" size="compact" %} Manutenções
-      </a>
-      <a href="{% url 'maintenance:cleaning_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}aria-current="page"{% endif %}>
-        {% icon "sparkles" size="compact" %} Higienizações
-      </a>
 
       {% if perms.crm.view_opportunities or perms.crm.manage_commercial_settings %}
-      <p class="mobile-menu-group-title">CRM</p>
-      {% if perms.crm.view_opportunities %}
-      <a href="{% url 'crm:opportunity_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'crm:opportunity_list' or request.resolver_match.view_name == 'crm:opportunity_detail' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'crm:opportunity_list' %}aria-current="page"{% endif %}>
-        {% icon "funnel" size="compact" %} Oportunidades
-      </a>
-      {% endif %}
-      {% if perms.crm.manage_commercial_settings %}
-      <a href="{% url 'crm:commercial_source_list' %}" class="mobile-menu-link {% if 'crm:commercial_source' in request.resolver_match.view_name or 'crm:opportunity_stage' in request.resolver_match.view_name or 'crm:loss_reason' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
-        {% icon "cog-6-tooth" size="compact" %} Config. comerciais
-      </a>
-      {% endif %}
+      <div class="mobile-menu-group">
+        <button type="button" data-group-toggle data-group-key="crm"
+                {% if current_group == "crm" %}data-group-current="true"{% endif %}
+                class="mobile-menu-group-toggle"
+                aria-expanded="{% if current_group == "crm" %}true{% else %}false{% endif %}"
+                aria-controls="mobile-group-body-crm">
+          CRM{% icon "chevron-down" size="compact" extra_class="mobile-menu-group-chevron" %}
+        </button>
+        <div class="mobile-menu-group-body" id="mobile-group-body-crm">
+          {% if perms.crm.view_opportunities %}
+          <a href="{% url 'crm:opportunity_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'crm:opportunity_list' or request.resolver_match.view_name == 'crm:opportunity_detail' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'crm:opportunity_list' %}aria-current="page"{% endif %}>
+            {% icon "funnel" size="compact" %} Funil
+          </a>
+          {% endif %}
+          {% if perms.crm.manage_commercial_settings %}
+          <a href="{% url 'crm:commercial_source_list' %}" class="mobile-menu-link {% if 'crm:commercial_source' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
+            {% icon "arrow-right-circle" size="compact" %} Origens
+          </a>
+          <a href="{% url 'crm:opportunity_stage_list' %}" class="mobile-menu-link {% if 'crm:opportunity_stage' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
+            {% icon "arrows-right-left" size="compact" %} Etapas
+          </a>
+          <a href="{% url 'crm:loss_reason_list' %}" class="mobile-menu-link {% if 'crm:loss_reason' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
+            {% icon "x-circle" size="compact" %} Motivos de perda
+          </a>
+          {% endif %}
+        </div>
+      </div>
       {% endif %}
 
-      <p class="mobile-menu-group-title">Cadastros</p>
-      <a href="{% url 'clients:list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'clients:list' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'clients:list' %}aria-current="page"{% endif %}>
-        {% icon "users" size="compact" %} Clientes
-      </a>
-      <a href="{% url 'operations:location_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'operations:location_list' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'operations:location_list' %}aria-current="page"{% endif %}>
-        {% icon "building-office" size="compact" %} Unidades
-      </a>
-      {% if user.is_administrativo_ou_superior or user.is_superuser %}
-      <a href="{% url 'catalog:category_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'catalog:category_list' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'catalog:category_list' %}aria-current="page"{% endif %}>
-        {% icon "squares-2x2" size="compact" %} Categorias
-      </a>
-      <a href="{% url 'catalog:model_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'catalog:model_list' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'catalog:model_list' %}aria-current="page"{% endif %}>
-        {% icon "cube" size="compact" %} Modelos
-      </a>
-      {% endif %}
+      <div class="mobile-menu-group">
+        <button type="button" data-group-toggle data-group-key="operacao"
+                {% if current_group == "operacao" %}data-group-current="true"{% endif %}
+                class="mobile-menu-group-toggle"
+                aria-expanded="{% if current_group == "operacao" %}true{% else %}false{% endif %}"
+                aria-controls="mobile-group-body-operacao">
+          Operação{% icon "chevron-down" size="compact" extra_class="mobile-menu-group-chevron" %}
+        </button>
+        <div class="mobile-menu-group-body" id="mobile-group-body-operacao">
+          <a href="{% url 'equipment:list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:list' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'equipment:list' %}aria-current="page"{% endif %}>
+            {% icon "archive-box" size="compact" %} Equipamentos
+          </a>
+          <a href="{% url 'maintenance:maintenance_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'maintenance:maintenance_list' %}aria-current="page"{% endif %}>
+            {% icon "wrench" size="compact" %} Manutenções
+          </a>
+          <a href="{% url 'maintenance:cleaning_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}aria-current="page"{% endif %}>
+            {% icon "sparkles" size="compact" %} Higienizações
+          </a>
+        </div>
+      </div>
+
+      <div class="mobile-menu-group">
+        <button type="button" data-group-toggle data-group-key="cadastros"
+                {% if current_group == "cadastros" %}data-group-current="true"{% endif %}
+                class="mobile-menu-group-toggle"
+                aria-expanded="{% if current_group == "cadastros" %}true{% else %}false{% endif %}"
+                aria-controls="mobile-group-body-cadastros">
+          Cadastros{% icon "chevron-down" size="compact" extra_class="mobile-menu-group-chevron" %}
+        </button>
+        <div class="mobile-menu-group-body" id="mobile-group-body-cadastros">
+          <a href="{% url 'clients:list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'clients:list' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'clients:list' %}aria-current="page"{% endif %}>
+            {% icon "users" size="compact" %} Clientes
+          </a>
+          {% if user.is_admin or user.is_superuser %}
+          <a href="{% url 'accounts:user_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'accounts:user_list' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'accounts:user_list' %}aria-current="page"{% endif %}>
+            {% icon "identification" size="compact" %} Colaboradores
+          </a>
+          {% endif %}
+          <a href="{% url 'operations:location_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'operations:location_list' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'operations:location_list' %}aria-current="page"{% endif %}>
+            {% icon "building-office" size="compact" %} Unidades
+          </a>
+          {% if user.is_administrativo_ou_superior or user.is_superuser %}
+          <a href="{% url 'catalog:category_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'catalog:category_list' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'catalog:category_list' %}aria-current="page"{% endif %}>
+            {% icon "squares-2x2" size="compact" %} Categorias
+          </a>
+          <a href="{% url 'catalog:model_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'catalog:model_list' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'catalog:model_list' %}aria-current="page"{% endif %}>
+            {% icon "cube" size="compact" %} Modelos
+          </a>
+          {% endif %}
+        </div>
+      </div>
 
       {% if user.is_admin or user.is_superuser %}
-      <p class="mobile-menu-group-title">Administração</p>
-      <a href="{% url 'equipment:import_upload' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:import_upload' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'equipment:import_upload' %}aria-current="page"{% endif %}>
-        {% icon "arrow-up-tray" size="compact" %} Importar planilha
-      </a>
-      <a href="{% url 'accounts:user_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'accounts:user_list' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'accounts:user_list' %}aria-current="page"{% endif %}>
-        {% icon "user-group" size="compact" %} Usuários
-      </a>
-      {% if user.is_superuser %}
-      <a href="{% url 'accounts:role_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'accounts:role_list' or request.resolver_match.view_name == 'accounts:role_create' or request.resolver_match.view_name == 'accounts:role_update' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'accounts:role_list' %}aria-current="page"{% endif %}>
-        {% icon "cog-6-tooth" size="compact" %} Cargos
-      </a>
-      {% endif %}
-      <a href="{% url 'operations:duplicate_locations_report' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}mobile-menu-link-active{% endif %}"
-         {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}aria-current="page"{% endif %}>
-        {% icon "magnifying-glass" size="compact" %} Diagnóstico de unidades
-      </a>
+      <div class="mobile-menu-group">
+        <button type="button" data-group-toggle data-group-key="configuracoes"
+                {% if current_group == "configuracoes" %}data-group-current="true"{% endif %}
+                class="mobile-menu-group-toggle"
+                aria-expanded="{% if current_group == "configuracoes" %}true{% else %}false{% endif %}"
+                aria-controls="mobile-group-body-configuracoes">
+          Configurações do sistema{% icon "chevron-down" size="compact" extra_class="mobile-menu-group-chevron" %}
+        </button>
+        <div class="mobile-menu-group-body" id="mobile-group-body-configuracoes">
+          <a href="{% url 'equipment:import_upload' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'equipment:import_upload' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'equipment:import_upload' %}aria-current="page"{% endif %}>
+            {% icon "arrow-up-tray" size="compact" %} Importar planilha
+          </a>
+          {% if user.is_superuser %}
+          <a href="{% url 'accounts:role_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'accounts:role_list' or request.resolver_match.view_name == 'accounts:role_create' or request.resolver_match.view_name == 'accounts:role_update' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'accounts:role_list' %}aria-current="page"{% endif %}>
+            {% icon "shield-check" size="compact" %} Cargos
+          </a>
+          {% endif %}
+          <a href="{% url 'operations:duplicate_locations_report' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}mobile-menu-link-active{% endif %}"
+             {% if request.resolver_match.view_name == 'operations:duplicate_locations_report' %}aria-current="page"{% endif %}>
+            {% icon "magnifying-glass" size="compact" %} Diagnóstico de unidades
+          </a>
+        </div>
+      </div>
       {% endif %}
     </div>
 
@@ -291,7 +404,7 @@ condicional) com a marca apontando para o login.
           {# anônimo (tela de login, sem sidebar) fica sempre visível.     #}
           <a href="{% if user.is_authenticated %}{% url 'dashboard:home' %}{% else %}{% url 'accounts:login' %}{% endif %}"
              class="{% if user.is_authenticated %}sm:hidden {% endif %}font-bold text-lg tracking-tight text-brand-gold hover:text-brand-gold-dark truncate min-w-0 shrink-0">
-            LocusHub
+            Locus Locações
           </a>
         </div>
         {% if user.is_authenticated %}
@@ -307,8 +420,7 @@ condicional) com a marca apontando para o login.
     </header>
 
     {% comment %}
-    [REFINAMENTO VISUAL — LocusHub, 11/09/2026] `main_class` é
-    sobrescrevível por template filho (ver templates/crm/
+    `main_class` é sobrescrevível por template filho (ver templates/crm/
     opportunity_list.html) para telas operacionais que precisam de mais
     largura útil (o Kanban, por exemplo) — sem afetar o `max-w-6xl
     mx-auto` (centralizado, largura de formulário) que continua sendo o
@@ -324,20 +436,83 @@ condicional) com a marca apontando para o login.
     </main>
 
     <footer class="text-center text-xs text-gray-400 py-4 border-t border-gray-200 bg-white">
-      LocusHub · Locus Locações
+      Locus Locações
     </footer>
   </div>
 </div>
 
 {% if user.is_authenticated %}
 <script>
-  // [REFINAMENTO VISUAL — LocusHub, 11/09/2026] A sidebar administrativa
-  // DESKTOP deixou de depender de JS/localStorage para colapsar/expandir
-  // (era um clique + classe `is-collapsed`) — agora é 100% CSS puro
-  // (:hover/:focus-within em `.sidebar-shell`, ver templates/
-  // _design_tokens.html). O bloco de script que existia aqui foi
-  // removido por completo; só o drawer mobile abaixo continua JS (faz
-  // sentido permanecer JS: toque não tem estado ":hover" persistente).
+  // A sidebar administrativa DESKTOP não depende de JS/localStorage para
+  // compactar/expandir (100% CSS puro, :hover/:focus-within em
+  // `.sidebar-shell`, ver templates/_design_tokens.html). O que É JS
+  // aqui (REORGANIZAÇÃO DA ARQUITETURA DE NAVEGAÇÃO, 11/09/2026) é só o
+  // acordeão dos 4 grupos (abrir/fechar um grupo, lembrar entre
+  // recarregamentos quais grupos ALÉM do atual o usuário abriu) — puro
+  // front-end de conveniência/acessibilidade: NENHUMA regra de
+  // permissão/autorização é decidida aqui, que continua 100% no backend
+  // (RoleRequiredMixin/allowed_roles, perms.*); o localStorage usado
+  // abaixo guarda só uma preferência de UI (quais grupos ficam
+  // visualmente abertos), nunca uma decisão de acesso — e nunca inclui o
+  // grupo da página atual, que sempre reabre sozinho a cada
+  // carregamento, sem exigir nenhuma ação manual do usuário para
+  // "descobrir onde está".
+  (function () {
+    var STORAGE_KEY = "locus:sidebarOpenGroups";
+
+    function readOpenGroups() {
+      try {
+        var raw = window.localStorage.getItem(STORAGE_KEY);
+        var parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        // Ambiente sem localStorage (ex.: navegação privada) — a UI
+        // continua funcionando normalmente, só sem lembrar o estado
+        // entre recarregamentos.
+        return [];
+      }
+    }
+
+    function writeOpenGroups(keys) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
+      } catch (e) {
+        // idem — falha silenciosa, nunca quebra a navegação.
+      }
+    }
+
+    var toggles = document.querySelectorAll("[data-group-toggle]");
+    var openGroups = readOpenGroups();
+
+    toggles.forEach(function (toggle) {
+      var isCurrent = toggle.getAttribute("data-group-current") === "true";
+      var key = toggle.getAttribute("data-group-key");
+
+      if (!isCurrent && key && openGroups.indexOf(key) !== -1) {
+        toggle.setAttribute("aria-expanded", "true");
+      }
+
+      toggle.addEventListener("click", function () {
+        var wasExpanded = toggle.getAttribute("aria-expanded") === "true";
+        toggle.setAttribute("aria-expanded", wasExpanded ? "false" : "true");
+
+        if (isCurrent || !key) {
+          // Grupo da página atual: nunca persiste — sempre reabre
+          // sozinho no próximo carregamento, então não há por que
+          // lembrar se o usuário o fechou momentaneamente.
+          return;
+        }
+        var current = readOpenGroups();
+        var idx = current.indexOf(key);
+        if (wasExpanded) {
+          if (idx !== -1) current.splice(idx, 1);
+        } else if (idx === -1) {
+          current.push(key);
+        }
+        writeOpenGroups(current);
+      });
+    });
+  })();
 
   // Drawer do menu mobile interno — vanilla JS, sem framework/dependência
   // nova. Só front-end de conveniência/acessibilidade: nenhuma regra de

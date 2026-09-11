@@ -269,6 +269,29 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     }
 
     /* -----------------------------------------------------------------
+     * Grupo em acordeão do drawer mobile (REORGANIZAÇÃO DA ARQUITETURA
+     * DE NAVEGAÇÃO, 11/09/2026) — substitui o antigo `.mobile-menu-
+     * group-title` (um `<p>` estático) por um botão semântico real
+     * (`aria-expanded`), mesmo padrão de disclosure já usado em
+     * `.model-group-toggle`/`.model-group-body` acima. O corpo do grupo
+     * some por CSS lendo o `aria-expanded` do botão irmão (regra fora do
+     * @layer components, junto das demais regras de estado deste
+     * arquivo).
+     * --------------------------------------------------------------- */
+    .mobile-menu-group-toggle {
+      @apply w-full flex items-center gap-2 px-3 pt-4 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400 first:pt-2 hover:text-brand-charcoal focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold rounded-md;
+    }
+    .mobile-menu-group-chevron {
+      @apply ml-auto shrink-0 text-gray-400 transition-transform duration-150 -rotate-90;
+    }
+    .mobile-menu-group-toggle[aria-expanded="true"] .mobile-menu-group-chevron {
+      transform: rotate(0deg);
+    }
+    .mobile-menu-group-body {
+      @apply flex flex-col gap-0.5;
+    }
+
+    /* -----------------------------------------------------------------
      * Dropdowns da navegação DESKTOP (base.html, >= 640px) — etapa de
      * UX/UI de 28/08/2026 (auditoria, item [25], Opção B aprovada):
      * ações de uso frequente continuam como link direto na barra; os
@@ -369,6 +392,44 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     }
     .sidebar-group-title-icon {
       @apply shrink-0 text-gray-500;
+    }
+
+    /* -----------------------------------------------------------------
+     * Grupo em acordeão da sidebar desktop (REORGANIZAÇÃO DA ARQUITETURA
+     * DE NAVEGAÇÃO, 11/09/2026) — substitui `.sidebar-group-title` (um
+     * `<p>` estático, acima) por um botão semântico real
+     * (`aria-expanded`) com ícone próprio, nome e seta indicadora; cada
+     * um dos 4 grupos (CRM/Operação/Cadastros/Configurações do sistema)
+     * usa esta classe. O corpo do grupo (`.sidebar-group-body`) some por
+     * CSS lendo o `aria-expanded` do botão irmão — e, em modo compacto,
+     * fica escondido independentemente do `aria-expanded` (regras fora
+     * do @layer components, junto de `.sidebar-shell`/`.sidebar-panel`
+     * mais abaixo neste arquivo) — mesmo raciocínio de
+     * `.model-group-toggle`/`.model-group-body` já usado alhures.
+     * --------------------------------------------------------------- */
+    .sidebar-group {
+      @apply flex flex-col border-t border-white/5 mt-1 pt-1 first:border-t-0 first:mt-0 first:pt-0;
+    }
+    .sidebar-group-toggle {
+      @apply w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-gray-400 min-h-[44px] text-left hover:bg-white/10 hover:text-white transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold;
+    }
+    .sidebar-group-toggle-active {
+      @apply text-white;
+    }
+    .sidebar-group-toggle-icon {
+      @apply shrink-0;
+    }
+    .sidebar-group-toggle-active .sidebar-group-toggle-icon {
+      @apply text-brand-gold;
+    }
+    .sidebar-group-chevron {
+      @apply ml-auto shrink-0 text-gray-500 transition-transform duration-150 -rotate-90;
+    }
+    .sidebar-group-toggle[aria-expanded="true"] .sidebar-group-chevron {
+      transform: rotate(0deg);
+    }
+    .sidebar-group-body {
+      @apply flex flex-col gap-0.5 pb-1;
     }
     .sidebar-link {
       @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-300 min-h-[44px] hover:bg-white/10 hover:text-white transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold;
@@ -598,8 +659,34 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
      * variante "cards empilhados" sensata — a estrutura horizontal É a
      * experiência pedida, em qualquer tamanho de tela.
      * --------------------------------------------------------------- */
+    /* Rolagem horizontal do quadro inteiro (REFINAMENTO — scroll
+       horizontal do funil, 11/09/2026): a barra de rolagem PRECISA
+       continuar visível/funcional sempre (nunca `overflow: hidden` nem
+       `scrollbar-width: none`) — é pista visual de que existem mais
+       colunas à direita, além de dar suporte a quem prefere arrastar a
+       barra em vez de usar a roda do mouse. Estilizada discretamente na
+       identidade Locus (trilho neutro claro, "polegar" dourado) — a
+       lógica de converter roda do mouse/trackpad em rolagem horizontal e
+       o auto-scroll durante o arraste ficam em static/crm/kanban.js. */
     .kanban-board {
       @apply flex items-start gap-3 overflow-x-auto pb-3 -mx-4 px-4 sm:mx-0 sm:px-0;
+      scrollbar-width: thin;
+      scrollbar-color: #eab308 #f3f4f6;
+    }
+    .kanban-board::-webkit-scrollbar {
+      height: 10px;
+    }
+    .kanban-board::-webkit-scrollbar-track {
+      background-color: #f3f4f6;
+      border-radius: 9999px;
+    }
+    .kanban-board::-webkit-scrollbar-thumb {
+      background-color: #eab308;
+      border-radius: 9999px;
+      border: 2px solid #f3f4f6;
+    }
+    .kanban-board::-webkit-scrollbar-thumb:hover {
+      background-color: #b45309;
     }
     .kanban-column {
       @apply card w-72 sm:w-80 shrink-0 flex flex-col max-h-[75vh] overflow-hidden;
@@ -818,6 +905,7 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
      próprios, então a informação nunca depende só do texto visível. */
   .sidebar-panel .sidebar-link-label,
   .sidebar-panel .sidebar-group-title-text,
+  .sidebar-panel .sidebar-group-chevron,
   .sidebar-panel .app-sidebar-brand-text,
   .sidebar-panel #app-sidebar-subtitle {
     display: none;
@@ -834,20 +922,54 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
   .sidebar-shell:focus-within .sidebar-panel #app-sidebar-subtitle {
     display: block;
   }
+  .sidebar-shell:hover .sidebar-panel .sidebar-group-chevron,
+  .sidebar-shell:focus-within .sidebar-panel .sidebar-group-chevron {
+    display: inline-flex;
+  }
 
-  /* Modo compacto: ícone do link centralizado (sem rótulo ao lado ainda
-     ocupando espaço); expandido: volta ao alinhamento normal à
-     esquerda, gap com o texto. */
-  .sidebar-panel .sidebar-link {
+  /* Modo compacto: ícone do link (ou do botão de grupo) centralizado
+     (sem rótulo ao lado ainda ocupando espaço); expandido: volta ao
+     alinhamento normal à esquerda, gap com o texto/seta. */
+  .sidebar-panel .sidebar-link,
+  .sidebar-panel .sidebar-group-toggle {
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
   }
   .sidebar-shell:hover .sidebar-panel .sidebar-link,
-  .sidebar-shell:focus-within .sidebar-panel .sidebar-link {
+  .sidebar-shell:hover .sidebar-panel .sidebar-group-toggle,
+  .sidebar-shell:focus-within .sidebar-panel .sidebar-link,
+  .sidebar-shell:focus-within .sidebar-panel .sidebar-group-toggle {
     justify-content: flex-start;
     padding-left: 0.75rem;
     padding-right: 0.75rem;
+  }
+
+  /* Corpo de um grupo (`.sidebar-group-body`) do menu — REORGANIZAÇÃO DA
+     ARQUITETURA DE NAVEGAÇÃO, 11/09/2026. Em modo COMPACTO fica sempre
+     escondido, mesmo que `aria-expanded="true"` no botão irmão (modo
+     compacto mostra só o ÍCONE de cada grupo renderizado — nunca a
+     lista de itens de dentro, que exigiria mais espaço do que a sidebar
+     compacta tem) — é isso que dá a identificação visual "um ícone por
+     grupo" pedida. Ao expandir (hover/foco), o corpo só aparece de fato
+     se aquele grupo específico estiver com `aria-expanded="true"` (o
+     seletor encadeia o `[aria-expanded="true"]` do PRÓPRIO botão antes
+     do `+`, então nunca conflita entre grupos irmãos nem depende de
+     ordem de especificidade CSS). */
+  .sidebar-panel .sidebar-group-body {
+    display: none;
+  }
+  .sidebar-shell:hover .sidebar-panel .sidebar-group-toggle[aria-expanded="true"] + .sidebar-group-body,
+  .sidebar-shell:focus-within .sidebar-panel .sidebar-group-toggle[aria-expanded="true"] + .sidebar-group-body {
+    display: flex;
+  }
+
+  /* Drawer mobile — não depende de hover, então é o padrão simples de
+     disclosure (mesma regra de `.model-group-toggle`/`.model-group-body`
+     já usada alhures): corpo escondido só quando o botão irmão está
+     `aria-expanded="false"`. */
+  .mobile-menu-group-toggle[aria-expanded="false"] + .mobile-menu-group-body {
+    display: none;
   }
 
   /* Corpo do grupo (listagem de Equipamentos agrupada por modelo)

@@ -309,6 +309,39 @@ _ICONS = {
         'd="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 '
         '1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />'
     ),
+    # ---------------------------------------------------------------------
+    # Adicionados na rodada de REFINAMENTO DA SIDEBAR / REORGANIZAÇÃO DA
+    # ARQUITETURA DE NAVEGAÇÃO (11/09/2026): um ícone por grupo do menu
+    # lateral (os 4 grupos agora são expansíveis/recolhíveis e cada um
+    # precisa de um ícone visível mesmo com a sidebar compacta) —
+    # "bolt" (Operação), "folder" (Cadastros); "funnel" (CRM) e
+    # "cog-6-tooth" (Configurações do sistema) já existiam e foram
+    # reaproveitados como ícone de GRUPO nesta rodada. "x-circle" é o
+    # ícone do item "Motivos de perda" (CRM) e "identification" é o ícone
+    # do item "Colaboradores" (novo rótulo visual da tela de Usuários).
+    # Mesma origem/licença dos ícones acima (Heroicons "outline" 24x24,
+    # MIT License).
+    # ---------------------------------------------------------------------
+    "bolt": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M3.75 13.5 10.5 3v7.5h9L9.75 21v-7.5h-6Z" />'
+    ),
+    "folder": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-19.5 0v6a2.25 2.25 0 0 0 '
+        '2.25 2.25h15a2.25 2.25 0 0 0 2.25-2.25v-6m-19.5 0v-1.5A2.25 2.25 0 0 1 4.5 6.75h4.243a1.125 1.125 0 0 '
+        '1 .795.33l1.591 1.59c.211.212.498.33.796.33H19.5a2.25 2.25 0 0 1 2.25 2.25v1.5" />'
+    ),
+    "x-circle": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />'
+    ),
+    "identification": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 '
+        '4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Zm6.75-10.125a1.875 1.875 0 1 1-3.75 '
+        '0 1.875 1.875 0 0 1 3.75 0ZM4.5 19.5v-1.5a3.75 3.75 0 0 1 3.75-3.75h1.5a3.75 3.75 0 0 1 3.75 3.75v1.5" />'
+    ),
 }
 
 # Vendorizado à parte de `_ICONS`: NÃO é um ícone Heroicons (stroke,

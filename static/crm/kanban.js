@@ -87,6 +87,118 @@
   }
 
   // -------------------------------------------------------------------
+  // Rolagem horizontal do quadro via roda do mouse/trackpad (REFINAMENTO
+  // — scroll horizontal do funil, 11/09/2026): roda para baixo avança à
+  // direita, roda para cima volta à esquerda — SÓ dentro da área do
+  // Kanban (listener em `board`, nunca em `window`/`document`), e SÓ
+  // quando faz sentido, para nunca conflitar com: (1) o gesto nativo de
+  // rolagem horizontal do trackpad (`deltaX` dominante — nunca
+  // interceptado, sempre deixado passar); (2) a rolagem vertical PRÓPRIA
+  // de uma coluna que ainda tem conteúdo para rolar naquela direção
+  // (checa `scrollHeight`/`scrollTop` da própria `.kanban-column-body`
+  // antes de decidir); (3) a rolagem vertical da PÁGINA — só
+  // `preventDefault()`/redireciona para o funil quando o funil de fato
+  // tem para onde rolar horizontalmente naquela direção; nos limites
+  // (já totalmente à esquerda/direita), devolve o gesto para o
+  // navegador em vez de travar a tela. Puramente visual (`scrollLeft`)
+  // — nenhuma regra de negócio/permissão é lida ou alterada aqui.
+  // -------------------------------------------------------------------
+  function columnBodyHasOwnVerticalRoom(columnBody, deltaY) {
+    if (!columnBody) return false;
+    var hasOverflow = columnBody.scrollHeight > columnBody.clientHeight + 1;
+    if (!hasOverflow) return false;
+    if (deltaY > 0) {
+      return columnBody.scrollTop + columnBody.clientHeight < columnBody.scrollHeight - 1;
+    }
+    if (deltaY < 0) {
+      return columnBody.scrollTop > 0;
+    }
+    return false;
+  }
+
+  function boardHasHorizontalRoom(deltaY) {
+    var maxScrollLeft = board.scrollWidth - board.clientWidth;
+    if (maxScrollLeft <= 0) return false;
+    if (deltaY > 0) return board.scrollLeft < maxScrollLeft - 1;
+    if (deltaY < 0) return board.scrollLeft > 0;
+    return false;
+  }
+
+  board.addEventListener(
+    "wheel",
+    function (event) {
+      // Gesto horizontal nativo do trackpad — nunca interceptado, deixa
+      // o navegador rolar `.kanban-board` (já é `overflow-x-auto`)
+      // sozinho, exatamente como sempre funcionou.
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      if (event.deltaY === 0) return;
+
+      var columnBody = event.target.closest(".kanban-column-body");
+      if (columnBodyHasOwnVerticalRoom(columnBody, event.deltaY)) {
+        return; // a coluna ainda tem rolagem vertical própria disponível nessa direção
+      }
+      if (!boardHasHorizontalRoom(event.deltaY)) {
+        return; // funil já no limite horizontal — devolve o gesto (nunca trava a página)
+      }
+
+      event.preventDefault();
+      board.scrollLeft += event.deltaY;
+    },
+    { passive: false }
+  );
+
+  // -------------------------------------------------------------------
+  // Auto-scroll horizontal durante o arraste — aproximar o card da borda
+  // direita/esquerda do quadro rola sozinho (suave, via
+  // requestAnimationFrame), sem exigir soltar o card / mexer na barra /
+  // re-agarrar. Puramente visual: nunca toca em permissão, na transição
+  // de etapa, em CSRF/`transaction.atomic`/`select_for_update` ou no
+  // histórico — tudo isso continua decidido só depois do drop de
+  // verdade, em performMove() abaixo.
+  // -------------------------------------------------------------------
+  var AUTO_SCROLL_EDGE_PX = 72;
+  var AUTO_SCROLL_MAX_SPEED = 18;
+  var autoScrollDirection = 0;
+  var autoScrollFrame = null;
+
+  function autoScrollStep() {
+    if (autoScrollDirection === 0) {
+      autoScrollFrame = null;
+      return;
+    }
+    board.scrollLeft += autoScrollDirection;
+    autoScrollFrame = window.requestAnimationFrame(autoScrollStep);
+  }
+
+  function updateAutoScroll(clientX) {
+    var rect = board.getBoundingClientRect();
+    var distanceFromLeft = clientX - rect.left;
+    var distanceFromRight = rect.right - clientX;
+
+    var direction = 0;
+    if (distanceFromLeft >= 0 && distanceFromLeft < AUTO_SCROLL_EDGE_PX) {
+      var leftStrength = 1 - distanceFromLeft / AUTO_SCROLL_EDGE_PX;
+      direction = -Math.max(2, Math.round(AUTO_SCROLL_MAX_SPEED * leftStrength));
+    } else if (distanceFromRight >= 0 && distanceFromRight < AUTO_SCROLL_EDGE_PX) {
+      var rightStrength = 1 - distanceFromRight / AUTO_SCROLL_EDGE_PX;
+      direction = Math.max(2, Math.round(AUTO_SCROLL_MAX_SPEED * rightStrength));
+    }
+
+    autoScrollDirection = direction;
+    if (autoScrollDirection !== 0 && autoScrollFrame === null) {
+      autoScrollFrame = window.requestAnimationFrame(autoScrollStep);
+    }
+  }
+
+  function stopAutoScroll() {
+    autoScrollDirection = 0;
+    if (autoScrollFrame !== null) {
+      window.cancelAnimationFrame(autoScrollFrame);
+      autoScrollFrame = null;
+    }
+  }
+
+  // -------------------------------------------------------------------
   // Estado do arraste em curso — um único card por vez (nunca multi-seleção).
   // -------------------------------------------------------------------
   var draggingCard = null;
@@ -107,9 +219,19 @@
     board.querySelectorAll(".kanban-column-body.is-drag-over").forEach(function (el) {
       el.classList.remove("is-drag-over");
     });
+    stopAutoScroll();
   });
 
   board.addEventListener("dragover", function (event) {
+    // Atualiza o auto-scroll ENQUANTO arrasta, mesmo quando o ponteiro
+    // não está sobre uma zona de drop válida (ex.: sobre o cabeçalho de
+    // uma coluna, ou no vão entre colunas perto da borda do quadro) —
+    // por isso fica ANTES do "early return" abaixo, que só cuida de
+    // permitir o drop em si.
+    if (draggingCard) {
+      updateAutoScroll(event.clientX);
+    }
+
     var dropZone = event.target.closest("[data-drop-zone]");
     if (!dropZone || !draggingCard) return;
     event.preventDefault();
