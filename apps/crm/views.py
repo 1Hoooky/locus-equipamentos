@@ -28,13 +28,17 @@ então PK sequencial não vaza nada para quem não tem a permissão de ver
 oportunidades (proteção IDOR real é "a permissão", não "esconder o PK").
 """
 
+from decimal import Decimal
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.db.models import Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 from django.views.generic import ListView
 
+from apps.core.templatetags.currency import format_brl
 from apps.crm.forms import (
     CommercialActivityForm,
     CommercialSourceForm,
@@ -60,57 +64,139 @@ from apps.crm.services import (
 # ---------------------------------------------------------------------------
 
 
-class OpportunityListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+def _filtered_opportunities_queryset(params):
+    """
+    Filtro compartilhado de Oportunidades — fonte ÚNICA de "quais
+    oportunidades entram na conta", usada tanto pelo Kanban
+    (`OpportunityListView`, agrupamento por etapa) quanto pelo endpoint
+    AJAX de mudança de etapa (`OpportunityStageChangeView`, para
+    recalcular os totais de origem/destino respeitando os MESMOS filtros
+    ativos na tela no momento do arraste — sem isso, o total da coluna
+    "piscaria" fora de sincronia com o que o usuário está vendo filtrado).
+
+    `params` é qualquer `QueryDict`-like com `.get()` (`request.GET` nas
+    duas chamadoras — o endpoint AJAX recebe os filtros ativos na própria
+    querystring da URL de POST, ver `static/crm/kanban.js`).
+
+    Sem filtro por `stage` aqui (diferente da antiga listagem em tabela):
+    no Kanban a própria COLUNA já é a etapa — filtrar por etapa além
+    disso não faria sentido estrutural nenhum, e por isso o seletor de
+    "Etapa" foi removido da tela (decisão de produto, 11/09/2026).
+    """
+    qs = Opportunity.objects.select_related("client", "owner", "source", "stage")
+
+    owner = params.get("owner", "")
+    source = params.get("source", "")
+    business_type = params.get("business_type", "")
+    client = params.get("client", "")
+    q = params.get("q", "").strip()
+
+    # owner/source/client filtram por PK (FK) — um valor não numérico
+    # (ex.: "?owner=abc", URL adulterada à mão) faria o ORM levantar
+    # ValueError ao preparar o lookup (500 em vez de simplesmente ignorar
+    # um filtro inválido). Mesmo cuidado já aplicado em
+    # apps.equipment.filters.filter_equipment_queryset para
+    # category/model — ignora silenciosamente, não propaga erro.
+    if owner and owner.isdigit():
+        qs = qs.filter(owner_id=owner)
+    if source and source.isdigit():
+        qs = qs.filter(source_id=source)
+    if business_type:
+        qs = qs.filter(business_type=business_type)
+    if client and client.isdigit():
+        qs = qs.filter(client_id=client)
+    if q:
+        qs = qs.filter(
+            Q(title__icontains=q) | Q(client__company_name__icontains=q) | Q(client__trade_name__icontains=q)
+        )
+    return qs
+
+
+def _stage_summary(stage, params):
+    """
+    Contagem + valor total consolidado de uma etapa, respeitando os
+    filtros ativos (`params`) — usado pelo endpoint AJAX para devolver os
+    totais atualizados de origem/destino depois de um arraste, sem o
+    front precisar duplicar nenhuma lógica de soma/formatação (mesma
+    função `format_brl` usada em todo o resto do sistema).
+
+    Mesma regra de `display_value` do Kanban: valor de fechamento se a
+    oportunidade já está fechada (ganha), senão o valor estimado (ou zero
+    se nenhum dos dois foi informado) — nunca os dois somados.
+    """
+    stage_opportunities = _filtered_opportunities_queryset(params).filter(stage_id=stage.pk)
+    total = Decimal(0)
+    count = 0
+    for opportunity in stage_opportunities:
+        count += 1
+        total += opportunity.closed_value if opportunity.closed_value is not None else (opportunity.estimated_value or Decimal(0))
+    return {"id": stage.pk, "count": count, "total_value_display": format_brl(total)}
+
+
+class OpportunityListView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Funil Kanban de oportunidades — SUBSTITUI por completo a antiga
+    listagem em tabela paginada (decisão de produto, 11/09/2026: "Kanban
+    substitui a listagem por completo"). Continua no MESMO nome de
+    view/URL/endpoint (`crm:opportunity_list`, `/crm/oportunidades/`) —
+    nenhum link/teste existente para a listagem precisa mudar de destino.
+
+    Sem paginação: um funil mostra TODAS as oportunidades do filtro
+    corrente, agrupadas por etapa — "próxima página" não é um conceito
+    que existe num Kanban. Em volume muito grande isso pode significar
+    uma coluna com scroll interno longo; nenhum "carregar mais" por
+    coluna foi pedido nesta rodada.
+    """
+
     permission_required = "crm.view_opportunities"
-    model = Opportunity
-    template_name = "crm/opportunity_list.html"
-    context_object_name = "opportunities"
-    paginate_by = 50
 
-    def get_queryset(self):
-        qs = Opportunity.objects.select_related("client", "owner", "source", "stage")
+    def get(self, request):
+        opportunities = list(_filtered_opportunities_queryset(request.GET).order_by("-created_at"))
 
-        stage = self.request.GET.get("stage", "")
-        owner = self.request.GET.get("owner", "")
-        source = self.request.GET.get("source", "")
-        business_type = self.request.GET.get("business_type", "")
-        client = self.request.GET.get("client", "")
-        q = self.request.GET.get("q", "").strip()
-
-        # stage/owner/source/client filtram por PK (FK) — um valor não
-        # numérico (ex.: "?owner=abc", URL adulterada à mão) faria o ORM
-        # levantar ValueError ao preparar o lookup (500 em vez de
-        # simplesmente ignorar um filtro inválido). Mesmo cuidado já
-        # aplicado em apps.equipment.filters.filter_equipment_queryset
-        # para category/model — ignora silenciosamente, não propaga erro.
-        if stage and stage.isdigit():
-            qs = qs.filter(stage_id=stage)
-        if owner and owner.isdigit():
-            qs = qs.filter(owner_id=owner)
-        if source and source.isdigit():
-            qs = qs.filter(source_id=source)
-        if business_type:
-            qs = qs.filter(business_type=business_type)
-        if client and client.isdigit():
-            qs = qs.filter(client_id=client)
-        if q:
-            qs = qs.filter(
-                Q(title__icontains=q) | Q(client__company_name__icontains=q) | Q(client__trade_name__icontains=q)
+        # `display_value`: MESMA regra usada em `_stage_summary` acima —
+        # atributo calculado em memória (nunca gravado no banco), só para
+        # o template não repetir a mesma expressão condicional em cada
+        # card.
+        for opportunity in opportunities:
+            opportunity.display_value = (
+                opportunity.closed_value if opportunity.closed_value is not None else (opportunity.estimated_value or Decimal(0))
             )
-        return qs
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["stages"] = OpportunityStage.objects.filter(is_active=True).order_by("order", "name")
-        context["sources"] = CommercialSource.objects.filter(is_active=True).order_by("order", "name")
-        context["business_type_choices"] = Opportunity._meta.get_field("business_type").choices
-        context["selected_stage"] = self.request.GET.get("stage", "")
-        context["selected_owner"] = self.request.GET.get("owner", "")
-        context["selected_source"] = self.request.GET.get("source", "")
-        context["selected_business_type"] = self.request.GET.get("business_type", "")
-        context["selected_client"] = self.request.GET.get("client", "")
-        context["q"] = self.request.GET.get("q", "")
-        return context
+        opportunities_by_stage = {}
+        for opportunity in opportunities:
+            opportunities_by_stage.setdefault(opportunity.stage_id, []).append(opportunity)
+
+        columns = []
+        for stage in OpportunityStage.objects.filter(is_active=True).order_by("order", "name"):
+            stage_opportunities = opportunities_by_stage.get(stage.pk, [])
+            total = sum((o.display_value for o in stage_opportunities), Decimal(0))
+            columns.append(
+                {
+                    "stage": stage,
+                    "opportunities": stage_opportunities,
+                    "count": len(stage_opportunities),
+                    "total_value_display": format_brl(total),
+                }
+            )
+
+        context = {
+            "columns": columns,
+            "sources": CommercialSource.objects.filter(is_active=True).order_by("order", "name"),
+            "business_type_choices": Opportunity._meta.get_field("business_type").choices,
+            "selected_source": request.GET.get("source", ""),
+            "selected_business_type": request.GET.get("business_type", ""),
+            "q": request.GET.get("q", ""),
+            "can_change_stage": request.user.has_perm("crm.change_opportunity_stage"),
+            "can_add_opportunity": request.user.has_perm("crm.add_opportunities"),
+            "can_manage_settings": request.user.has_perm("crm.manage_commercial_settings"),
+            # Embutido via `json_script` no template para o JS de
+            # drag-and-drop montar o <select> de motivo de perda do modal
+            # exigido ao soltar um card numa etapa `is_lost` — nunca
+            # interpolado cru (XSS-safe, mesmo padrão de `json_script` do
+            # próprio Django).
+            "loss_reasons": list(LossReason.objects.filter(is_active=True).order_by("order", "name").values("id", "name")),
+        }
+        return render(request, "crm/opportunity_list.html", context)
 
 
 class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
@@ -241,6 +327,18 @@ class OpportunityStageChangeView(LoginRequiredMixin, PermissionRequiredMixin, Vi
     nunca uma navegação. Exige as DUAS permissões — ver a oportunidade E
     poder mudar sua etapa — para nunca alterar o estado de algo que o
     próprio usuário não teria como ver antes.
+
+    MESMO endpoint para os dois fluxos da tela — o form inline da ficha
+    da oportunidade (`opportunity_detail.html`, POST normal) E o
+    arraste de card do Kanban (`static/crm/kanban.js`, POST via
+    `fetch()`): a distinção é só a RESPOSTA (redirect+messages vs. JSON),
+    nunca a validação nem a regra de negócio — as duas chamam exatamente
+    o mesmo `OpportunityStageChangeForm` e o mesmo
+    `apps.crm.services.change_opportunity_stage()`, então não existe
+    nenhum caminho de escrita "mais permissivo" pelo Kanban. A detecção é
+    pelo cabeçalho `X-Requested-With: XMLHttpRequest`, que
+    `static/crm/kanban.js` sempre envia e o form HTML normal nunca envia
+    (nenhum `fetch()`/`XMLHttpRequest` por trás de um `<form>` comum).
     """
 
     permission_required = ("crm.view_opportunities", "crm.change_opportunity_stage")
@@ -248,14 +346,21 @@ class OpportunityStageChangeView(LoginRequiredMixin, PermissionRequiredMixin, Vi
     def post(self, request, pk):
         opportunity = get_object_or_404(Opportunity, pk=pk)
         form = OpportunityStageChangeForm(request.POST)
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
         if not form.is_valid():
+            errors = [error for field_errors in form.errors.values() for error in field_errors]
+            if is_ajax:
+                return JsonResponse(
+                    {"ok": False, "error": " ".join(errors) or "Não foi possível mudar a etapa."}, status=400
+                )
             messages.error(request, "Não foi possível mudar a etapa — corrija os erros abaixo.")
-            for field_errors in form.errors.values():
-                for error in field_errors:
-                    messages.error(request, error)
+            for error in errors:
+                messages.error(request, error)
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
         cleaned = form.cleaned_data
+        origin_stage = opportunity.stage
         try:
             change_opportunity_stage(
                 opportunity_id=opportunity.pk,
@@ -267,8 +372,25 @@ class OpportunityStageChangeView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 closed_value=cleaned["closed_value"],
             )
         except ValueError as exc:
+            if is_ajax:
+                return JsonResponse({"ok": False, "error": str(exc)}, status=400)
             messages.error(request, str(exc))
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        if is_ajax:
+            # Os filtros ativos no Kanban no momento do arraste chegam na
+            # própria querystring desta URL de POST (ver
+            # `static/crm/kanban.js`) — `request.GET` os enxerga
+            # normalmente mesmo numa requisição POST (Django sempre
+            # analisa a querystring da URL, independente do método).
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": f"Etapa alterada para \"{cleaned['stage'].name}\".",
+                    "origin_stage": _stage_summary(origin_stage, request.GET),
+                    "destination_stage": _stage_summary(cleaned["stage"], request.GET),
+                }
+            )
 
         messages.success(request, f"Etapa alterada para \"{cleaned['stage'].name}\".")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)

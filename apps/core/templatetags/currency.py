@@ -16,6 +16,11 @@ determinística, calculada dígito a dígito a partir do `Decimal`).
 como string para exibição. O valor armazenado/usado em cálculos em
 qualquer outro lugar do sistema continua sendo o `Decimal` original,
 intocado.
+
+`format_brl()` é a função "crua" (reutilizável fora de templates — ex.:
+respostas JSON de endpoints AJAX, como o Kanban de oportunidades do CRM).
+`brl()` é só um wrapper fino dela como filtro de template, para manter
+100% de compatibilidade com todo lugar que já usa `{{ valor|brl }}`.
 """
 
 from decimal import Decimal, InvalidOperation
@@ -25,13 +30,12 @@ from django import template
 register = template.Library()
 
 
-@register.filter(name="brl")
-def brl(value):
+def format_brl(value):
     """
     Formata um valor monetário como "R$ 1.234,56". `None`/vazio vira "—"
     (mesmo marcador já usado em todo o resto do sistema para "sem valor").
     Um valor que não é numérico é devolvido sem alteração, sem levantar
-    exceção — um filtro de template nunca deve quebrar a página.
+    exceção — esta função nunca deve quebrar a chamadora (template ou view).
     """
     if value in (None, ""):
         return "—"
@@ -50,3 +54,9 @@ def brl(value):
 
     sign = "-" if negative else ""
     return f"{sign}R$ {integer_grouped},{decimal_part}"
+
+
+@register.filter(name="brl")
+def brl(value):
+    """Wrapper de template para `format_brl()` — ver docstring acima."""
+    return format_brl(value)
