@@ -183,6 +183,63 @@ class KanbanRenderingTest(KanbanViewTestBase):
         self.assertIn(response.status_code, (302, 403))
 
 
+class KanbanLossModalInitialStateTest(KanbanViewTestBase):
+    """
+    Regressão do bug de 11/09/2026: o modal "Motivo da perda" nascia
+    ABERTO ao simplesmente carregar `/crm/oportunidades/`, bloqueando o
+    Kanban com o overlay — causa raiz era uma disputa de cascata CSS
+    entre `.kanban-modal-backdrop` (que define `display: flex`) e o
+    `display: none` implícito do atributo `hidden` (regra padrão do
+    navegador, sempre vencida por qualquer regra de autor equivalente).
+    Django não tem motor de CSS para verificar renderização visual — os
+    testes aqui garantem estruturalmente que o HTML nasce marcado como
+    fechado E que a regra de CSS que corrige a causa raiz continua
+    presente na página (guarda de regressão: se alguém remover essa
+    regra de `_design_tokens.html` no futuro, este teste quebra).
+    """
+
+    def test_modal_renders_hidden_by_default(self):
+        self.client.force_login(self.mover)
+        response = self.client.get("/crm/oportunidades/")
+        content = response.content.decode()
+
+        modal_start = content.index('id="kanban-loss-modal"')
+        modal_tag = content[max(0, modal_start - 80) : modal_start + 120]
+        self.assertIn("hidden", modal_tag)
+        self.assertIn('aria-hidden="true"', modal_tag)
+
+    def test_modal_hidden_css_override_rule_is_present(self):
+        """
+        Guarda de regressão da causa raiz: sem esta regra de CSS, o
+        atributo `hidden` sozinho NUNCA esconde o modal (uma regra de
+        autor com `display: flex` sempre vence o `display: none`
+        implícito do navegador para o mesmo elemento).
+        """
+        self.client.force_login(self.mover)
+        response = self.client.get("/crm/oportunidades/")
+        self.assertContains(response, ".kanban-modal-backdrop[hidden]")
+
+    def test_modal_and_script_absent_without_change_stage_permission(self):
+        # Sem a permissão de mudar etapa, os cards não são arrastáveis
+        # (test_cards_not_draggable_without_change_stage_permission) — o
+        # modal de motivo de perda e o próprio script de arraste também
+        # não deveriam ser carregados nesse caso (nada para abrir).
+        self.client.force_login(self.viewer)  # só view_opportunities
+        response = self.client.get("/crm/oportunidades/")
+        self.assertNotContains(response, 'id="kanban-loss-modal"')
+        # Marcador específico da TAG <script> (não uma busca solta por
+        # "crm/kanban.js" — esse texto também aparece dentro de um
+        # comentário explicativo em _design_tokens.html, que é incluído
+        # para todo mundo independente de permissão).
+        self.assertNotContains(response, 'kanban.js"></script>')
+
+    def test_modal_and_script_present_with_change_stage_permission(self):
+        self.client.force_login(self.mover)
+        response = self.client.get("/crm/oportunidades/")
+        self.assertContains(response, 'id="kanban-loss-modal"')
+        self.assertContains(response, 'kanban.js"></script>')
+
+
 class KanbanAjaxStageChangeTest(KanbanViewTestBase):
     def _ajax_post(self, url, data):
         return self.client.post(url, data, HTTP_X_REQUESTED_WITH="XMLHttpRequest")

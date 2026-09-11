@@ -134,8 +134,16 @@ Modal "motivo da perda" — só aparece quando um card é solto numa coluna
 `is_lost` (exigência do backend: apps.crm.services.change_opportunity_
 stage sempre rejeita perda sem motivo). Um único modal reutilizado por
 qualquer coluna de perda, nunca um por card. Ver static/crm/kanban.js.
+
+Nasce FECHADO — `hidden` (atributo nativo, reforçado por
+`.kanban-modal-backdrop[hidden]` em _design_tokens.html contra o
+conflito de cascata com `display: flex` da própria classe) e
+`aria-hidden="true"` (mesmo estado replicado para leitor de tela,
+sincronizado em JS a cada abertura/fechamento). kanban.js reforça esse
+estado fechado explicitamente ao carregar, sem depender de nenhum
+comportamento implícito do navegador.
 {% endcomment %}
-<div id="kanban-loss-modal" class="kanban-modal-backdrop" hidden>
+<div id="kanban-loss-modal" class="kanban-modal-backdrop" hidden aria-hidden="true">
   <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="kanban-loss-modal-title">
     <div class="kanban-modal-header">
       <h2 class="kanban-modal-title" id="kanban-loss-modal-title">Motivo da perda</h2>

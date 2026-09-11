@@ -660,6 +660,26 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     .kanban-modal-backdrop {
       @apply fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4;
     }
+    /* CAUSA RAIZ de bug corrigido em 11/09/2026: o atributo HTML nativo
+       `hidden` só funciona através da regra padrão do navegador
+       `[hidden] { display: none }` — uma regra de user-agent. Em
+       cascata CSS, uma regra de AUTOR (esta folha de estilo, mesmo com
+       especificidade igual ou menor) sempre vence uma regra de
+       user-agent para a mesma propriedade. Como `.kanban-modal-backdrop`
+       acima define `display: flex` (via `@apply flex`), o atributo
+       `hidden` sozinho NUNCA conseguia esconder este modal — ele nascia
+       visível, com o overlay cobrindo a tela, antes mesmo de qualquer
+       JS rodar. Esta regra, combinando a classe com o seletor de
+       atributo `[hidden]`, tem especificidade maior que a regra acima
+       (duas partes contra uma) e por isso sempre vence,
+       independentemente de origem/ordem — é a forma correta e explícita
+       de fazer `hidden` funcionar junto de uma classe com `display`
+       próprio, sem depender de nenhum comportamento implícito do
+       navegador. Ver static/crm/kanban.js para o reforço em JS do
+       estado inicial fechado (defesa em profundidade). */
+    .kanban-modal-backdrop[hidden] {
+      display: none;
+    }
     .kanban-modal {
       @apply card w-full max-w-md max-h-[90vh] overflow-y-auto;
     }

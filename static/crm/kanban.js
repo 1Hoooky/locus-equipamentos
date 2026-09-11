@@ -221,6 +221,21 @@
 
   var pendingMove = null;
 
+  // Estado inicial EXPLÍCITO — nunca depende de o HTML já ter chegado
+  // certo do servidor (defesa em profundidade contra o bug corrigido em
+  // 11/09/2026: o modal nascia visível porque `.kanban-modal-backdrop`
+  // define `display: flex`, que vencia o `display: none` implícito do
+  // atributo `hidden` na cascata CSS — ver a regra
+  // `.kanban-modal-backdrop[hidden]` em _design_tokens.html para a
+  // correção da causa raiz). `pendingMove` também começa explicitamente
+  // nulo: nenhum card/etapa fica "em transição" até um drop de verdade
+  // acontecer.
+  if (modal) {
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+  }
+  pendingMove = null;
+
   if (modal && modalReasonSelect) {
     lossReasons.forEach(function (reason) {
       var option = document.createElement("option");
@@ -244,11 +259,21 @@
     modalError.classList.add("hidden");
     modalError.textContent = "";
     modal.hidden = false;
+    modal.setAttribute("aria-hidden", "false");
     modalReasonSelect.focus();
   }
 
   function closeLossModal() {
+    // Cancelar/fechar NUNCA toca no backend nem no DOM do card: o card
+    // só é movido de coluna dentro de performMove(), depois de um
+    // sucesso confirmado pelo servidor — como o drop numa etapa de
+    // perda nunca chama performMove() antes da confirmação do modal,
+    // não existe nenhuma posição visual para "devolver" aqui, e nenhuma
+    // chamada de rede/contador/StageChange foi criada só por abrir o
+    // modal.
+    if (!modal) return;
     modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
     pendingMove = null;
   }
 
@@ -259,6 +284,14 @@
       if (event.target === modal) closeLossModal();
     });
   }
+  // Tecla ESC fecha o modal, igual a qualquer diálogo modal padrão — só
+  // quando ele está de fato aberto (nunca intercepta ESC no resto do
+  // Kanban).
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && modal && !modal.hidden) {
+      closeLossModal();
+    }
+  });
 
   if (modalConfirmBtn) {
     modalConfirmBtn.addEventListener("click", function () {
