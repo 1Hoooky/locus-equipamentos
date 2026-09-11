@@ -38,8 +38,19 @@ def _apply_input_class(fields, *, skip: tuple[str, ...] = ()) -> None:
 
 
 class OpportunityCreateForm(forms.Form):
+    """
+    `title` usa o rótulo "Nome da oportunidade" (em vez de "Título",
+    usado em `OpportunityUpdateForm`) — pedido explícito da rodada de
+    "criação rápida em drawer" (11/09/2026): o rótulo aparece tanto no
+    drawer quanto na rota tradicional `/crm/oportunidades/nova/`, que
+    reaproveita este MESMO form — nenhuma duplicação de label entre os
+    dois pontos de entrada. Puramente texto de UI; não afeta validação
+    nem o nome real do campo (`title`, inalterado em `NewOpportunityData`/
+    `Opportunity`).
+    """
+
     client = forms.ModelChoiceField(label="Cliente", queryset=Client.objects.filter(is_active=True).order_by("company_name"))
-    title = forms.CharField(label="Título", max_length=200)
+    title = forms.CharField(label="Nome da oportunidade", max_length=200)
     owner = forms.ModelChoiceField(label="Responsável comercial", queryset=eligible_owner_queryset())
     source = forms.ModelChoiceField(
         label="Origem", queryset=CommercialSource.objects.filter(is_active=True).order_by("order", "name")

@@ -35,6 +35,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMix
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.views import View
 from django.views.generic import ListView
 
@@ -112,6 +113,46 @@ def _filtered_opportunities_queryset(params):
     return qs
 
 
+def _default_new_opportunity_stage():
+    """
+    Etapa inicial sugerida ao ABRIR "Nova oportunidade" (drawer OU rota
+    tradicional) — UX pedida na rodada de 11/09/2026 ("criação rápida em
+    drawer"): a primeira etapa ATIVA pela ordem configurada que não seja
+    de ganho nem de perda. Puramente uma SUGESTÃO de `initial=` no form —
+    nunca hardcoded ("ORÇAMENTO" ou qualquer nome fixo), nunca contorna a
+    validação real: `OpportunityCreateForm.stage` continua restrito ao
+    MESMO queryset (`is_active=True, is_won=False, is_lost=False`) e
+    `apps.crm.services.create_opportunity()` continua sendo quem de fato
+    rejeita qualquer etapa de ganho/perda/inativa — esta função só decide
+    QUAL etapa desse conjunto já vem pré-marcada no `<select>`, o usuário
+    pode sempre trocar por outra etapa elegível antes de criar. Se não
+    houver nenhuma etapa elegível configurada, retorna `None` e o campo
+    nasce sem seleção (mesmo comportamento de hoje).
+    """
+    return (
+        OpportunityStage.objects.filter(is_active=True, is_won=False, is_lost=False)
+        .order_by("order", "name")
+        .first()
+    )
+
+
+def _new_opportunity_create_form(data=None):
+    """
+    Fábrica única do `OpportunityCreateForm` "em branco" (GET) — usada
+    tanto pela rota tradicional (`OpportunityCreateView.get`) quanto pelo
+    Kanban (`OpportunityListView.get`, para o drawer) — para as duas
+    nascerem com a MESMA etapa inicial sugerida (`_default_new_opportunity_
+    stage`), nunca divergindo entre os dois pontos de entrada. `data`
+    (POST) nunca passa por aqui — um form BOUND nunca deve ter `initial`
+    reaplicado por cima do que o usuário enviou.
+    """
+    initial = {}
+    default_stage = _default_new_opportunity_stage()
+    if default_stage is not None:
+        initial["stage"] = default_stage.pk
+    return OpportunityCreateForm(initial=initial)
+
+
 def _stage_summary(stage, params):
     """
     Contagem + valor total consolidado de uma etapa, respeitando os
@@ -179,6 +220,7 @@ class OpportunityListView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 }
             )
 
+        can_add_opportunity = request.user.has_perm("crm.add_opportunities")
         context = {
             "columns": columns,
             "sources": CommercialSource.objects.filter(is_active=True).order_by("order", "name"),
@@ -187,7 +229,16 @@ class OpportunityListView(LoginRequiredMixin, PermissionRequiredMixin, View):
             "selected_business_type": request.GET.get("business_type", ""),
             "q": request.GET.get("q", ""),
             "can_change_stage": request.user.has_perm("crm.change_opportunity_stage"),
-            "can_add_opportunity": request.user.has_perm("crm.add_opportunities"),
+            "can_add_opportunity": can_add_opportunity,
+            # Form de criação rápida embutido no drawer lateral do Kanban
+            # (rodada "CRIAÇÃO RÁPIDA SEM SAIR DO FUNIL", 11/09/2026) — só
+            # instanciado (e só as queries de `client`/`owner`/`source`/
+            # `stage` elegíveis disparadas) para quem TEM a permissão;
+            # sem permissão nenhuma nem o botão "+ Nova oportunidade"
+            # aparece no template. Mesmo form/mesma fábrica usados pela
+            # rota tradicional (`OpportunityCreateView.get`) — nunca uma
+            # segunda definição de campos.
+            "create_form": _new_opportunity_create_form() if can_add_opportunity else None,
             "can_manage_settings": request.user.has_perm("crm.manage_commercial_settings"),
             # Embutido via `json_script` no template para o JS de
             # drag-and-drop montar o <select> de motivo de perda do modal
@@ -237,14 +288,47 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
 
 class OpportunityCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Rota tradicional de criação — MANTIDA de propósito (rodada "CRIAÇÃO
+    RÁPIDA EM DRAWER", 11/09/2026: "NÃO remover automaticamente a rota
+    tradicional... pode continuar existindo como fallback/compatibilidade/
+    acesso direto"). Serve três papéis agora: (1) acesso direto por URL/
+    bookmark; (2) fallback sem JavaScript — o botão "+ Nova oportunidade"
+    do Kanban continua sendo um `<a href>` de verdade para esta MESMA URL,
+    só interceptado por JS quando disponível (ver templates/crm/
+    opportunity_list.html + static/crm/opportunity_quick_create.js); (3)
+    resposta ao POST do PRÓPRIO drawer, via `fetch()` para esta mesma URL
+    — o drawer não é uma arquitetura paralela, é o MESMO endpoint, só
+    detectado pelo cabeçalho `X-Requested-With: XMLHttpRequest` (idêntico
+    ao padrão já usado em `OpportunityStageChangeView`) para decidir a
+    FORMA da resposta:
+      - GET sempre continua devolvendo a página cheia (o drawer nunca
+        busca este form via AJAX — nasce já embutido no HTML do Kanban,
+        ver `OpportunityListView.get`, para abrir instantaneamente sem
+        round-trip extra);
+      - POST inválido: AJAX recebe só o FRAGMENTO de campos (com erros
+        bound, re-injetado no drawer sem fechar/perder o que já foi
+        digitado); não-AJAX continua recebendo a página cheia de sempre;
+      - POST válido: AJAX recebe JSON (card pronto + resumo da coluna,
+        para o Kanban se atualizar sem recarregar); não-AJAX continua
+        com o redirect + mensagem de sempre.
+    Em NENHUM dos dois caminhos a validação ou a regra de negócio muda —
+    os dois chamam exatamente o mesmo `OpportunityCreateForm` e o mesmo
+    `apps.crm.services.create_opportunity()`.
+    """
+
     permission_required = "crm.add_opportunities"
 
     def get(self, request):
-        return render(request, "crm/opportunity_form.html", {"form": OpportunityCreateForm(), "is_new": True})
+        return render(request, "crm/opportunity_form.html", {"form": _new_opportunity_create_form(), "is_new": True})
 
     def post(self, request):
         form = OpportunityCreateForm(request.POST)
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
         if not form.is_valid():
+            if is_ajax:
+                return render(request, "crm/_opportunity_quick_create_fields.html", {"form": form}, status=400)
             return render(request, "crm/opportunity_form.html", {"form": form, "is_new": True})
 
         cleaned = form.cleaned_data
@@ -265,7 +349,48 @@ class OpportunityCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
             )
         except ValueError as exc:
             form.add_error(None, str(exc))
+            if is_ajax:
+                return render(request, "crm/_opportunity_quick_create_fields.html", {"form": form}, status=400)
             return render(request, "crm/opportunity_form.html", {"form": form, "is_new": True})
+
+        if is_ajax:
+            # Mesma regra de `display_value` de `OpportunityListView`/
+            # `_stage_summary` — uma oportunidade recém-criada nunca tem
+            # `closed_value` (não pode nascer ganha/perdida, ver
+            # `create_opportunity`), mas a expressão completa é repetida
+            # aqui por clareza/defesa em profundidade, não só `estimated_
+            # value`.
+            opportunity.display_value = (
+                opportunity.closed_value if opportunity.closed_value is not None else (opportunity.estimated_value or Decimal(0))
+            )
+            card_html = render_to_string(
+                "crm/_opportunity_kanban_card.html",
+                {
+                    "opportunity": opportunity,
+                    "stage": opportunity.stage,
+                    "can_change_stage": request.user.has_perm("crm.change_opportunity_stage"),
+                },
+                request=request,
+            )
+            # A oportunidade recém-criada só é inserida visualmente no
+            # Kanban se ela também passaria pelos FILTROS ativos no
+            # momento (busca/origem/tipo de negócio, os mesmos 3 campos
+            # da toolbar) — mesma fonte única de verdade do resto da
+            # tela (`_filtered_opportunities_queryset`), nunca uma cópia
+            # da lógica de filtro reimplementada em JS. Criada no banco
+            # de qualquer forma; só a apresentação imediata respeita o
+            # filtro corrente (ver static/crm/opportunity_quick_create.js).
+            matches_current_filters = _filtered_opportunities_queryset(request.GET).filter(pk=opportunity.pk).exists()
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": f"Oportunidade \"{opportunity.title}\" criada.",
+                    "stage_id": opportunity.stage_id,
+                    "matches_current_filters": matches_current_filters,
+                    "destination_stage": _stage_summary(opportunity.stage, request.GET),
+                    "card_html": card_html,
+                }
+            )
 
         messages.success(request, f"Oportunidade \"{opportunity.title}\" criada.")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)

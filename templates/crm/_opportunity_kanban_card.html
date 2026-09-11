@@ -1,0 +1,38 @@
+{% load icons %}
+{% load currency %}
+{% comment %}
+Card individual do Kanban — extraído do loop de templates/crm/
+opportunity_list.html (rodada "CRIAÇÃO RÁPIDA EM DRAWER", 11/09/2026)
+para ter uma ÚNICA fonte de verdade da marcação do card, reaproveitada
+em dois lugares:
+  1. O loop normal da listagem (`{% include %}` com `stage=column.stage`).
+  2. `apps.crm.views.OpportunityCreateView.post()` — via `render_to_string`,
+     para devolver o HTML pronto do card recém-criado na resposta JSON do
+     drawer (`static/crm/opportunity_quick_create.js` insere este HTML
+     diretamente na coluna certa, sem duplicar a estrutura do card em
+     JavaScript — qualquer mudança visual futura no card continua
+     precisando de uma edição só, aqui).
+
+Espera no contexto: `opportunity` (com `.display_value` já calculado —
+ver `OpportunityListView.get`/`OpportunityCreateView.post`), `stage`
+(para `is_won`/`is_lost`, usado só na cor da borda) e `can_change_stage`
+(para o atributo `draggable`).
+{% endcomment %}
+<div class="kanban-card {% if stage.is_won %}kanban-card--won{% elif stage.is_lost %}kanban-card--lost{% endif %}" data-opportunity-id="{{ opportunity.pk }}" draggable="{% if can_change_stage %}true{% else %}false{% endif %}">
+  <div class="flex items-start justify-between gap-2">
+    <p class="kanban-card-title">{{ opportunity.title }}</p>
+    <a href="{% url 'crm:opportunity_detail' opportunity.pk %}" class="icon-btn-neutral shrink-0" draggable="false"
+       aria-label="Ver oportunidade {{ opportunity.title }}" title="Ver oportunidade {{ opportunity.title }}">
+      {% icon "eye" size="compact" %}
+    </a>
+  </div>
+  <p class="kanban-card-client">{{ opportunity.client.display_name }}</p>
+  <p class="kanban-card-value">{{ opportunity.display_value|brl }}</p>
+  <div class="kanban-card-meta-row">
+    <span class="kanban-card-meta-item">{% icon "user" size="compact" %} {{ opportunity.owner }}</span>
+    {% if opportunity.expected_close_date %}
+    <span class="kanban-card-meta-item">{% icon "calendar" size="compact" %} {{ opportunity.expected_close_date|date:"d/m/Y" }}</span>
+    {% endif %}
+    <span class="badge-neutral text-[10px]">{{ opportunity.get_business_type_display }}</span>
+  </div>
+</div>

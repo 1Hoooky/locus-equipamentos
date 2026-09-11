@@ -57,12 +57,77 @@ filtro de "Etapa" foi removido: no Kanban a própria COLUNA já é a etapa.
     é mais lido por este template).
     {% endcomment %}
     {% if can_add_opportunity %}
-    <a href="{% url 'crm:opportunity_create' %}" class="btn-primary">
+    {% comment %}
+    [CRIAÇÃO RÁPIDA EM DRAWER, 11/09/2026] `href` continua apontando para
+    a rota tradicional de sempre (`crm:opportunity_create`) — DE
+    PROPÓSITO: é o fallback funcional caso JS esteja indisponível/falhe
+    (o link navega normalmente para a página cheia de criação) e o
+    caminho de acesso direto/compatibilidade pedido explicitamente. Com
+    JS carregado, `static/crm/opportunity_quick_create.js` intercepta o
+    clique (`preventDefault`) e abre o drawer abaixo em vez de navegar —
+    progressive enhancement, nunca uma segunda forma de criar.
+    {% endcomment %}
+    <a href="{% url 'crm:opportunity_create' %}" id="opportunity-quick-create-open" class="btn-primary">
       {% icon "plus" size="compact" %} Nova oportunidade
     </a>
     {% endif %}
   </div>
 </div>
+
+{% if can_add_opportunity %}
+{% comment %}
+Drawer lateral de criação rápida de oportunidade — CRIAÇÃO RÁPIDA EM
+DRAWER, 11/09/2026. Backdrop + painel são dois elementos IRMÃOS
+(mesmíssima estrutura do drawer do menu mobile em templates/base.html:
+`#mobile-menu-backdrop`/`#mobile-menu-drawer`, alternando a classe
+Tailwind `.hidden` via JS) — deliberadamente NÃO a estrutura `.kanban-
+modal-backdrop` (aquela é um modal centralizado pequeno com `display:
+flex` direto na classe, que exige a regra extra `[hidden]{display:none}`
+para o atributo `hidden` nativo funcionar por cima da cascata; usando
+`.hidden` do Tailwind por classe, como o menu mobile já faz, esse
+problema nem existe). O objetivo de UX aqui é justamente NÃO parecer o
+modal "Motivo da perda" (crítico/bloqueante) — é um painel lateral
+discreto, com o Kanban sempre visível ao fundo.
+
+Nasce fechado (`class="... hidden"`). Largura ~440px (dentro dos 420–500
+pedidos) a partir de `sm:` (mesmo breakpoint de 640px já usado em toda a
+sidebar/drawer mobile do projeto); no mobile ocupa a largura quase toda
+(`w-full`, limitado só pela viewport).
+
+O <form> aqui SEMPRE faz POST para a MESMA URL de sempre
+(`crm:opportunity_create`) — sem `X-Requested-With`, este POST se
+comportaria EXATAMENTE como a rota tradicional (redirect + mensagem);
+`static/crm/opportunity_quick_create.js` é quem adiciona o cabeçalho via
+`fetch()` para receber JSON/fragmento em vez de navegar. O CSRF token é
+o `{% csrf_token %}` normal do Django, próprio deste form — não
+reaproveita o `#kanban-csrf-form` do restante do Kanban (nenhuma
+dependência de ordem de carregamento entre os dois scripts).
+{% endcomment %}
+<div id="opportunity-quick-create-backdrop" class="hidden fixed inset-0 bg-black/30 z-40"></div>
+<aside id="opportunity-quick-create-drawer" class="hidden fixed inset-y-0 right-0 z-50 w-full sm:w-[440px] max-w-full bg-white shadow-xl flex flex-col"
+       role="dialog" aria-modal="true" aria-labelledby="opportunity-quick-create-title" tabindex="-1">
+  <div class="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
+    <div>
+      <h2 id="opportunity-quick-create-title" class="text-base font-bold text-brand-charcoal">Nova oportunidade</h2>
+      <p class="text-xs text-gray-500 mt-0.5">Cadastre os dados iniciais da negociação.</p>
+    </div>
+    <button type="button" id="opportunity-quick-create-close" class="icon-btn-neutral shrink-0" aria-label="Fechar">
+      {% icon "x-mark" size="compact" %}
+    </button>
+  </div>
+
+  <form id="opportunity-quick-create-form" method="post" action="{% url 'crm:opportunity_create' %}" class="flex-1 flex flex-col min-h-0" novalidate>
+    {% csrf_token %}
+    <div id="opportunity-quick-create-fields" class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+      {% include "crm/_opportunity_quick_create_fields.html" with form=create_form %}
+    </div>
+    <div class="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-100 shrink-0 bg-white">
+      <button type="button" id="opportunity-quick-create-cancel" class="btn-neutral">Cancelar</button>
+      <button type="submit" id="opportunity-quick-create-submit" class="btn-primary">Criar oportunidade</button>
+    </div>
+  </form>
+</aside>
+{% endif %}
 
 {% comment %}
 Toolbar compacta numa linha só (REFINAMENTO VISUAL, 11/09/2026): os 3
@@ -137,24 +202,7 @@ na coluna quanto no card isoladamente.
     </div>
     <div class="kanban-column-body" data-drop-zone>
       {% for opportunity in column.opportunities %}
-      <div class="kanban-card {% if column.stage.is_won %}kanban-card--won{% elif column.stage.is_lost %}kanban-card--lost{% endif %}" data-opportunity-id="{{ opportunity.pk }}" draggable="{% if can_change_stage %}true{% else %}false{% endif %}">
-        <div class="flex items-start justify-between gap-2">
-          <p class="kanban-card-title">{{ opportunity.title }}</p>
-          <a href="{% url 'crm:opportunity_detail' opportunity.pk %}" class="icon-btn-neutral shrink-0" draggable="false"
-             aria-label="Ver oportunidade {{ opportunity.title }}" title="Ver oportunidade {{ opportunity.title }}">
-            {% icon "eye" size="compact" %}
-          </a>
-        </div>
-        <p class="kanban-card-client">{{ opportunity.client.display_name }}</p>
-        <p class="kanban-card-value">{{ opportunity.display_value|brl }}</p>
-        <div class="kanban-card-meta-row">
-          <span class="kanban-card-meta-item">{% icon "user" size="compact" %} {{ opportunity.owner }}</span>
-          {% if opportunity.expected_close_date %}
-          <span class="kanban-card-meta-item">{% icon "calendar" size="compact" %} {{ opportunity.expected_close_date|date:"d/m/Y" }}</span>
-          {% endif %}
-          <span class="badge-neutral text-[10px]">{{ opportunity.get_business_type_display }}</span>
-        </div>
-      </div>
+      {% include "crm/_opportunity_kanban_card.html" with opportunity=opportunity stage=column.stage %}
       {% empty %}
       <p class="kanban-column-empty">Nenhuma oportunidade nesta etapa.</p>
       {% endfor %}
@@ -213,5 +261,17 @@ comportamento implícito do navegador.
   </div>
 </div>
 <script src="{% static 'crm/kanban.js' %}"></script>
+{% endif %}
+
+{% if can_add_opportunity %}
+{% comment %}
+Script do drawer de criação rápida — permissão PRÓPRIA
+(`crm.add_opportunities`), independente de `can_change_stage` acima
+(um usuário pode ter só uma das duas) — por isso este bloco NUNCA fica
+aninhado dentro do `{% if can_change_stage %}` de cima. Sem nenhuma
+dependência de carregamento entre os dois scripts (cada um só lê os
+próprios elementos pelo próprio id).
+{% endcomment %}
+<script src="{% static 'crm/opportunity_quick_create.js' %}"></script>
 {% endif %}
 {% endblock %}

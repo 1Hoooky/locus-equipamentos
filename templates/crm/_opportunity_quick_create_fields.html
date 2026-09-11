@@ -1,0 +1,88 @@
+{% comment %}
+Fragmento de CAMPOS do form de criação rápida de oportunidade (drawer
+lateral do Kanban, rodada "CRIAÇÃO RÁPIDA SEM SAIR DO FUNIL", 11/09/2026).
+
+Reaproveita `OpportunityCreateForm` (apps/crm/forms.py) — o MESMO form da
+rota tradicional `/crm/oportunidades/nova/` (templates/crm/opportunity_
+form.html), nunca uma segunda definição de campos/validação. Este
+template é incluído em DOIS lugares, sempre com o form no contexto como
+`form`:
+  1. templates/crm/opportunity_list.html — dentro do <form> do drawer,
+     na carga inicial da página (form em branco, com a etapa inicial já
+     sugerida — ver apps.crm.views._new_opportunity_create_form).
+  2. apps/crm/views.py OpportunityCreateView.post() — como resposta AJAX
+     (status 400) quando a validação falha: `static/crm/opportunity_
+     quick_create.js` troca só o innerHTML do container de campos por
+     este mesmo fragmento re-renderizado (form BOUND, com os valores que
+     o usuário digitou e os erros de cada campo) — o <form>/CSRF/rodapé
+     do drawer nunca são recriados, só os campos de dentro.
+
+Agrupamento em duas seções pedido explicitamente pela especificação:
+"Informações da negociação" (dados da negociação em si) e "Planejamento"
+(previsão/valor/observações) — puramente apresentação, os NOMES dos
+campos (`name="title"`, `name="client"` etc.) são exatamente os mesmos
+do form em qualquer agrupamento, então o POST nunca muda de formato.
+{% endcomment %}
+{% if form.non_field_errors %}
+<div class="alert-error">
+  {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<div>
+  <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Informações da negociação</h3>
+  <div class="space-y-4">
+    <div>
+      <label class="field-label" for="{{ form.title.id_for_label }}">{{ form.title.label }}</label>
+      {{ form.title }}
+      {% for error in form.title.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    <div>
+      <label class="field-label" for="{{ form.client.id_for_label }}">{{ form.client.label }}</label>
+      {{ form.client }}
+      {% for error in form.client.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    <div>
+      <label class="field-label" for="{{ form.owner.id_for_label }}">{{ form.owner.label }}</label>
+      {{ form.owner }}
+      {% for error in form.owner.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    <div>
+      <label class="field-label" for="{{ form.stage.id_for_label }}">{{ form.stage.label }}</label>
+      {{ form.stage }}
+      {% if form.stage.help_text %}<p class="field-hint">{{ form.stage.help_text }}</p>{% endif %}
+      {% for error in form.stage.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    <div>
+      <label class="field-label" for="{{ form.source.id_for_label }}">{{ form.source.label }}</label>
+      {{ form.source }}
+      {% for error in form.source.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    <div>
+      <label class="field-label" for="{{ form.business_type.id_for_label }}">{{ form.business_type.label }}</label>
+      {{ form.business_type }}
+      {% for error in form.business_type.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+  </div>
+</div>
+
+<div>
+  <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Planejamento</h3>
+  <div class="space-y-4">
+    <div>
+      <label class="field-label" for="{{ form.expected_close_date.id_for_label }}">{{ form.expected_close_date.label }}</label>
+      {{ form.expected_close_date }}
+      {% for error in form.expected_close_date.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    <div>
+      <label class="field-label" for="{{ form.estimated_value.id_for_label }}">{{ form.estimated_value.label }}</label>
+      {{ form.estimated_value }}
+      {% for error in form.estimated_value.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    <div>
+      <label class="field-label" for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>
+      {{ form.notes }}
+      {% for error in form.notes.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+  </div>
+</div>
