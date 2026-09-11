@@ -2,13 +2,26 @@
 {% load icons %}
 {% load currency %}
 {% load static %}
-{% block title %}Funil de oportunidades — Locus{% endblock %}
+{% block title %}Funil de oportunidades — LocusHub{% endblock %}
+{% comment %}
+[REFINAMENTO VISUAL — LocusHub, 11/09/2026] O Kanban é a tela mais larga
+do sistema (funil horizontal, várias colunas lado a lado) — sobrescreve
+`main_class` (padrão `max-w-6xl mx-auto`, ver base.html) para usar mais
+largura útil sem virar 100% edge-to-edge (`max-w-[1600px]` continua
+dando uma margem de respiro em monitores muito largos). Nenhuma outra
+tela do sistema é afetada — o bloco é só desta página.
+{% endcomment %}
+{% block main_class %}max-w-[1600px] mx-auto w-full{% endblock %}
 {% block content %}
 {% comment %}
 Funil Kanban de oportunidades (CRM) — SUBSTITUI por completo a antiga
 listagem em tabela paginada (decisão de produto, 11/09/2026: "Kanban
 substitui a listagem por completo"). Mesma URL/view de sempre
-(crm:opportunity_list) — só a apresentação mudou.
+(crm:opportunity_list) — só a apresentação mudou. Refinamento visual
+adicional na mesma data (rodada "sidebar expansível + Kanban"):
+hierarquia mais clara no card (título > cliente > valor > responsável/
+previsão), toolbar de filtros compactada numa linha só, cabeçalho de
+coluna com faixa colorida fina (não fundo cheio) por semântica de etapa.
 
 Referência de UX/estrutura: um CRM de terceiro (organização horizontal
 das etapas, cards, contagem/valor consolidado por coluna, arraste entre
@@ -31,7 +44,7 @@ filtro de "Etapa" foi removido: no Kanban a própria COLUNA já é a etapa.
   <div class="flex flex-wrap gap-2 items-center">
     {% if can_manage_settings %}
     <a href="{% url 'crm:commercial_source_list' %}" class="btn-neutral icon-inline">
-      {% icon "cog-6-tooth" size="compact" %} Config. comerciais
+      {% icon "cog-6-tooth" size="compact" %} Configurações comerciais
     </a>
     {% endif %}
     {% if can_add_opportunity %}
@@ -42,48 +55,49 @@ filtro de "Etapa" foi removido: no Kanban a própria COLUNA já é a etapa.
   </div>
 </div>
 
-<form method="get" class="mb-4">
-  <div class="flex flex-wrap gap-2 items-end">
-    <div class="flex-1 min-w-[200px]">
-      <label class="field-label icon-inline">{% icon "magnifying-glass" size="compact" %} Buscar título ou cliente</label>
-      <input type="text" name="q" value="{{ q }}" placeholder="Título ou cliente" class="filter-input w-full">
-    </div>
-    <button type="submit" class="btn-neutral">Buscar</button>
-  </div>
-
-  <details class="mt-3" {% if selected_source or selected_business_type %}open{% endif %}>
-    <summary class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700 cursor-pointer select-none min-h-[44px] sm:min-h-[36px] py-2">
-      {% icon "chevron-down" size="compact" %} Filtros
-      {% if selected_source or selected_business_type %}<span class="badge-info">ativos</span>{% endif %}
-    </summary>
-    <div class="mobile-filter-panel">
-      <div>
-        <label class="field-label">Origem</label>
-        <select name="source" class="filter-input w-full">
-          <option value="">Todas</option>
-          {% for source in sources %}
-          <option value="{{ source.pk }}" {% if source.pk|stringformat:"s" == selected_source %}selected{% endif %}>{{ source.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="field-label">Tipo de negócio</label>
-        <select name="business_type" class="filter-input w-full">
-          <option value="">Todos</option>
-          {% for value, label in business_type_choices %}
-          <option value="{{ value }}" {% if value == selected_business_type %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="sm:col-span-2 flex items-center gap-3">
-        <button type="submit" class="btn-neutral">Aplicar filtros</button>
-        {% if request.GET %}
-        <a href="{% url 'crm:opportunity_list' %}" class="link text-sm">Limpar</a>
-        {% endif %}
+{% comment %}
+Toolbar compacta numa linha só (REFINAMENTO VISUAL, 11/09/2026): os 3
+campos que já existiam (q/source/business_type) agora ficam sempre
+visíveis lado a lado, sem o `<details>` de "Filtros avançados" de antes
+— com só 3 campos, a revelação em duas etapas era fricção, não economia
+de espaço real. Mesmos `name` de sempre nos campos (a view lê
+`request.GET` normalmente, nenhuma regra de filtro mudou).
+{% endcomment %}
+<div class="kanban-toolbar">
+  <form method="get" class="kanban-toolbar-form">
+    <div class="kanban-toolbar-field kanban-toolbar-field--grow">
+      <label class="sr-only" for="kanban-filter-q">Buscar título ou cliente</label>
+      <div class="kanban-search-wrap">
+        {% icon "magnifying-glass" size="compact" extra_class="kanban-search-icon" %}
+        <input type="text" id="kanban-filter-q" name="q" value="{{ q }}" placeholder="Buscar título ou cliente..." class="filter-input kanban-search-input">
       </div>
     </div>
-  </details>
-</form>
+    <div class="kanban-toolbar-field">
+      <label class="sr-only" for="kanban-filter-source">Origem</label>
+      <select id="kanban-filter-source" name="source" class="filter-input w-full">
+        <option value="">Origem: todas</option>
+        {% for source in sources %}
+        <option value="{{ source.pk }}" {% if source.pk|stringformat:"s" == selected_source %}selected{% endif %}>{{ source.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="kanban-toolbar-field">
+      <label class="sr-only" for="kanban-filter-business-type">Tipo de negócio</label>
+      <select id="kanban-filter-business-type" name="business_type" class="filter-input w-full">
+        <option value="">Tipo: todos</option>
+        {% for value, label in business_type_choices %}
+        <option value="{{ value }}" {% if value == selected_business_type %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="kanban-toolbar-actions">
+      <button type="submit" class="btn-neutral btn-sm">Filtrar</button>
+      {% if request.GET %}
+      <a href="{% url 'crm:opportunity_list' %}" class="link text-sm">Limpar</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
 
 {# Token CSRF exposto para static/crm/kanban.js ler o valor (o cookie #}
 {# csrftoken é HTTPONLY neste projeto — não dá para ler via document. #}
@@ -92,21 +106,29 @@ filtro de "Etapa" foi removido: no Kanban a própria COLUNA já é a etapa.
 
 {{ loss_reasons|json_script:"kanban-loss-reasons-data" }}
 
+{% comment %}
+Cabeçalho de coluna (REFINAMENTO VISUAL, 11/09/2026): a faixa colorida
+fina no topo (`.kanban-column-accent`) substitui o badge colorido cheio
+de antes — carrega o mesmo significado semântico (verde=ganho,
+vermelho=perda, dourado=comum) sem "pintar" a coluna inteira (pedido
+explícito da rodada). Cada card herda a mesma cor na borda lateral
+esquerda (`.kanban-card--won`/`--lost`), então a leitura funciona tanto
+na coluna quanto no card isoladamente.
+{% endcomment %}
 <div class="kanban-board" id="kanban-board" data-change-stage-url-base="{% url 'crm:opportunity_change_stage' 0 %}" data-filters-query="{{ request.GET.urlencode }}">
   {% for column in columns %}
   <div class="kanban-column" data-stage-id="{{ column.stage.pk }}" data-stage-name="{{ column.stage.name }}" data-stage-is-lost="{{ column.stage.is_lost|yesno:'true,false' }}" data-stage-is-won="{{ column.stage.is_won|yesno:'true,false' }}">
+    <div class="kanban-column-accent {% if column.stage.is_won %}kanban-column-accent--won{% elif column.stage.is_lost %}kanban-column-accent--lost{% else %}kanban-column-accent--neutral{% endif %}"></div>
     <div class="kanban-column-header">
       <div class="kanban-column-title">
-        {% if column.stage.is_won %}<span class="badge-success kanban-column-name">{{ column.stage.name }}</span>
-        {% elif column.stage.is_lost %}<span class="badge-danger kanban-column-name">{{ column.stage.name }}</span>
-        {% else %}<span class="badge-info kanban-column-name">{{ column.stage.name }}</span>{% endif %}
+        <span class="kanban-column-name">{{ column.stage.name }}</span>
         <span class="badge-neutral kanban-column-count">{{ column.count }}</span>
       </div>
       <p class="kanban-column-total">{{ column.total_value_display }}</p>
     </div>
     <div class="kanban-column-body" data-drop-zone>
       {% for opportunity in column.opportunities %}
-      <div class="kanban-card" data-opportunity-id="{{ opportunity.pk }}" draggable="{% if can_change_stage %}true{% else %}false{% endif %}">
+      <div class="kanban-card {% if column.stage.is_won %}kanban-card--won{% elif column.stage.is_lost %}kanban-card--lost{% endif %}" data-opportunity-id="{{ opportunity.pk }}" draggable="{% if can_change_stage %}true{% else %}false{% endif %}">
         <div class="flex items-start justify-between gap-2">
           <p class="kanban-card-title">{{ opportunity.title }}</p>
           <a href="{% url 'crm:opportunity_detail' opportunity.pk %}" class="icon-btn-neutral shrink-0" draggable="false"
@@ -114,9 +136,15 @@ filtro de "Etapa" foi removido: no Kanban a própria COLUNA já é a etapa.
             {% icon "eye" size="compact" %}
           </a>
         </div>
-        <p class="kanban-card-meta">{{ opportunity.client.display_name }}</p>
-        <p class="kanban-card-meta">{{ opportunity.owner }}</p>
+        <p class="kanban-card-client">{{ opportunity.client.display_name }}</p>
         <p class="kanban-card-value">{{ opportunity.display_value|brl }}</p>
+        <div class="kanban-card-meta-row">
+          <span class="kanban-card-meta-item">{% icon "user" size="compact" %} {{ opportunity.owner }}</span>
+          {% if opportunity.expected_close_date %}
+          <span class="kanban-card-meta-item">{% icon "calendar" size="compact" %} {{ opportunity.expected_close_date|date:"d/m/Y" }}</span>
+          {% endif %}
+          <span class="badge-neutral text-[10px]">{{ opportunity.get_business_type_display }}</span>
+        </div>
       </div>
       {% empty %}
       <p class="kanban-column-empty">Nenhuma oportunidade nesta etapa.</p>
@@ -124,7 +152,7 @@ filtro de "Etapa" foi removido: no Kanban a própria COLUNA já é a etapa.
     </div>
   </div>
   {% empty %}
-  <p class="empty-state">Nenhuma etapa ativa cadastrada — configure o funil em "Config. comerciais".</p>
+  <p class="empty-state">Nenhuma etapa ativa cadastrada — configure o funil em "Configurações comerciais".</p>
   {% endfor %}
 </div>
 
@@ -146,7 +174,9 @@ comportamento implícito do navegador.
 <div id="kanban-loss-modal" class="kanban-modal-backdrop" hidden aria-hidden="true">
   <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="kanban-loss-modal-title">
     <div class="kanban-modal-header">
-      <h2 class="kanban-modal-title" id="kanban-loss-modal-title">Motivo da perda</h2>
+      <h2 class="kanban-modal-title icon-inline" id="kanban-loss-modal-title">
+        {% icon "exclamation-triangle" extra_class="text-red-600 shrink-0" %} Motivo da perda
+      </h2>
       <button type="button" class="icon-btn-neutral" id="kanban-loss-modal-close" aria-label="Fechar">
         {% icon "x-mark" size="compact" %}
       </button>

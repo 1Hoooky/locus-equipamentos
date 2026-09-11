@@ -1,12 +1,20 @@
 """
-Sidebar administrativa DESKTOP (`templates/base.html`, >= 640px) — rodada
-CORRETIVA de UX/UI (homologação no Render). Substitui
-`test_desktop_nav_dropdowns.py` (a navegação por barra horizontal +
-dropdowns "Cadastros"/"Administração" foi removida do template — nenhum
-elemento `[data-dropdown]`/`#main-nav` é mais renderizado). Cobre a mesma
-garantia de antes (permissões 100% reaproveitadas, nenhuma regra nova) e
-acrescenta o comportamento novo: colapsar/expandir e a taxonomia
-compartilhada com o drawer mobile (Operação/Cadastros/Administração).
+Sidebar administrativa DESKTOP (`templates/base.html`, >= 640px). Cobre a
+mesma garantia de sempre (permissões 100% reaproveitadas, nenhuma regra
+nova) e a taxonomia compartilhada com o drawer mobile (Operação/CRM
+quando aplicável/Cadastros/Administração).
+
+Atualizado na rodada de REFINAMENTO VISUAL (LocusHub — sidebar expansível
++ CRM Kanban, 11/09/2026): o colapso por clique+JS+localStorage
+(`#app-sidebar-toggle`, `.is-collapsed`, ids `app-sidebar-brand-full`/
+`-compact`) foi substituído por uma sidebar COMPACTA por padrão que
+expande em CSS puro no :hover/:focus-within (`.sidebar-shell`/
+`.sidebar-panel`, ver templates/_design_tokens.html) — decisão explícita
+da rodada ("a sidebar em si precisa expandir de verdade no hover, não só
+mostrar um tooltip"). `DesktopSidebarCollapseTest` foi substituída por
+`DesktopSidebarHoverExpandTest`, cobrindo o novo mecanismo em vez do
+antigo; as demais classes (acessibilidade, matriz de permissão) mantêm
+exatamente as mesmas garantias de antes, sem nenhuma regra nova.
 """
 
 from django.contrib.auth import get_user_model
@@ -24,9 +32,8 @@ class DesktopSidebarAccessibilityTest(TestCase):
         content = self.client.get("/equipamentos/").content.decode()
         self.assertIn('id="app-sidebar"', content)
         self.assertIn('aria-label="Navegação principal"', content)
-        self.assertIn('id="app-sidebar-toggle"', content)
-        self.assertIn('aria-controls="app-sidebar"', content)
-        self.assertIn('aria-expanded="true"', content)
+        self.assertIn('id="app-sidebar-brand"', content)
+        self.assertIn('aria-label="LocusHub — ir para o Início"', content)
 
     def test_sidebar_has_no_new_js_dependency(self):
         content = self.client.get("/equipamentos/").content.decode()
@@ -68,23 +75,55 @@ class DesktopSidebarAccessibilityTest(TestCase):
             )
 
 
-class DesktopSidebarCollapseTest(TestCase):
+class DesktopSidebarHoverExpandTest(TestCase):
+    """
+    Mecanismo novo da rodada de REFINAMENTO VISUAL: sem botão de
+    colapso/JS — a sidebar nasce compacta e expande em CSS puro
+    (:hover/:focus-within). Django não tem motor de CSS para verificar
+    visualmente o hover (só um navegador real faz isso — coberto à parte
+    por verificação manual/Playwright, reportada em separado); o que dá
+    para garantir aqui, estruturalmente, é: (1) o botão de colapso antigo
+    não existe mais; (2) a marca aparece uma única vez (não duplicada
+    full/compact); (3) a regra de CSS que implementa a expansão continua
+    presente na página (guarda de regressão, mesmo padrão já usado para o
+    bug do modal de perda).
+    """
+
     def setUp(self):
-        User.objects.create_user(username="sidebar_collapse_admin", password="senha-forte-123", role="ADMIN")
-        self.client.login(username="sidebar_collapse_admin", password="senha-forte-123")
+        User.objects.create_user(username="sidebar_hover_admin", password="senha-forte-123", role="ADMIN")
+        self.client.login(username="sidebar_hover_admin", password="senha-forte-123")
 
-    def test_collapse_toggle_button_and_both_icon_states_are_rendered(self):
+    def test_old_click_toggle_button_no_longer_exists(self):
+        # Busca pela CLASSE/seletor funcional de verdade (não uma
+        # substring solta) — comentários explicativos no CSS/JS mencionam
+        # "is-collapsed" pelo nome histórico ao descrever o que foi
+        # removido, o que faria uma busca ingênua por substring dar falso
+        # positivo (mesma lição já registrada no bugfix do modal de
+        # perda: comentário explicativo != uso funcional).
         content = self.client.get("/equipamentos/").content.decode()
-        self.assertIn('id="app-sidebar-toggle-icon-expanded"', content)
-        self.assertIn('id="app-sidebar-toggle-icon-collapsed"', content)
-        # Recolhido/expandido é 100% client-side (JS alterna a classe
-        # "is-collapsed" e o aria-expanded do botão) — o servidor sempre
-        # manda os dois ícones e os dois textos de marca, um visível e
-        # outro `hidden`, para o JS poder alternar sem re-renderizar.
-        self.assertIn('id="app-sidebar-brand-full"', content)
-        self.assertIn('id="app-sidebar-brand-compact"', content)
+        self.assertNotIn('id="app-sidebar-toggle"', content)
+        self.assertNotIn('class="is-collapsed', content)
+        self.assertNotIn("#app-sidebar.is-collapsed", content)
+        self.assertNotIn('id="app-sidebar-brand-full"', content)
+        self.assertNotIn('id="app-sidebar-brand-compact"', content)
 
-    def test_every_sidebar_link_has_title_and_aria_label_for_collapsed_state(self):
+    def test_brand_appears_exactly_once_in_the_sidebar(self):
+        content = self.client.get("/equipamentos/").content.decode()
+        sidebar = content.split('id="app-sidebar"', 1)[1].split("</aside>", 1)[0]
+        self.assertEqual(sidebar.count('id="app-sidebar-brand"'), 1)
+        self.assertIn("LocusHub", sidebar)
+
+    def test_hover_expand_css_rule_is_present(self):
+        """
+        Guarda de regressão: sem esta regra, a sidebar nunca expandiria no
+        hover/foco — ficaria permanentemente compacta (ou permanentemente
+        larga, dependendo de como a regra fosse removida).
+        """
+        content = self.client.get("/equipamentos/").content.decode()
+        self.assertIn(".sidebar-shell:hover .sidebar-panel", content)
+        self.assertIn(".sidebar-shell:focus-within .sidebar-panel", content)
+
+    def test_every_sidebar_link_has_title_and_aria_label_for_compact_state(self):
         """
         Requisito explícito: ícones isolados (sidebar recolhida) precisam
         de `aria-label`/`title` — como o recolhimento é só CSS/JS no

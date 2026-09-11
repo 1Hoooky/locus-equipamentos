@@ -355,18 +355,20 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     }
 
     /* -----------------------------------------------------------------
-     * Sidebar administrativa DESKTOP (base.html, >= 640px) — rodada
-     * CORRETIVA de UX/UI (homologação no Render): substitui a barra
-     * horizontal + dropdowns acima (que permanecem no CSS só por
-     * compatibilidade, sem nenhum elemento renderizado usando-os mais).
-     * Fixa à esquerda, colapsável (ícone-somente quando recolhida — ver
-     * #app-sidebar-toggle no script no fim de base.html), mesma paleta
-     * de marca (preto/dourado) do header e do drawer mobile. Estado
-     * ativo com fundo dourado sólido (nunca só texto dourado sobre
-     * fundo escuro — contraste também sem depender de cor).
+     * Sidebar administrativa DESKTOP (base.html, >= 640px) — REFINAMENTO
+     * VISUAL de 11/09/2026: substitui o colapso por clique+JS+
+     * localStorage por uma sidebar COMPACTA por padrão que expande em
+     * CSS puro no :hover/:focus-within (ver `.sidebar-shell`/
+     * `.sidebar-panel`, fora deste @layer, logo abaixo). Mesma paleta de
+     * marca (preto/dourado) do header e do drawer mobile. Estado ativo
+     * com fundo dourado sólido (nunca só texto dourado sobre fundo
+     * escuro — contraste também sem depender de cor).
      * --------------------------------------------------------------- */
     .sidebar-group-title {
-      @apply px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 first:pt-2;
+      @apply flex items-center gap-1.5 px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 border-t border-white/5 first:border-t-0 first:pt-2;
+    }
+    .sidebar-group-title-icon {
+      @apply shrink-0 text-gray-500;
     }
     .sidebar-link {
       @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-300 min-h-[44px] hover:bg-white/10 hover:text-white transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold;
@@ -378,6 +380,9 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
       @apply shrink-0;
     }
     .sidebar-link-label {
+      @apply truncate;
+    }
+    .app-sidebar-brand-text {
       @apply truncate;
     }
 
@@ -597,10 +602,19 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
       @apply flex items-start gap-3 overflow-x-auto pb-3 -mx-4 px-4 sm:mx-0 sm:px-0;
     }
     .kanban-column {
-      @apply card w-72 shrink-0 flex flex-col max-h-[75vh];
+      @apply card w-72 sm:w-80 shrink-0 flex flex-col max-h-[75vh] overflow-hidden;
     }
+    /* Faixa fina no topo da coluna — indica o significado semântico da
+       etapa (ganho/perda/comum) sem "pintar" a coluna inteira (pedido
+       explícito: nunca um fundo forte ocupando a coluna toda). */
+    .kanban-column-accent {
+      @apply h-1 shrink-0;
+    }
+    .kanban-column-accent--won { @apply bg-green-500; }
+    .kanban-column-accent--lost { @apply bg-red-500; }
+    .kanban-column-accent--neutral { @apply bg-brand-gold; }
     .kanban-column-header {
-      @apply px-3 py-2.5 border-b border-gray-100 shrink-0;
+      @apply px-3 py-2.5 border-b border-gray-100 shrink-0 bg-gray-50/60;
     }
     .kanban-column-title {
       @apply flex items-center justify-between gap-2;
@@ -609,7 +623,7 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
       @apply text-sm font-semibold text-brand-charcoal truncate;
     }
     .kanban-column-total {
-      @apply text-xs text-gray-500 mt-0.5;
+      @apply text-xs font-medium text-gray-500 mt-0.5;
     }
     .kanban-column-body {
       @apply flex-1 overflow-y-auto p-2 flex flex-col gap-2 min-h-[80px];
@@ -622,15 +636,17 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
       @apply ring-2 ring-brand-gold ring-inset bg-brand-gold-light/40;
     }
     .kanban-card {
-      @apply card-pad p-3 cursor-grab active:cursor-grabbing hover:border-brand-gold transition-colors duration-150;
+      @apply relative card-pad p-3 pl-3.5 cursor-grab active:cursor-grabbing border-l-4 border-l-gray-200 hover:border-brand-gold hover:-translate-y-0.5 hover:shadow-md transition-all duration-150;
     }
+    .kanban-card--won { @apply border-l-green-500; }
+    .kanban-card--lost { @apply border-l-red-500; }
     .kanban-card[draggable="false"] {
-      @apply cursor-default hover:border-gray-200;
+      @apply cursor-default hover:translate-y-0 hover:shadow-sm;
     }
     /* Card sendo arrastado (dragstart) — esmaece no lugar de origem até
        o drop (bem-sucedido ou não) resolver. */
     .kanban-card.is-dragging {
-      @apply opacity-40;
+      @apply opacity-40 shadow-lg;
     }
     /* Card aguardando a confirmação do backend (entre o drop e a
        resposta do fetch()) — nunca movido de coluna otimisticamente, só
@@ -639,16 +655,58 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
       @apply opacity-60 pointer-events-none;
     }
     .kanban-card-title {
-      @apply text-sm font-medium text-brand-charcoal truncate;
+      @apply text-sm font-semibold text-brand-charcoal leading-snug;
     }
-    .kanban-card-meta {
+    .kanban-card-client {
       @apply text-xs text-gray-500 mt-0.5 truncate;
     }
     .kanban-card-value {
-      @apply text-xs font-semibold text-brand-gold-dark mt-1.5;
+      @apply text-sm font-bold text-brand-gold-dark mt-1.5;
+    }
+    .kanban-card-meta-row {
+      @apply flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 pt-2 border-t border-gray-100;
+    }
+    .kanban-card-meta-item {
+      @apply icon-inline text-[11px] text-gray-500 truncate;
+    }
+    .kanban-card-meta-item .icon-svg {
+      @apply text-gray-400;
     }
     .kanban-column-empty {
       @apply text-center text-xs text-gray-400 py-6;
+    }
+
+    /* -----------------------------------------------------------------
+     * Toolbar de busca/filtros do Kanban — linha única e compacta
+     * (REFINAMENTO VISUAL, 11/09/2026: substitui o padrão anterior de
+     * busca + revelação colapsável de filtros avançados — com só 3
+     * campos, a revelação em duas etapas virava fricção, não economia de
+     * espaço). Quebra para múltiplas linhas em telas estreitas
+     * (`flex-wrap`), nunca rolagem horizontal escondendo campo.
+     * --------------------------------------------------------------- */
+    .kanban-toolbar {
+      @apply card-pad p-3 mb-4;
+    }
+    .kanban-toolbar-form {
+      @apply flex flex-wrap items-end gap-2;
+    }
+    .kanban-toolbar-field {
+      @apply w-full sm:w-auto;
+    }
+    .kanban-toolbar-field--grow {
+      @apply flex-1 min-w-[180px];
+    }
+    .kanban-search-wrap {
+      @apply relative flex items-center;
+    }
+    .kanban-search-icon {
+      @apply absolute left-2.5 text-gray-400 pointer-events-none;
+    }
+    .kanban-search-input {
+      @apply w-full pl-8;
+    }
+    .kanban-toolbar-actions {
+      @apply flex items-center gap-3 shrink-0;
     }
 
     /* Modal "informe o motivo da perda" — exigido pelo backend
@@ -706,22 +764,90 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     }
   }
 
-  /* Estado recolhido da sidebar — fora do @layer components de propósito
-     (não é um componente reutilizável, é o estado de UM elemento único
-     por página, #app-sidebar). Alternado via JS (classList.toggle
-     "is-collapsed"), nunca decide nada de permissão/segurança. */
-  #app-sidebar.is-collapsed {
+  /* -----------------------------------------------------------------
+   * Sidebar DESKTOP compacta -> expansível em CSS puro (REFINAMENTO
+   * VISUAL, 11/09/2026) — fora do @layer components de propósito (é o
+   * estado de UM elemento único por página, #app-sidebar, não um
+   * componente reutilizável). Substitui inteiramente o antigo colapso
+   * via JS + `.is-collapsed` (removido).
+   *
+   * `.sidebar-shell` é o `<aside>` em si: um filho flex de #app-shell
+   * que NUNCA muda de largura (`position: relative`, largura fixa
+   * compacta) — é isso que garante que o conteúdo principal ao lado
+   * nunca "pula"/reflui, em nenhum estado. `.sidebar-panel` é o filho
+   * `position: absolute` que de fato cresce visualmente (`width`) no
+   * :hover/:focus-within do PAI (`.sidebar-shell`), sobrepondo o
+   * conteúdo principal (z-index maior) em vez de empurrá-lo — a mesma
+   * técnica de "overlay" usada por painéis administrativos maduros.
+   * `:focus-within` replica exatamente o mesmo resultado para quem
+   * navega por teclado (Tab dentro da sidebar), então a expansão nunca
+   * depende só de mouse/hover.
+   * --------------------------------------------------------------- */
+  .sidebar-shell {
+    position: relative;
     width: 4.5rem;
+    z-index: 30;
   }
-  #app-sidebar.is-collapsed .sidebar-link-label,
-  #app-sidebar.is-collapsed .sidebar-group-title,
-  #app-sidebar.is-collapsed #app-sidebar-subtitle {
+  .sidebar-panel {
+    position: absolute;
+    inset: 0;
+    width: 4.5rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: #0a0a0a; /* brand-black */
+    color: #fff;
+    transition: width 150ms ease-in-out, box-shadow 150ms ease-in-out;
+  }
+  .sidebar-shell:hover .sidebar-panel,
+  .sidebar-shell:focus-within .sidebar-panel {
+    width: 17rem;
+    overflow: visible;
+    box-shadow: 6px 0 20px -4px rgba(0, 0, 0, 0.35);
+  }
+  .sidebar-shell:hover .sidebar-panel nav,
+  .sidebar-shell:focus-within .sidebar-panel nav {
+    overflow-y: auto;
+  }
+
+  /* Rótulos de texto (item de menu, título de grupo, marca, subtítulo) —
+     escondidos em modo compacto (o padrão), revelados só quando o painel
+     está expandido. `display` (não só `opacity`) para que também saiam
+     da ordem de leitura/tab em modo compacto sem exigir `tabindex`
+     dinâmico via JS; cada link continua com `title`/`aria-label`
+     próprios, então a informação nunca depende só do texto visível. */
+  .sidebar-panel .sidebar-link-label,
+  .sidebar-panel .sidebar-group-title-text,
+  .sidebar-panel .app-sidebar-brand-text,
+  .sidebar-panel #app-sidebar-subtitle {
     display: none;
   }
-  #app-sidebar.is-collapsed .sidebar-link {
+  .sidebar-shell:hover .sidebar-panel .sidebar-link-label,
+  .sidebar-shell:hover .sidebar-panel .app-sidebar-brand-text,
+  .sidebar-shell:focus-within .sidebar-panel .sidebar-link-label,
+  .sidebar-shell:focus-within .sidebar-panel .app-sidebar-brand-text {
+    display: inline;
+  }
+  .sidebar-shell:hover .sidebar-panel .sidebar-group-title-text,
+  .sidebar-shell:hover .sidebar-panel #app-sidebar-subtitle,
+  .sidebar-shell:focus-within .sidebar-panel .sidebar-group-title-text,
+  .sidebar-shell:focus-within .sidebar-panel #app-sidebar-subtitle {
+    display: block;
+  }
+
+  /* Modo compacto: ícone do link centralizado (sem rótulo ao lado ainda
+     ocupando espaço); expandido: volta ao alinhamento normal à
+     esquerda, gap com o texto. */
+  .sidebar-panel .sidebar-link {
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
+  }
+  .sidebar-shell:hover .sidebar-panel .sidebar-link,
+  .sidebar-shell:focus-within .sidebar-panel .sidebar-link {
+    justify-content: flex-start;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
   }
 
   /* Corpo do grupo (listagem de Equipamentos agrupada por modelo)

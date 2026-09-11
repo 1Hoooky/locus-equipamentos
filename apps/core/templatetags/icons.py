@@ -262,6 +262,53 @@ _ICONS = {
         '3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125'
         'H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />'
     ),
+    # ---------------------------------------------------------------------
+    # Adicionados na rodada de REFINAMENTO VISUAL (LocusHub — sidebar
+    # expansível + CRM Kanban, 11/09/2026): "funnel" passa a ser o ícone de
+    # Oportunidades (era "sparkles", que ficava duplicado com
+    # Higienizações); "shield-check" marca o grupo Administração na
+    # sidebar; "calendar"/"currency-dollar"/"user" (pessoa única, distinto
+    # de "users"/"user-group") aparecem nos metadados dos cards do Kanban
+    # (previsão de fechamento, valor, responsável); "exclamation-triangle"
+    # é o ícone do cabeçalho do modal "Motivo da perda". Mesma origem/
+    # licença dos ícones acima (Heroicons "outline" 24x24, MIT License).
+    # ---------------------------------------------------------------------
+    "funnel": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 '
+        '1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 '
+        '2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 '
+        '0 0 1 12 3Z" />'
+    ),
+    "shield-check": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 '
+        '3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 '
+        '0-6.1-1.248-8.25-3.285Z" />'
+    ),
+    "calendar": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 '
+        '7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 '
+        '9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />'
+    ),
+    "currency-dollar": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 '
+        '12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 '
+        '4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />'
+    ),
+    "user": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 '
+        '0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 '
+        '0 3 3 0 0 1 6 0Z" />'
+    ),
+    "exclamation-triangle": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 '
+        '1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />'
+    ),
 }
 
 # Vendorizado à parte de `_ICONS`: NÃO é um ícone Heroicons (stroke,

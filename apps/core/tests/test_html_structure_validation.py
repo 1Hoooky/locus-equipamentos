@@ -62,26 +62,36 @@ class InternalPagesHtmlStructureTest(TestCase):
         issues = find_html_structure_issues(content)
         self.assertEqual(issues, [], "\n".join(issues))
 
-    def test_sidebar_collapsed_and_expanded_markup_both_present_and_well_formed(self):
+    def test_sidebar_compact_and_expanded_markup_is_well_formed(self):
         """
-        O estado colapsado/expandido é só CSS+JS no cliente (mesmo HTML
-        server-side nos dois casos) — o que garante aqui é que os dois
-        elementos de ícone do toggle (expandido/recolhido) e os dois
-        elementos de marca (completa/compacta) existem exatamente uma vez
-        cada no HTML enviado, para o JS poder alternar entre eles sem
-        duplicar nem faltar elemento.
+        Atualizado na rodada de REFINAMENTO VISUAL (11/09/2026): o estado
+        compacto/expandido da sidebar deixou de ser um par de elementos
+        alternados por JS (ícone/marca "cheio" vs. "compacto", um deles
+        sempre `hidden`) — agora é UM único HTML (sem duplicação) cujo
+        estado visual muda inteiramente via CSS (:hover/:focus-within, ver
+        `.sidebar-shell`/`.sidebar-panel` em _design_tokens.html). O que
+        se garante aqui: a marca e o container do painel aparecem
+        exatamente uma vez cada (nenhum elemento duplicado sobrando da
+        técnica antiga), e nenhum id do mecanismo de clique/JS anterior
+        sobrou no HTML.
         """
         self.client.login(username="html_check_admin", password="senha-forte-123")
         content = self.client.get("/equipamentos/").content.decode()
         for expected_id in (
             'id="app-sidebar"',
+            'id="app-sidebar-brand"',
+            'id="app-sidebar-brand-text"',
+            'id="app-sidebar-subtitle"',
+        ):
+            self.assertEqual(content.count(expected_id), 1, f"{expected_id} deveria aparecer exatamente uma vez")
+        for obsolete_id in (
             'id="app-sidebar-toggle"',
             'id="app-sidebar-toggle-icon-expanded"',
             'id="app-sidebar-toggle-icon-collapsed"',
             'id="app-sidebar-brand-full"',
             'id="app-sidebar-brand-compact"',
         ):
-            self.assertEqual(content.count(expected_id), 1, f"{expected_id} deveria aparecer exatamente uma vez")
+            self.assertNotIn(obsolete_id, content)
 
 
 class PublicLandingHtmlStructureTest(TestCase):

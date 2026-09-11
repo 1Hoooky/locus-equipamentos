@@ -370,15 +370,15 @@ class DuplicateLocationsReportViewContentTest(TestCase):
             self.assertNotIn(forbidden, content)
         # Chrome global não-destrutivo, nenhum pertence ao conteúdo desta
         # tela de diagnóstico: botão de abrir o menu mobile, botão de
-        # fechar o drawer, os dois botões "Sair" (header + drawer), e o
-        # botão de colapsar/expandir a sidebar desktop (rodada CORRETIVA
-        # de UX/UI, homologação no Render: a navegação desktop virou uma
-        # sidebar lateral colapsável no lugar dos dois dropdowns
-        # "Cadastros"/"Administração" da etapa anterior — um único botão
-        # de toggle no lugar dos dois toggles de dropdown, contagem cai
-        # de 6 para 5; consequência esperada da mudança de chrome, nenhuma
-        # asserção de privacidade/conteúdo foi enfraquecida).
-        self.assertEqual(content.count("<button"), 5)
+        # fechar o drawer, os dois botões "Sair" (header + drawer).
+        # Atualizado na rodada de REFINAMENTO VISUAL (LocusHub — sidebar
+        # expansível + CRM Kanban, 11/09/2026): o botão de colapsar/
+        # expandir a sidebar desktop (clique + JS) foi removido — a
+        # sidebar agora expande em CSS puro no :hover/:focus-within, sem
+        # nenhum `<button>` próprio — contagem cai de 5 para 4;
+        # consequência esperada da mudança de chrome, nenhuma asserção de
+        # privacidade/conteúdo foi enfraquecida.
+        self.assertEqual(content.count("<button"), 4)
 
 
 class DuplicateLocationsReportRegressionTest(TestCase):
