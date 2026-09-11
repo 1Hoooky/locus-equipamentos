@@ -49,6 +49,13 @@
   importação gera patrimônios novos apenas para o que você selecionar na revisão.
 </p>
 {% endif %}
-
-<a href="{% url 'equipment:list' %}" class="link text-sm">Ver equipamentos</a>
+{% comment %}
+[AUDITORIA GLOBAL DE NAVEGAÇÃO, 11/09/2026] O link "Ver equipamentos"
+que existia aqui (Tipo A — navegação redundante, sem nenhum filtro/
+contexto além da listagem genérica) foi removido: Equipamentos já é
+item direto do grupo Operação na sidebar/drawer. Os links individuais
+de cada patrimônio recém-criado (acima) continuam intactos — esses SIM
+levam a um contexto específico que a sidebar não representa. Ver
+RELATORIO_AUDITORIA_NAVEGACAO_REDUNDANTE.md.
+{% endcomment %}
 {% endblock %}

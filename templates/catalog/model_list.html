@@ -44,8 +44,10 @@
     </tbody>
   </table>
 </div>
-
-<p class="mt-4 text-sm">
-  <a href="{% url 'catalog:category_list' %}" class="link icon-inline">{% icon "arrow-left" size="compact" %} Ver categorias</a>
-</p>
+{% comment %}
+[AUDITORIA GLOBAL DE NAVEGAÇÃO, 11/09/2026] O link "Ver categorias"
+que existia aqui (Tipo A — navegação redundante) foi removido:
+Categorias já é item direto do grupo Cadastros na sidebar/drawer. Ver
+RELATORIO_AUDITORIA_NAVEGACAO_REDUNDANTE.md.
+{% endcomment %}
 {% endblock %}

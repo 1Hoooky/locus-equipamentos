@@ -38,8 +38,10 @@
     </tbody>
   </table>
 </div>
-
-<p class="mt-4 text-sm">
-  <a href="{% url 'catalog:model_list' %}" class="link">Ver modelos de equipamento &rarr;</a>
-</p>
+{% comment %}
+[AUDITORIA GLOBAL DE NAVEGAÇÃO, 11/09/2026] O link "Ver modelos de
+equipamento →" que existia aqui (Tipo A — navegação redundante) foi
+removido: Modelos já é item direto do grupo Cadastros na sidebar/
+drawer. Ver RELATORIO_AUDITORIA_NAVEGACAO_REDUNDANTE.md.
+{% endcomment %}
 {% endblock %}

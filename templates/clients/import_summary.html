@@ -63,6 +63,13 @@
   (por código Auvo ou CPF/CNPJ) não são duplicados numa nova importação.
 </p>
 {% endif %}
-
-<a href="{% url 'clients:list' %}" class="link text-sm">Ver clientes</a>
+{% comment %}
+[AUDITORIA GLOBAL DE NAVEGAÇÃO, 11/09/2026] O link "Ver clientes" que
+existia aqui (Tipo A — navegação redundante, sem nenhum filtro/contexto
+além da listagem genérica) foi removido: Clientes já é item direto do
+grupo Cadastros na sidebar/drawer. Os links individuais de cada cliente
+recém-criado (acima) continuam intactos — esses SIM levam a um contexto
+específico que a sidebar não representa. Ver
+RELATORIO_AUDITORIA_NAVEGACAO_REDUNDANTE.md.
+{% endcomment %}
 {% endblock %}

@@ -2,9 +2,15 @@
 {% load icons %}
 {% block title %}Motivos de perda — Locus{% endblock %}
 {% block content %}
-<a href="{% url 'crm:commercial_source_list' %}" class="text-sm link icon-inline">{% icon "cog-6-tooth" size="compact" %} Config. comerciais</a>
-
-<div class="page-header mt-3">
+{% comment %}
+[AUDITORIA GLOBAL DE NAVEGAÇÃO, 11/09/2026] O link "Config. comerciais"
+que existia aqui (Tipo A — navegação redundante, apontava para
+Origens) e os links "Ver origens →"/"Ver etapas →" no rodapé foram
+removidos: Origens/Etapas/Motivos de perda agora são itens diretos do
+grupo CRM na sidebar/drawer. Ver
+RELATORIO_AUDITORIA_NAVEGACAO_REDUNDANTE.md.
+{% endcomment %}
+<div class="page-header">
   <h1 class="page-title">Motivos de perda</h1>
   <a href="{% url 'crm:loss_reason_create' %}" class="btn-primary">
     {% icon "plus" size="compact" %} Novo motivo
@@ -42,9 +48,4 @@
     </tbody>
   </table>
 </div>
-
-<p class="mt-4 text-sm flex flex-wrap gap-3">
-  <a href="{% url 'crm:commercial_source_list' %}" class="link">Ver origens &rarr;</a>
-  <a href="{% url 'crm:opportunity_stage_list' %}" class="link">Ver etapas &rarr;</a>
-</p>
 {% endblock %}

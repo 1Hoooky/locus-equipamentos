@@ -43,21 +43,19 @@ filtro de "Etapa" foi removido: no Kanban a própria COLUNA já é a etapa.
   </div>
   <div class="flex flex-wrap gap-2 items-center">
     {% comment %}
-    [REORGANIZAÇÃO DA ARQUITETURA DE NAVEGAÇÃO, 11/09/2026] Decisão
-    documentada (não removido automaticamente, conforme pedido): agora
-    que Origens/Etapas/Motivos de perda têm itens DIRETOS no grupo CRM
-    da sidebar/drawer, este atalho deixou de ser o único caminho até lá
-    — mas continua valendo como conveniência de contexto (o usuário está
-    trabalhando no funil e pode querer ajustar uma configuração
-    comercial sem sair da tela para abrir a sidebar). Mantido apontando
-    para a mesma primeira tela de sempre (Origens); nenhuma URL/view
-    nova foi criada só para isto.
+    [AUDITORIA GLOBAL DE NAVEGAÇÃO, 11/09/2026] O botão "Configurações
+    comerciais" que existia aqui (Tipo A — navegação redundante) foi
+    removido nesta rodada: a rodada anterior (REORGANIZAÇÃO DA
+    ARQUITETURA DE NAVEGAÇÃO) tinha optado por mantê-lo como
+    "conveniência de contexto", mas esta auditoria pediu para
+    reconsiderar exatamente esse botão à luz da regra principal — ele
+    levava só a Origens (`crm:commercial_source_list`), sem nenhum
+    filtro/contexto ligado ao Kanban em si, e as 3 telas (Origens/
+    Etapas/Motivos de perda) já são itens diretos do grupo CRM na
+    sidebar/drawer. Ver RELATORIO_AUDITORIA_NAVEGACAO_REDUNDANTE.md.
+    `can_manage_settings` continua disponível no contexto da view (não
+    é mais lido por este template).
     {% endcomment %}
-    {% if can_manage_settings %}
-    <a href="{% url 'crm:commercial_source_list' %}" class="btn-neutral icon-inline">
-      {% icon "cog-6-tooth" size="compact" %} Configurações comerciais
-    </a>
-    {% endif %}
     {% if can_add_opportunity %}
     <a href="{% url 'crm:opportunity_create' %}" class="btn-primary">
       {% icon "plus" size="compact" %} Nova oportunidade
