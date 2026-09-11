@@ -81,6 +81,7 @@ LOCAL_APPS = [
     "apps.attachments",
     "apps.qrcodes",
     "apps.dashboard",
+    "apps.crm",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

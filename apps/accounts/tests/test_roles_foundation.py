@@ -38,21 +38,34 @@ EMPTY_CARGO_NAMES = {"Financeiro", "Marketing", "TI", "Backoffice", "Comercial"}
 class PermissionCatalogIntegrityTest(TestCase):
     """
     Garante que o catálogo Python continua espelhando EXATAMENTE as 18
-    constantes CAN_* legadas — nem mais, nem menos — e que cada entrada
-    aponta para uma Permission real no banco (Meta.permissions foi
-    aplicado corretamente em todos os 6 apps).
+    constantes CAN_* legadas — nem mais, nem menos — entre as entradas
+    que TÊM `legacy_constant` (as nascidas antes de 10/09/2026), e que
+    cada entrada do catálogo (legada ou não) aponta para uma Permission
+    real no banco (Meta.permissions foi aplicado corretamente em todos
+    os apps).
+
+    A partir de 10/09/2026 (LocusHub CRM, Etapa 1) o catálogo passou a
+    também incluir entradas SEM CAN_* equivalente (`legacy_constant is
+    None`) — hoje as 7 do módulo `crm`, ver
+    `apps/accounts/permission_catalog.py`. Os testes abaixo continuam
+    verificando a correspondência 1:1 só dentro do subconjunto legado,
+    e verificam separadamente que o novo subconjunto está corretamente
+    marcado como não-legado.
     """
 
-    def test_catalog_has_exactly_18_entries(self):
-        self.assertEqual(len(PERMISSION_CATALOG), 18)
+    def test_catalog_has_exactly_25_entries(self):
+        # 18 legadas (espelhando CAN_*) + 7 nativas do CRM, sem CAN_*
+        # equivalente (ver classe CrmCatalogEntriesTest abaixo).
+        self.assertEqual(len(PERMISSION_CATALOG), 25)
 
     def test_catalog_codenames_are_unique(self):
         codenames = [spec.codename for spec in PERMISSION_CATALOG]
         self.assertEqual(len(codenames), len(set(codenames)))
 
     def test_catalog_legacy_constants_are_unique_and_exist_in_permissions_module(self):
-        legacy_constants = [spec.legacy_constant for spec in PERMISSION_CATALOG]
+        legacy_constants = [spec.legacy_constant for spec in PERMISSION_CATALOG if spec.legacy_constant is not None]
         self.assertEqual(len(legacy_constants), len(set(legacy_constants)), "cada CAN_* deve aparecer só uma vez no catálogo")
+        self.assertEqual(len(legacy_constants), 18, "o subconjunto legado do catálogo deve continuar com exatamente 18 entradas")
         for name in legacy_constants:
             self.assertTrue(hasattr(legacy_permissions, name), f"{name} não existe mais em apps.accounts.permissions")
 
@@ -63,7 +76,7 @@ class PermissionCatalogIntegrityTest(TestCase):
             for name in dir(legacy_permissions)
             if name.startswith("CAN_") and isinstance(getattr(legacy_permissions, name), tuple)
         }
-        catalog_names = {spec.legacy_constant for spec in PERMISSION_CATALOG}
+        catalog_names = {spec.legacy_constant for spec in PERMISSION_CATALOG if spec.legacy_constant is not None}
         self.assertEqual(can_star_names, catalog_names)
 
     def test_every_catalog_entry_resolves_to_a_real_permission(self):
@@ -79,6 +92,43 @@ class PermissionCatalogIntegrityTest(TestCase):
     def test_every_module_referenced_has_a_friendly_label(self):
         app_labels = {spec.app_label for spec in PERMISSION_CATALOG}
         self.assertTrue(app_labels.issubset(MODULE_LABELS.keys()))
+
+
+class CrmCatalogEntriesTest(TestCase):
+    """
+    As 7 entradas do CRM (LocusHub, Etapa 1 — 10/09/2026): nenhum CAN_*
+    equivalente por design (o módulo nasceu 100% na arquitetura nova),
+    por isso isoladas do resto do catálogo legado nesta classe própria.
+    """
+
+    def _crm_specs(self):
+        return [spec for spec in PERMISSION_CATALOG if spec.app_label == "crm"]
+
+    def test_exactly_7_crm_entries(self):
+        self.assertEqual(len(self._crm_specs()), 7)
+
+    def test_expected_crm_codenames(self):
+        codenames = {spec.codename for spec in self._crm_specs()}
+        self.assertEqual(
+            codenames,
+            {
+                "view_opportunities",
+                "add_opportunities",
+                "change_opportunities",
+                "change_opportunity_stage",
+                "view_commercial_activities",
+                "add_commercial_activities",
+                "manage_commercial_settings",
+            },
+        )
+
+    def test_no_crm_entry_has_a_legacy_constant(self):
+        for spec in self._crm_specs():
+            with self.subTest(codename=spec.codename):
+                self.assertIsNone(spec.legacy_constant)
+
+    def test_crm_module_has_a_friendly_label(self):
+        self.assertEqual(MODULE_LABELS.get("crm"), "CRM")
 
 
 class SeedCargosMigrationTest(TestCase):
@@ -107,10 +157,14 @@ class SeedCargosMigrationTest(TestCase):
                 self.assertEqual(group.permissions.count(), 0)
 
     def _codenames_for_role(self, role_value: str) -> set[str]:
+        # Espelha exatamente apps/accounts/migrations/0003_seed_cargos.py
+        # `codenames_for_role()`: entradas sem `legacy_constant` (CRM,
+        # ver CrmCatalogEntriesTest) nunca são espelhadas para nenhum
+        # Cargo legado.
         return {
             spec.codename
             for spec in PERMISSION_CATALOG
-            if role_value in getattr(legacy_permissions, spec.legacy_constant)
+            if spec.legacy_constant is not None and role_value in getattr(legacy_permissions, spec.legacy_constant)
         }
 
     def test_administrador_cargo_mirrors_role_admin_exactly(self):

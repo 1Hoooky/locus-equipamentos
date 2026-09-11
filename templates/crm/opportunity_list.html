@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% load icons %}
+{% load pagination_tags %}
+{% block title %}Oportunidades — Locus{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Oportunidades</h1>
+  <div class="flex flex-wrap gap-2 items-center">
+    {% if perms.crm.manage_commercial_settings %}
+    <a href="{% url 'crm:commercial_source_list' %}" class="btn-neutral icon-inline">
+      {% icon "cog-6-tooth" size="compact" %} Config. comerciais
+    </a>
+    {% endif %}
+    {% if perms.crm.add_opportunities %}
+    <a href="{% url 'crm:opportunity_create' %}" class="btn-primary">
+      {% icon "plus" size="compact" %} Nova oportunidade
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+<form method="get" class="mb-4">
+  <div class="flex flex-wrap gap-2 items-end">
+    <div class="flex-1 min-w-[200px]">
+      <label class="field-label icon-inline">{% icon "magnifying-glass" size="compact" %} Buscar título ou cliente</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="Título ou cliente" class="filter-input w-full">
+    </div>
+    <button type="submit" class="btn-neutral">Buscar</button>
+  </div>
+
+  <details class="mt-3" {% if selected_stage or selected_source or selected_business_type or selected_owner %}open{% endif %}>
+    <summary class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700 cursor-pointer select-none min-h-[44px] sm:min-h-[36px] py-2">
+      {% icon "chevron-down" size="compact" %} Filtros
+      {% if selected_stage or selected_source or selected_business_type or selected_owner %}<span class="badge-info">ativos</span>{% endif %}
+    </summary>
+    <div class="mobile-filter-panel">
+      <div>
+        <label class="field-label">Etapa</label>
+        <select name="stage" class="filter-input w-full">
+          <option value="">Todas</option>
+          {% for stage in stages %}
+          <option value="{{ stage.pk }}" {% if stage.pk|stringformat:"s" == selected_stage %}selected{% endif %}>{{ stage.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Origem</label>
+        <select name="source" class="filter-input w-full">
+          <option value="">Todas</option>
+          {% for source in sources %}
+          <option value="{{ source.pk }}" {% if source.pk|stringformat:"s" == selected_source %}selected{% endif %}>{{ source.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Tipo de negócio</label>
+        <select name="business_type" class="filter-input w-full">
+          <option value="">Todos</option>
+          {% for value, label in business_type_choices %}
+          <option value="{{ value }}" {% if value == selected_business_type %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="sm:col-span-2 flex items-center gap-3">
+        <button type="submit" class="btn-neutral">Aplicar filtros</button>
+        {% if request.GET %}
+        <a href="{% url 'crm:opportunity_list' %}" class="link text-sm">Limpar</a>
+        {% endif %}
+      </div>
+    </div>
+  </details>
+</form>
+
+<div class="hidden sm:block table-wrap">
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Título</th>
+        <th>Cliente</th>
+        <th>Etapa</th>
+        <th>Responsável</th>
+        <th>Valor estimado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for opportunity in opportunities %}
+      <tr>
+        <td>{{ opportunity.title }}</td>
+        <td>{{ opportunity.client.display_name }}</td>
+        <td>
+          {% if opportunity.stage.is_won %}<span class="badge-success">{{ opportunity.stage.name }}</span>
+          {% elif opportunity.stage.is_lost %}<span class="badge-danger">{{ opportunity.stage.name }}</span>
+          {% else %}<span class="badge-info">{{ opportunity.stage.name }}</span>{% endif %}
+        </td>
+        <td>{{ opportunity.owner }}</td>
+        <td>{% if opportunity.estimated_value is not None %}R$ {{ opportunity.estimated_value }}{% else %}—{% endif %}</td>
+        <td>
+          <a href="{% url 'crm:opportunity_detail' opportunity.pk %}" class="icon-btn-neutral"
+             aria-label="Ver oportunidade {{ opportunity.title }}" title="Ver oportunidade {{ opportunity.title }}">
+            {% icon "eye" size="compact" %}
+          </a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td class="empty-state" colspan="6">Nenhuma oportunidade encontrada.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="sm:hidden flex flex-col gap-2">
+  {% for opportunity in opportunities %}
+  <div class="mobile-list-card">
+    <div class="mobile-list-card-main">
+      <p class="mobile-list-card-title">{{ opportunity.title }}</p>
+      <p class="mobile-list-card-meta">{{ opportunity.client.display_name }} · {{ opportunity.stage.name }}</p>
+    </div>
+    <a href="{% url 'crm:opportunity_detail' opportunity.pk %}" class="icon-btn-neutral shrink-0"
+       aria-label="Ver oportunidade {{ opportunity.title }}" title="Ver oportunidade {{ opportunity.title }}">
+      {% icon "eye" size="compact" %}
+    </a>
+  </div>
+  {% empty %}
+  <p class="empty-state">Nenhuma oportunidade encontrada.</p>
+  {% endfor %}
+</div>
+
+{% if is_paginated %}
+<div class="mt-4 flex gap-3 text-sm">
+  {% if page_obj.has_previous %}
+  <a href="?{% url_replace request 'page' page_obj.previous_page_number %}" class="link icon-inline">{% icon "arrow-left" size="compact" %} Anterior</a>
+  {% endif %}
+  <span class="text-gray-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+  {% if page_obj.has_next %}
+  <a href="?{% url_replace request 'page' page_obj.next_page_number %}" class="link icon-inline">Próxima {% icon "arrow-right" size="compact" %}</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

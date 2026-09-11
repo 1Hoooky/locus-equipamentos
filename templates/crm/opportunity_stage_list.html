@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}Etapas do funil — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'crm:commercial_source_list' %}" class="text-sm link icon-inline">{% icon "cog-6-tooth" size="compact" %} Config. comerciais</a>
+
+<div class="page-header mt-3">
+  <h1 class="page-title">Etapas do funil comercial</h1>
+  <a href="{% url 'crm:opportunity_stage_create' %}" class="btn-primary">
+    {% icon "plus" size="compact" %} Nova etapa
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Ordem</th>
+        <th>Ganho</th>
+        <th>Perda</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for stage in stages %}
+      <tr>
+        <td>{{ stage.name }}</td>
+        <td>{{ stage.order }}</td>
+        <td>{% if stage.is_won %}<span class="badge-success">Sim</span>{% else %}—{% endif %}</td>
+        <td>{% if stage.is_lost %}<span class="badge-danger">Sim</span>{% else %}—{% endif %}</td>
+        <td>
+          {% if stage.is_active %}<span class="badge-success">Ativa</span>{% else %}<span class="badge-neutral">Inativa</span>{% endif %}
+        </td>
+        <td>
+          <a href="{% url 'crm:opportunity_stage_update' stage.pk %}" class="icon-btn-neutral"
+             aria-label="Editar etapa {{ stage.name }}" title="Editar etapa {{ stage.name }}">
+            {% icon "pencil" size="compact" %}
+          </a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td class="empty-state" colspan="6">Nenhuma etapa cadastrada — o CRM fica sem uso até pelo menos uma etapa existir.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="mt-4 text-sm flex flex-wrap gap-3">
+  <a href="{% url 'crm:commercial_source_list' %}" class="link">Ver origens &rarr;</a>
+  <a href="{% url 'crm:loss_reason_list' %}" class="link">Ver motivos de perda &rarr;</a>
+</p>
+{% endblock %}

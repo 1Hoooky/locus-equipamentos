@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}{% if is_new %}Nova oportunidade{% else %}Editar oportunidade{% endif %} — Locus{% endblock %}
+{% block content %}
+<h1 class="page-title mb-4">
+  {% if is_new %}Nova oportunidade{% else %}Editar oportunidade — {{ opportunity.title }}{% endif %}
+</h1>
+
+<form method="post" class="card-pad max-w-3xl space-y-4">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert-error">
+      {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for field in form %}
+    <div{% if field.name == "notes" %} class="md:col-span-2"{% endif %}>
+      <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.help_text %}<p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>{% endif %}
+      {% for error in field.errors %}
+        <p class="field-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="btn-primary">
+      {% if is_new %}Criar oportunidade{% else %}Salvar alterações{% endif %}
+    </button>
+    {% if is_new %}
+    <a href="{% url 'crm:opportunity_list' %}" class="btn-neutral">{% icon "x-mark" size="compact" %} Cancelar</a>
+    {% else %}
+    <a href="{% url 'crm:opportunity_detail' opportunity.pk %}" class="btn-neutral">{% icon "x-mark" size="compact" %} Cancelar</a>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

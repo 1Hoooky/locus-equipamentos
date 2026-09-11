@@ -75,6 +75,37 @@ login.
         {% icon "sparkles" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Higienizações</span>
       </a>
 
+      {% comment %}
+      Grupo "CRM" (LocusHub, Etapa 1 — 10/09/2026): PRIMEIRO item de menu
+      gated pela arquitetura NOVA de permissões (`perms.crm.*`, via
+      `django.contrib.auth.context_processors.auth`, já registrado em
+      TEMPLATES) em vez do padrão legado `user.is_X_ou_superior`/
+      `is_superuser` usado no resto desta navegação — Administrador/
+      superusuário continuam vendo por causa do bypass automático de
+      `ModelBackend.has_perm()`, não por checagem de `role` aqui.
+      Rótulo "CRM" (não "Comercial") — decisão explícita reportada:
+      mesmo padrão curto de "Equipamentos"/"Clientes", e o próprio nome
+      do documento de especificação desta etapa. Todo o grupo some por
+      completo (nem o título aparece) para quem não tem NENHUMA das
+      duas permissões — nunca um título de grupo vazio.
+      {% endcomment %}
+      {% if perms.crm.view_opportunities or perms.crm.manage_commercial_settings %}
+      <p class="sidebar-group-title">CRM</p>
+      {% if perms.crm.view_opportunities %}
+      <a href="{% url 'crm:opportunity_list' %}" title="Oportunidades" aria-label="Oportunidades"
+         class="sidebar-link {% if request.resolver_match.view_name == 'crm:opportunity_list' or request.resolver_match.view_name == 'crm:opportunity_detail' %}sidebar-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'crm:opportunity_list' %}aria-current="page"{% endif %}>
+        {% icon "sparkles" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Oportunidades</span>
+      </a>
+      {% endif %}
+      {% if perms.crm.manage_commercial_settings %}
+      <a href="{% url 'crm:commercial_source_list' %}" title="Configurações comerciais" aria-label="Configurações comerciais"
+         class="sidebar-link {% if 'crm:commercial_source' in request.resolver_match.view_name or 'crm:opportunity_stage' in request.resolver_match.view_name or 'crm:loss_reason' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
+        {% icon "cog-6-tooth" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Config. comerciais</span>
+      </a>
+      {% endif %}
+      {% endif %}
+
       <p class="sidebar-group-title">Cadastros</p>
       <a href="{% url 'clients:list' %}" title="Clientes" aria-label="Clientes"
          class="sidebar-link {% if request.resolver_match.view_name == 'clients:list' %}sidebar-link-active{% endif %}"
@@ -163,6 +194,21 @@ login.
          {% if request.resolver_match.view_name == 'maintenance:cleaning_list' %}aria-current="page"{% endif %}>
         {% icon "sparkles" size="compact" %} Higienizações
       </a>
+
+      {% if perms.crm.view_opportunities or perms.crm.manage_commercial_settings %}
+      <p class="mobile-menu-group-title">CRM</p>
+      {% if perms.crm.view_opportunities %}
+      <a href="{% url 'crm:opportunity_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'crm:opportunity_list' or request.resolver_match.view_name == 'crm:opportunity_detail' %}mobile-menu-link-active{% endif %}"
+         {% if request.resolver_match.view_name == 'crm:opportunity_list' %}aria-current="page"{% endif %}>
+        {% icon "sparkles" size="compact" %} Oportunidades
+      </a>
+      {% endif %}
+      {% if perms.crm.manage_commercial_settings %}
+      <a href="{% url 'crm:commercial_source_list' %}" class="mobile-menu-link {% if 'crm:commercial_source' in request.resolver_match.view_name or 'crm:opportunity_stage' in request.resolver_match.view_name or 'crm:loss_reason' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
+        {% icon "cog-6-tooth" size="compact" %} Config. comerciais
+      </a>
+      {% endif %}
+      {% endif %}
 
       <p class="mobile-menu-group-title">Cadastros</p>
       <a href="{% url 'clients:list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'clients:list' %}mobile-menu-link-active{% endif %}"

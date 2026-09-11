@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}Motivos de perda — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'crm:commercial_source_list' %}" class="text-sm link icon-inline">{% icon "cog-6-tooth" size="compact" %} Config. comerciais</a>
+
+<div class="page-header mt-3">
+  <h1 class="page-title">Motivos de perda</h1>
+  <a href="{% url 'crm:loss_reason_create' %}" class="btn-primary">
+    {% icon "plus" size="compact" %} Novo motivo
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Ordem</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for reason in reasons %}
+      <tr>
+        <td>{{ reason.name }}</td>
+        <td>{{ reason.order }}</td>
+        <td>
+          {% if reason.is_active %}<span class="badge-success">Ativo</span>{% else %}<span class="badge-neutral">Inativo</span>{% endif %}
+        </td>
+        <td>
+          <a href="{% url 'crm:loss_reason_update' reason.pk %}" class="icon-btn-neutral"
+             aria-label="Editar motivo {{ reason.name }}" title="Editar motivo {{ reason.name }}">
+            {% icon "pencil" size="compact" %}
+          </a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td class="empty-state" colspan="4">Nenhum motivo de perda cadastrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="mt-4 text-sm flex flex-wrap gap-3">
+  <a href="{% url 'crm:commercial_source_list' %}" class="link">Ver origens &rarr;</a>
+  <a href="{% url 'crm:opportunity_stage_list' %}" class="link">Ver etapas &rarr;</a>
+</p>
+{% endblock %}

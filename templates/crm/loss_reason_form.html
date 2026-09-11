@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}{% if is_new %}Novo motivo de perda{% else %}Editar motivo de perda{% endif %} — Locus{% endblock %}
+{% block content %}
+<h1 class="page-title mb-4">{% if is_new %}Novo motivo de perda{% else %}Editar motivo — {{ reason.name }}{% endif %}</h1>
+
+<form method="post" class="card-pad max-w-lg space-y-4">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert-error">
+      {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+    </div>
+  {% endif %}
+  {% for field in form %}
+    <div>
+      {% if field.name == "is_active" %}
+        <label class="flex items-center gap-2 text-sm">
+          {{ field }}
+          <span>{{ field.label }}</span>
+        </label>
+      {% else %}
+        <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+      {% endif %}
+      {% for error in field.errors %}
+        <p class="field-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+  {% endfor %}
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="btn-primary">
+      {% if is_new %}Criar{% else %}Salvar{% endif %}
+    </button>
+    <a href="{% url 'crm:loss_reason_list' %}" class="btn-neutral">{% icon "x-mark" size="compact" %} Cancelar</a>
+  </div>
+</form>
+{% endblock %}

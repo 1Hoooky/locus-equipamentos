@@ -86,6 +86,16 @@ def seed_cargos(apps, schema_editor):
     def codenames_for_role(role_value: str) -> list[str]:
         codenames = []
         for spec in PERMISSION_CATALOG:
+            # Entradas sem CAN_* legado correspondente (ex.: catálogo do
+            # CRM, nascido 100% na arquitetura nova — ver
+            # apps/crm/models.py) nunca são espelhadas para nenhum Cargo
+            # legado aqui: não existe "allowed_roles" para comparar, e
+            # espelhar seria inventar uma concessão que ninguém pediu.
+            # Essas permissões só passam a valer para um Cargo quando um
+            # Administrador marcar explicitamente pela tela de gestão de
+            # cargos.
+            if spec.legacy_constant is None:
+                continue
             allowed_roles = getattr(legacy_permissions, spec.legacy_constant)
             if role_value in allowed_roles:
                 codenames.append(spec.codename)

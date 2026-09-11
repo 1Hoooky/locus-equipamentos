@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}{{ opportunity.title }} — Locus{% endblock %}
+{% block content %}
+<a href="{% url 'crm:opportunity_list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
+
+<div class="mt-3 card-pad">
+  <div class="flex items-start justify-between gap-3 flex-wrap">
+    <div>
+      <p class="page-subtitle">{{ opportunity.get_business_type_display }}</p>
+      <h1 class="page-title mb-1">{{ opportunity.title }}</h1>
+      {% if opportunity.stage.is_won %}<span class="badge-success">{{ opportunity.stage.name }}</span>
+      {% elif opportunity.stage.is_lost %}<span class="badge-danger">{{ opportunity.stage.name }}</span>
+      {% else %}<span class="badge-info">{{ opportunity.stage.name }}</span>{% endif %}
+    </div>
+    {% if can_change_opportunity %}
+    <a href="{% url 'crm:opportunity_update' opportunity.pk %}" class="btn-neutral icon-inline">
+      {% icon "pencil" size="compact" %} Editar
+    </a>
+    {% endif %}
+  </div>
+
+  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-y-3 text-sm mt-4">
+    <dt class="text-gray-500">Cliente</dt>
+    <dd><a href="{% url 'clients:detail' opportunity.client.pk %}" class="link">{{ opportunity.client.display_name }}</a></dd>
+
+    <dt class="text-gray-500">Responsável comercial</dt>
+    <dd>{{ opportunity.owner }}</dd>
+
+    <dt class="text-gray-500">Origem</dt>
+    <dd>{{ opportunity.source.name }}</dd>
+
+    <dt class="text-gray-500">Previsão de fechamento</dt>
+    <dd>{{ opportunity.expected_close_date|default:"—" }}</dd>
+
+    <dt class="text-gray-500">Valor estimado</dt>
+    <dd>{% if opportunity.estimated_value is not None %}R$ {{ opportunity.estimated_value }}{% else %}—{% endif %}</dd>
+
+    {% if opportunity.won_at %}
+    <dt class="text-gray-500">Ganha em</dt>
+    <dd>{{ opportunity.won_at }}{% if opportunity.closed_value is not None %} — R$ {{ opportunity.closed_value }}{% endif %}</dd>
+    {% endif %}
+
+    {% if opportunity.lost_at %}
+    <dt class="text-gray-500">Perdida em</dt>
+    <dd>{{ opportunity.lost_at }}{% if opportunity.loss_reason %} — {{ opportunity.loss_reason.name }}{% endif %}</dd>
+    {% endif %}
+
+    <dt class="text-gray-500">Criada por</dt>
+    <dd>{{ opportunity.created_by }} em {{ opportunity.created_at }}</dd>
+  </dl>
+
+  {% if opportunity.notes %}
+  <p class="mt-4 text-sm text-gray-600 border-t border-gray-100 pt-3">{{ opportunity.notes }}</p>
+  {% endif %}
+  {% if opportunity.lost_at and opportunity.loss_notes %}
+  <p class="mt-2 text-sm text-gray-600">Observação da perda: {{ opportunity.loss_notes }}</p>
+  {% endif %}
+</div>
+
+{% if can_change_stage %}
+<div class="mt-4 card-pad">
+  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Mudar etapa</h2>
+  <form method="post" action="{% url 'crm:opportunity_change_stage' opportunity.pk %}" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% csrf_token %}
+    {% for field in stage_change_form %}
+    <div{% if field.name == "reason" or field.name == "loss_notes" %} class="md:col-span-2"{% endif %}>
+      <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.help_text %}<p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>{% endif %}
+      {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    {% endfor %}
+    <div class="md:col-span-2">
+      <button type="submit" class="btn-primary">Aplicar mudança de etapa</button>
+    </div>
+  </form>
+  <p class="text-xs text-gray-500 mt-2">
+    "Motivo da perda" só é exigido se a etapa escolhida for uma etapa de perda.
+  </p>
+</div>
+{% endif %}
+
+<div class="mt-4 card-pad">
+  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Histórico de etapas</h2>
+  {% if stage_changes %}
+  <ul class="space-y-2">
+    {% for change in stage_changes %}
+    <li class="text-sm timeline-item py-1">
+      {% if change.from_stage %}{{ change.from_stage.name }} → {% else %}(criação) → {% endif %}{{ change.to_stage.name }}
+      <span class="text-gray-500"> · {{ change.changed_by }} · {{ change.changed_at }}</span>
+      {% if change.reason %}<p class="text-gray-600">{{ change.reason }}</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-gray-500">Nenhuma mudança de etapa registrada.</p>
+  {% endif %}
+</div>
+
+{% if can_view_activities %}
+<div class="mt-4 card-pad">
+  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Atividades comerciais</h2>
+
+  {% if activities %}
+  <ul class="space-y-2 mb-4">
+    {% for activity in activities %}
+    <li class="text-sm timeline-item py-1">
+      <span class="font-medium">{{ activity.get_activity_type_display }}</span>
+      <span class="text-gray-500"> · {{ activity.created_by }} · {{ activity.created_at }}</span>
+      {% if activity.description %}<p class="text-gray-600">{{ activity.description }}</p>{% endif %}
+      {% if activity.scheduled_for %}<p class="text-gray-500">Próximo passo agendado: {{ activity.scheduled_for }}</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-gray-500 mb-4">Nenhuma atividade registrada ainda.</p>
+  {% endif %}
+
+  {% if can_add_activity %}
+  <form method="post" action="{% url 'crm:activity_create' opportunity.pk %}" class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-100 pt-4">
+    {% csrf_token %}
+    {% for field in activity_form %}
+    <div{% if field.name == "description" %} class="md:col-span-2"{% endif %}>
+      <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.help_text %}<p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>{% endif %}
+      {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    {% endfor %}
+    <div class="md:col-span-2">
+      <button type="submit" class="btn-primary">Registrar atividade</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
