@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}Excluir definitivamente — {{ equipment.patrimonio }}{% endblock %}
+{% block content %}
+<h1 class="page-title mb-2">Excluir definitivamente</h1>
+<p class="page-subtitle mb-4">
+  Ação restrita a superusuários, disponível durante o desenvolvimento para limpeza de dados de teste — ver
+  <strong>{{ equipment.patrimonio }}</strong>. Isto remove a linha do banco de verdade (diferente de mudar
+  status/condição), sem volta.
+</p>
+
+<div class="alert-warning mb-4 max-w-xl">
+  <p class="font-semibold mb-1">O que será removido junto (dependentes exclusivos deste equipamento):</p>
+  {% if impact.dependents %}
+    <ul class="list-disc pl-5">
+      {% for label, count in impact.dependents.items %}
+        <li>{{ count }} {{ label }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>Nenhum dependente exclusivo — só o cadastro do equipamento em si.</p>
+  {% endif %}
+  <p class="mt-2 text-sm">
+    Modelo, categoria, lote, localização e cliente atual NÃO são removidos/alterados por aqui além de eventuais
+    referências zeradas automaticamente (ex.: cliente/localização atual do próprio equipamento) — nenhum outro
+    registro compartilhado é tocado.
+  </p>
+</div>
+
+<form method="post" class="card-pad max-w-xl space-y-4">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert-error">
+      {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+    </div>
+  {% endif %}
+  <div>
+    <label class="flex items-start gap-2 text-sm">
+      {{ form.confirm }}
+      <span>{{ form.confirm.label }}</span>
+    </label>
+    {% for error in form.confirm.errors %}
+      <p class="field-error">{{ error }}</p>
+    {% endfor %}
+  </div>
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit" class="btn-danger">
+      {% icon "trash" size="compact" %} Excluir definitivamente
+    </button>
+    <a href="{% url 'equipment:detail' equipment.patrimonio %}" class="btn-neutral">{% icon "x-mark" size="compact" %} Cancelar</a>
+  </div>
+</form>
+{% endblock %}

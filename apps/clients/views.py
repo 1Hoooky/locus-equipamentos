@@ -25,12 +25,21 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 from django.views.generic import ListView
 
-from apps.accounts.permissions import CAN_MANAGE_CLIENTS, CAN_VIEW_CLIENTS, RoleRequiredMixin
+from apps.accounts.permissions import CAN_MANAGE_CLIENTS, CAN_VIEW_CLIENTS, RoleRequiredMixin, SuperuserRequiredMixin
 from apps.clients.forms import CNPJLookupForm, ClientForm, ClientUpdateForm
 from apps.clients.lookup import CompanyLookupError, CompanyLookupNotFound, CompanyLookupService
 from apps.clients.models import Client
-from apps.clients.services import ClientUpdateData, NewClientData, create_client, update_client, update_fiscal_address
-from apps.core.forms import AddressForm
+from apps.clients.services import (
+    ClientUpdateData,
+    NewClientData,
+    create_client,
+    hard_delete_client,
+    preview_client_hard_delete,
+    update_client,
+    update_fiscal_address,
+)
+from apps.core.forms import AddressForm, HardDeleteConfirmForm
+from apps.core.hard_delete import HardDeleteBlocked
 from apps.core.services import AddressData
 from apps.core.submission import SubmissionGuard
 
@@ -340,3 +349,46 @@ class ClientFiscalAddressUpdateView(RoleRequiredMixin, View):
         update_fiscal_address(client=client, data=data)
         messages.success(request, "Endereço fiscal atualizado.")
         return redirect("clients:detail", pk=client.pk)
+
+
+class ClientHardDeleteView(SuperuserRequiredMixin, View):
+    """
+    Exclusão DEFINITIVA (hard delete) — restrita à "autoridade máxima"
+    (`is_superuser` puro, mesma classificação "Nível C" de
+    `SuperuserRequiredMixin`; ver `apps.core.hard_delete` e
+    `apps.clients.services.hard_delete_client` para o raciocínio
+    completo). Diferente de todo o resto do cadastro de clientes, que só
+    desativa (`is_active=False`) — esta tela apaga a linha do banco de
+    verdade, junto com o endereço fiscal (dependente exclusivo). Nunca
+    tocada por `RoleRequiredMixin`/`CAN_MANAGE_CLIENTS` comum.
+    """
+
+    def get(self, request, pk):
+        client = get_object_or_404(Client, pk=pk)
+        impact = preview_client_hard_delete(client)
+        return render(
+            request,
+            "clients/client_hard_delete_confirm.html",
+            {"client": client, "impact": impact, "form": HardDeleteConfirmForm()},
+        )
+
+    def post(self, request, pk):
+        client = get_object_or_404(Client, pk=pk)
+        impact = preview_client_hard_delete(client)
+        form = HardDeleteConfirmForm(request.POST)
+        if not form.is_valid():
+            return render(
+                request,
+                "clients/client_hard_delete_confirm.html",
+                {"client": client, "impact": impact, "form": form},
+            )
+
+        try:
+            result = hard_delete_client(client_id=client.pk, actor=request.user)
+        except HardDeleteBlocked as exc:
+            messages.error(request, str(exc))
+            return redirect("clients:detail", pk=client.pk)
+
+        extra = f" ({result.total_dependents} registro(s) dependente(s) removido(s) junto.)" if result.total_dependents else ""
+        messages.success(request, f"{result.target_label.capitalize()} foi excluído definitivamente.{extra}")
+        return redirect("clients:list")

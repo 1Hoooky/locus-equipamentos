@@ -14,9 +14,16 @@ checagem de duplicidade — nenhuma regra duplicada entre os dois caminhos.
 from dataclasses import dataclass
 
 from django.db import transaction
+from django.db.models import ProtectedError
 
 from apps.clients.models import Client
 from apps.clients.validators import validate_document_for_type
+from apps.core.hard_delete import (
+    HardDeleteAuthorizationError,
+    HardDeleteBlocked,
+    HardDeleteImpact,
+    describe_protected_error,
+)
 from apps.core.services import AddressData, create_address, update_address
 
 
@@ -217,3 +224,95 @@ def update_fiscal_address(*, client: Client, data: AddressData, change_reason: s
     else:
         update_address(address=client.fiscal_address, data=data, change_reason=change_reason)
     return client
+
+
+# ---------------------------------------------------------------------------
+# Exclusão definitiva (hard delete) — rodada "AMBIENTE EM DESENVOLVIMENTO /
+# HARD DELETE DURANTE DESENVOLVIMENTO", 11/09/2026. Ver docstring de
+# `apps.core.hard_delete` para o raciocínio completo (por que
+# `is_superuser`, por que não substitui o soft delete existente).
+#
+# Mapa de relações de `Client` (auditoria da rodada — CASCADE/PROTECT/
+# SET_NULL):
+#   DEPENDÊNCIA EXCLUSIVA (removida junto, nunca sem o Cliente):
+#     - `fiscal_address` (`OneToOneField` para `Address`, hoje
+#       `on_delete=PROTECT`): cada linha de `Address` apontada por
+#       `fiscal_address` NUNCA é compartilhada com outro Cliente nem com
+#       nenhuma `Location` (ver docstring de `apps.core.models.Address`
+#       — "nunca a mesma linha compartilhada entre os dois") — é o
+#       endereço fiscal DESTE cliente e de mais nenhum registro. O
+#       `PROTECT` só protege a direção "excluir o Address enquanto o
+#       Client existe" (nunca dispara ao excluir o próprio Client) —
+#       por isso precisa de remoção EXPLÍCITA aqui, depois do Client já
+#       ter sumido (só então o `PROTECT` do `Address` deixa de ter
+#       qualquer referência viva).
+#   REGISTROS COMPARTILHADOS (NUNCA excluídos/alterados por aqui — o
+#   próprio schema já impede ou já cuida sozinho):
+#     - `Equipment.current_client` (`SET_NULL`): o Django zera a
+#       referência sozinho — o Equipamento em si NUNCA é tocado (pedido
+#       explícito do usuário: "excluir um Cliente não deve excluir um
+#       Equipamento simplesmente porque ele teve relação com aquele
+#       cliente").
+#     - `Location.client` (`PROTECT`): uma Location é um cadastro
+#       próprio, com histórico operacional independente (Movements
+#       apontam para ela) — NUNCA um dependente exclusivo do Cliente,
+#       mesmo pertencendo a ele. Se o Cliente ainda tiver Location(s)
+#       ativa(s), a exclusão é BLOQUEADA de propósito (não é um
+#       "bloqueio excessivo": o Administrador precisa decidir o que
+#       fazer com a(s) Location(s) primeiro — o impacto de apagá-las
+#       junto não seria "conhecido e controlado" por definição, já que
+#       Movements podem apontar para elas).
+#     - `Opportunity.client` (`PROTECT`): mesmo raciocínio — excluir uma
+#       Oportunidade nunca exclui o Cliente (pedido explícito do
+#       usuário), e o inverso também não cascateia: um Cliente com
+#       Oportunidades ainda vinculadas bloqueia a exclusão até o
+#       Administrador decidir (ex.: `hard_delete_opportunity()` de cada
+#       uma primeiro, se também forem dado de teste).
+# ---------------------------------------------------------------------------
+
+
+def preview_client_hard_delete(client: Client) -> HardDeleteImpact:
+    """Não altera nada — só descreve o que `hard_delete_client()` removeria junto, para a tela de confirmação."""
+    dependents = {}
+    if client.fiscal_address_id is not None:
+        dependents["endereço fiscal"] = 1
+    return HardDeleteImpact(target_label=f'o cliente "{client.display_name()}"', dependents=dependents)
+
+
+@transaction.atomic
+def hard_delete_client(*, client_id: int, actor) -> HardDeleteImpact:
+    """
+    Único caminho suportado para excluir um `Client` de verdade (não
+    `is_active=False`) — restrito à "autoridade máxima" (`actor.
+    is_superuser`, checado aqui E na view — defesa em profundidade, ver
+    `apps.core.hard_delete`). Levanta `HardDeleteBlocked` (nunca
+    cascateia às cegas) se ainda houver Location/Oportunidade
+    compartilhada vinculada.
+    """
+    if not getattr(actor, "is_superuser", False):
+        raise HardDeleteAuthorizationError("Exclusão definitiva requer autoridade máxima (superusuário).")
+
+    client = Client.objects.select_for_update().get(pk=client_id)
+    label = f'o cliente "{client.display_name()}"'
+    fiscal_address = client.fiscal_address
+    dependents = {"endereço fiscal": 1} if fiscal_address is not None else {}
+
+    try:
+        client.delete()
+    except ProtectedError as exc:
+        raise HardDeleteBlocked(describe_protected_error(exc, subject=label)) from exc
+
+    if fiscal_address is not None:
+        # Só agora (Client já excluído) o `PROTECT` do Address deixa de
+        # ter qualquer referência viva — ver comentário do mapa de
+        # relações acima.
+        fiscal_address.delete()
+
+    # `django-simple-history` não cria uma FK "viva" (o `id` da linha
+    # histórica é só uma cópia do pk original, sem constraint) — excluir
+    # o Client não apaga essas linhas sozinho. Para uma exclusão
+    # DEFINITIVA de verdade (dado de teste, sem valor de auditoria a
+    # preservar), removemos também o snapshot histórico deste registro.
+    Client.history.filter(id=client_id).delete()
+
+    return HardDeleteImpact(target_label=label, dependents=dependents)

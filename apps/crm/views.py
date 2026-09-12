@@ -39,6 +39,9 @@ from django.template.loader import render_to_string
 from django.views import View
 from django.views.generic import ListView
 
+from apps.accounts.permissions import SuperuserRequiredMixin
+from apps.core.forms import HardDeleteConfirmForm
+from apps.core.hard_delete import HardDeleteBlocked
 from apps.core.templatetags.currency import format_brl
 from apps.crm.forms import (
     CommercialActivityForm,
@@ -57,6 +60,8 @@ from apps.crm.services import (
     change_opportunity_stage,
     create_activity,
     create_opportunity,
+    hard_delete_opportunity,
+    preview_opportunity_hard_delete,
     update_opportunity,
 )
 
@@ -443,6 +448,49 @@ class OpportunityUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
         messages.success(request, f"Oportunidade \"{opportunity.title}\" atualizada.")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class OpportunityHardDeleteView(SuperuserRequiredMixin, View):
+    """
+    Exclusão DEFINITIVA (hard delete) — restrita à "autoridade máxima"
+    (`is_superuser` puro, nunca `crm.change_opportunities`/nenhuma outra
+    Permission do catálogo; ver `apps.core.hard_delete` e
+    `apps.crm.services.hard_delete_opportunity`). Único caminho de
+    exclusão real de `Opportunity` no sistema — o model nem é
+    `SoftDeleteModel` (ver docstring de `apps.crm.models.Opportunity`),
+    então antes desta rodada não havia NENHUMA forma de remover uma
+    oportunidade, nem de teste.
+    """
+
+    def get(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        impact = preview_opportunity_hard_delete(opportunity)
+        return render(
+            request,
+            "crm/opportunity_hard_delete_confirm.html",
+            {"opportunity": opportunity, "impact": impact, "form": HardDeleteConfirmForm()},
+        )
+
+    def post(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        impact = preview_opportunity_hard_delete(opportunity)
+        form = HardDeleteConfirmForm(request.POST)
+        if not form.is_valid():
+            return render(
+                request,
+                "crm/opportunity_hard_delete_confirm.html",
+                {"opportunity": opportunity, "impact": impact, "form": form},
+            )
+
+        try:
+            result = hard_delete_opportunity(opportunity_id=opportunity.pk, actor=request.user)
+        except HardDeleteBlocked as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        extra = f" ({result.total_dependents} registro(s) dependente(s) removido(s) junto.)" if result.total_dependents else ""
+        messages.success(request, f"{result.target_label.capitalize()} foi excluída definitivamente.{extra}")
+        return redirect("crm:opportunity_list")
 
 
 class OpportunityStageChangeView(LoginRequiredMixin, PermissionRequiredMixin, View):

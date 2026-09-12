@@ -11,6 +11,11 @@ urlpatterns = [
     path("oportunidades/<int:pk>/editar/", views.OpportunityUpdateView.as_view(), name="opportunity_update"),
     path("oportunidades/<int:pk>/etapa/", views.OpportunityStageChangeView.as_view(), name="opportunity_change_stage"),
     path(
+        "oportunidades/<int:pk>/excluir-definitivamente/",
+        views.OpportunityHardDeleteView.as_view(),
+        name="opportunity_hard_delete",
+    ),
+    path(
         "oportunidades/<int:pk>/atividades/nova/",
         views.CommercialActivityCreateView.as_view(),
         name="activity_create",

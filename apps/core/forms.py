@@ -32,3 +32,25 @@ class AddressForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
             field.widget.attrs.setdefault("class", TEXT_INPUT_CLASS)
+
+
+class HardDeleteConfirmForm(forms.Form):
+    """
+    Formulário mínimo de confirmação reaproveitado pelas 3 telas de
+    exclusão definitiva (`ClientHardDeleteView`/`EquipmentHardDeleteView`/
+    `OpportunityHardDeleteView`, rodada "HARD DELETE DURANTE
+    DESENVOLVIMENTO", 11/09/2026) — mesmo padrão já usado por
+    `apps.equipment.forms.SupersedeEquipmentForm.confirm_reprint` para
+    uma ação excepcional de um único clique: um checkbox obrigatório,
+    nunca um `window.confirm()` de JS nem um "digite o nome para
+    confirmar" (a tela já mostra a prévia de impacto antes do checkbox —
+    dado suficiente para uma decisão informada, sem fricção extra).
+    """
+
+    confirm = forms.BooleanField(
+        label=(
+            "Confirmo que quero excluir definitivamente este registro (e os dependentes exclusivos "
+            "listados acima) e entendo que esta ação NÃO pode ser desfeita."
+        ),
+        required=True,
+    )

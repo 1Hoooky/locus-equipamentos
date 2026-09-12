@@ -14,11 +14,20 @@
       {% elif opportunity.stage.is_lost %}<span class="badge-danger">{{ opportunity.stage.name }}</span>
       {% else %}<span class="badge-info">{{ opportunity.stage.name }}</span>{% endif %}
     </div>
-    {% if can_change_opportunity %}
-    <a href="{% url 'crm:opportunity_update' opportunity.pk %}" class="btn-neutral icon-inline">
-      {% icon "pencil" size="compact" %} Editar
-    </a>
-    {% endif %}
+    <div class="flex flex-wrap gap-2">
+      {% if can_change_opportunity %}
+      <a href="{% url 'crm:opportunity_update' opportunity.pk %}" class="btn-neutral icon-inline">
+        {% icon "pencil" size="compact" %} Editar
+      </a>
+      {% endif %}
+      {% if user.is_superuser %}
+      {# Exclusão definitiva (hard delete) — "Nível C", restrita a superusuário #}
+      {# puro (ver apps.core.hard_delete), nunca crm.change_opportunities sozinho. #}
+      <a href="{% url 'crm:opportunity_hard_delete' opportunity.pk %}" class="btn-danger icon-inline">
+        {% icon "trash" size="compact" %} Excluir definitivamente
+      </a>
+      {% endif %}
+    </div>
   </div>
 
   <dl class="grid grid-cols-1 sm:grid-cols-2 gap-y-3 text-sm mt-4">

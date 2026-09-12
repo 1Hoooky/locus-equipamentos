@@ -70,13 +70,23 @@ clique extra, mas visualmente subordinado ao cabeçalho.
   {% endif %}
 </div>
 
-{% if user.is_operacional_ou_superior %}
+{% if user.is_operacional_ou_superior or user.is_superuser %}
 <div class="mt-4 section-card">
   {% comment %}
     Rodada de UX/UI mobile-first (31/08/2026): a antiga "pilha" de ações
     de mesmo peso visual (painel de movimentação + 5 links soltos + bloco
     administrativo) vira três camadas explícitas — nenhuma delas nova em
     termos de regra/permissão, só de hierarquia visual:
+
+    `or user.is_superuser` adicionado na rodada "HARD DELETE DURANTE
+    DESENVOLVIMENTO" (11/09/2026): sem isto, um superusuário "puro" (sem
+    `role` operacional — caso raro, mas tecnicamente possível, ex.: conta
+    de automação/infra) nunca alcançava a seção inteira, então nunca via
+    "Excluir definitivamente" dentro de "Administração", mesmo sendo a
+    autoridade máxima do sistema. Mesma "válvula de segurança
+    operacional" já usada em `RoleRequiredMixin`/`ModelBackend` (Admin/
+    superusuário sempre passa) — só faltava aqui. Nenhuma outra condição
+    de permissão dentro desta seção mudou.
 
       1. AÇÃO PRIMÁRIA — Movimentar equipamento (sempre visível quando há
          alguma movimentação disponível para o status atual).
@@ -156,14 +166,19 @@ clique extra, mas visualmente subordinado ao cabeçalho.
     </div>
   </div>
 
-  {% if user.is_administrativo_ou_superior or user.is_admin %}
+  {% if user.is_administrativo_ou_superior or user.is_admin or user.is_superuser %}
   {% comment %}
     Administração — recolhível no mobile (disclosure semântico, aria-
     expanded no botão, corpo escondido só por CSS lendo esse atributo,
     mesmo padrão já usado em .model-group-toggle/.model-group-body). Só
     renderiza quando o usuário tem PELO MENOS uma ação administrativa —
     Administrativo vê "Editar dados" + QR/etiqueta; só Admin vê também
-    Reclassificar/Reemitir. Nenhuma condição de permissão nova.
+    Reclassificar/Reemitir. `or user.is_superuser` adicionado na rodada
+    "HARD DELETE DURANTE DESENVOLVIMENTO" (11/09/2026): um superusuário
+    "puro" (sem `role=ADMIN`, hoje um caso raro/de operação mas
+    tecnicamente possível) precisa continuar vendo esta seção só para
+    alcançar "Excluir definitivamente" — as outras ações administrativas
+    seguem exatamente com as mesmas condições de antes.
   {% endcomment %}
   <div class="mt-3 pt-3 border-t border-gray-100">
     <button type="button" class="disclosure-trigger" aria-expanded="false" aria-controls="ficha-admin-body">
@@ -181,6 +196,13 @@ clique extra, mas visualmente subordinado ao cabeçalho.
         {# texto explícito, sem ícone, só como link de navegação para sua própria tela de #}
         {# confirmação, nunca botão destrutivo inline aqui. #}
         <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="text-red-600 hover:underline font-medium">Reemitir patrimônio</a>
+        {% endif %}
+        {% if user.is_superuser %}
+        {# Exclusão definitiva (hard delete) — "Nível C", restrita a superusuário #}
+        {# puro (ver apps.core.hard_delete), nunca a Role.ADMIN sozinho. #}
+        <a href="{% url 'equipment:hard_delete' equipment.patrimonio %}" class="text-red-600 hover:underline font-medium icon-inline">
+          {% icon "trash" size="compact" %} Excluir definitivamente
+        </a>
         {% endif %}
       </div>
       {% if user.is_administrativo_ou_superior %}

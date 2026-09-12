@@ -25,9 +25,16 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import ProtectedError
 
 from apps.accounts.models import User
 from apps.catalog.models import EquipmentModel
+from apps.core.hard_delete import (
+    HardDeleteAuthorizationError,
+    HardDeleteBlocked,
+    HardDeleteImpact,
+    describe_protected_error,
+)
 from apps.equipment.models import (
     Condition,
     ConditionHistory,
@@ -450,3 +457,143 @@ def get_equipment_history_timeline(equipment: Equipment) -> list[dict]:
     # precisa de uma reordenação explícita para o conjunto combinado.
     events.sort(key=lambda event: event["changed_at"], reverse=True)
     return events
+
+
+# ---------------------------------------------------------------------------
+# Exclusão definitiva (hard delete) — rodada "AMBIENTE EM DESENVOLVIMENTO /
+# HARD DELETE DURANTE DESENVOLVIMENTO", 11/09/2026. Ver docstring de
+# `apps.core.hard_delete` para o raciocínio completo (por que
+# `is_superuser`, por que não substitui o soft delete existente).
+#
+# Mapa de relações de `Equipment` (auditoria da rodada — CASCADE/PROTECT/
+# SET_NULL) — este é o caso mais denso dos três, por isso o mais
+# detalhado:
+#   DEPENDÊNCIA EXCLUSIVA (removida junto — cada uma destas linhas só
+#   existe em função de UM equipamento específico, nunca compartilhada):
+#     - `StatusHistory.equipment` / `ConditionHistory.equipment`
+#       (`CASCADE` já no schema) — o Django cuida sozinho ao excluir o
+#       Equipment, nenhum código extra necessário aqui.
+#     - `Cleaning.equipment` (hoje `PROTECT`, não `CASCADE`): evento
+#       ATÔMICO de higienização de UM equipamento (ver docstring de
+#       `apps.maintenance.models.Cleaning` — "se parece mais com
+#       Movement... do que com Maintenance"), sem nenhum uso fora do
+#       contexto daquele equipamento. Classificado como exclusivo pelo
+#       MESMO raciocínio do exemplo do próprio pedido do usuário
+#       (`OpportunityStageChange`/`CommercialActivity` — "caso a
+#       arquitetura atual trate esses registros como dependentes
+#       exclusivos dela"). `PROTECT` aqui era conservador demais para o
+#       hard delete (embora correto para o uso normal — impedir um
+#       `Cleaning.objects.filter(...).delete()` solto e acidental fora
+#       deste fluxo); por isso a remoção é EXPLÍCITA (não mudamos
+#       `on_delete` do model, que continua protegendo contra exclusão
+#       acidental fora deste service).
+#     - `Maintenance.equipment` (hoje `PROTECT`): mesmo raciocínio —
+#       ficha de manutenção de UM equipamento, sem sentido órfã.
+#       Removida explicitamente, MESMA ordem de razão abaixo.
+#     - `Movement.equipment` (hoje `PROTECT`): histórico de
+#       movimentação de UM equipamento — mesmo espírito de
+#       `StatusHistory`/`ConditionHistory` (o próprio relatório da
+#       auditoria já apontava isso), só que implementado mais
+#       conservador no schema. Removido explicitamente.
+#
+#     ORDEM DE REMOÇÃO (importa — nunca cascata cega): `Cleaning` e
+#     `Maintenance` primeiro, DEPOIS `Movement`. Motivo:
+#     `Maintenance.departure_movement`/`return_movement`
+#     (`OneToOneField`, `PROTECT`) e `Cleaning.movement` (nullable,
+#     `PROTECT`) apontam PARA `Movement` — um `Movement` ainda
+#     referenciado por uma `Maintenance`/`Cleaning` viva não pode ser
+#     excluído (o Django levantaria `ProtectedError`). Excluindo
+#     `Cleaning`/`Maintenance` primeiro, os `Movement`s deste
+#     equipamento ficam livres de qualquer referência antes de tentarmos
+#     removê-los. Todas as três consultas são filtradas por
+#     `equipment=equipment` (a FK direta) — nunca "todo Movement
+#     referenciado por alguma Maintenance daqui", então um eventual
+#     cross-link anômalo para OUTRO equipamento nunca é tocado por
+#     engano (e, se algum dia existir, o `Movement` dele continuaria
+#     protegido por essa outra Maintenance/Cleaning, levantando
+#     `ProtectedError` de forma visível em vez de ser apagado às cegas).
+#
+#   REGISTROS COMPARTILHADOS (NUNCA excluídos/alterados por aqui — o
+#   próprio schema já cuida sozinho):
+#     - `EquipmentModel`/`Category`/`EquipmentBatch` (`model`/
+#       `category`/`batch`, `PROTECT`/`SET_NULL`): configuração/lote
+#       reaproveitados por outros equipamentos — nunca tocados (deletar
+#       Equipment não dispara `on_delete` do lado deles).
+#     - `Location`/`Client` (`current_location`/`current_client`,
+#       `SET_NULL`): o Django zera a referência sozinho nos DOIS —
+#       Location e Client em si nunca são alterados/excluídos por aqui.
+#     - `User` (`created_by`, `PROTECT` — e `changed_by`/`responsible`
+#       nas linhas de histórico excluídas acima): nunca tocado.
+#     - `Equipment.superseded_by` (self, `SET_NULL`): se outro
+#       equipamento apontar para este como "reemitido por", o Django
+#       zera essa referência sozinho — o OUTRO equipamento nunca é
+#       excluído/alterado além do campo.
+# ---------------------------------------------------------------------------
+
+
+def _equipment_hard_delete_dependents(equipment: Equipment) -> dict[str, int]:
+    from apps.maintenance.models import Cleaning, Maintenance
+    from apps.operations.models import Movement
+
+    return {
+        "higienizações": Cleaning.objects.filter(equipment=equipment).count(),
+        "manutenções": Maintenance.objects.filter(equipment=equipment).count(),
+        "movimentações": Movement.objects.filter(equipment=equipment).count(),
+        "histórico de status": equipment.status_history.count(),
+        "histórico de condição": equipment.condition_history.count(),
+    }
+
+
+def preview_equipment_hard_delete(equipment: Equipment) -> HardDeleteImpact:
+    """Não altera nada — só descreve o que `hard_delete_equipment()` removeria junto, para a tela de confirmação."""
+    dependents = {k: v for k, v in _equipment_hard_delete_dependents(equipment).items() if v}
+    return HardDeleteImpact(target_label=f"o equipamento {equipment.patrimonio}", dependents=dependents)
+
+
+@transaction.atomic
+def hard_delete_equipment(*, equipment_id: int, actor) -> HardDeleteImpact:
+    """
+    Único caminho suportado para excluir um `Equipment` de verdade (não
+    `is_active`/`status` — `Equipment` nem tem `SoftDeleteModel`, a
+    "baixa" de um equipamento hoje é só mudar `status`) — restrito à
+    "autoridade máxima" (`actor.is_superuser`, checado aqui E na view).
+    Levanta `HardDeleteBlocked` se algum relacionamento `PROTECT`
+    inesperado (registro compartilhado, fora do mapa acima) ainda
+    segurar a exclusão — nunca cascateia às cegas para resolver.
+    """
+    if not getattr(actor, "is_superuser", False):
+        raise HardDeleteAuthorizationError("Exclusão definitiva requer autoridade máxima (superusuário).")
+
+    # Import local — mesmo padrão já usado em get_equipment_history_timeline()
+    # (evita subir uma dependência de apps.maintenance/apps.operations para
+    # o topo deste módulo só por causa deste fluxo excepcional).
+    from apps.maintenance.models import Cleaning, Maintenance
+    from apps.operations.models import Movement
+
+    equipment = Equipment.objects.select_for_update().get(pk=equipment_id)
+    label = f"o equipamento {equipment.patrimonio}"
+    dependents = {k: v for k, v in _equipment_hard_delete_dependents(equipment).items() if v}
+
+    try:
+        # Ordem deliberada — ver comentário do mapa de relações acima
+        # (Cleaning/Maintenance antes de Movement, por causa de
+        # Maintenance.departure_movement/return_movement e
+        # Cleaning.movement, ambos PROTECT apontando para Movement).
+        Cleaning.objects.filter(equipment=equipment).delete()
+        Maintenance.objects.filter(equipment=equipment).delete()
+        Movement.objects.filter(equipment=equipment).delete()
+        # Cascata automática (schema) daqui para baixo: StatusHistory e
+        # ConditionHistory (CASCADE). Nenhum outro relacionamento
+        # sobrevive a este ponto — se algo inesperado ainda protegê-lo,
+        # o ProtectedError abaixo é a rede de segurança final.
+        equipment.delete()
+    except ProtectedError as exc:
+        raise HardDeleteBlocked(describe_protected_error(exc, subject=label)) from exc
+
+    # Ver mesma nota em `apps.clients.services.hard_delete_client()`:
+    # django-simple-history não amarra uma FK viva — purgamos o
+    # snapshot histórico deste equipamento para uma limpeza definitiva
+    # de verdade.
+    Equipment.history.filter(id=equipment_id).delete()
+
+    return HardDeleteImpact(target_label=label, dependents=dependents)

@@ -16,11 +16,17 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import ProtectedError, Q, QuerySet
 from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.clients.models import Client
+from apps.core.hard_delete import (
+    HardDeleteAuthorizationError,
+    HardDeleteBlocked,
+    HardDeleteImpact,
+    describe_protected_error,
+)
 from apps.crm.models import (
     ActivityType,
     CommercialActivity,
@@ -316,3 +322,80 @@ def create_activity(data: NewActivityData) -> CommercialActivity:
         completed_at=data.completed_at,
         created_by=data.created_by,
     )
+
+
+# ---------------------------------------------------------------------------
+# Exclusão definitiva (hard delete) — rodada "AMBIENTE EM DESENVOLVIMENTO /
+# HARD DELETE DURANTE DESENVOLVIMENTO", 11/09/2026. Ver docstring de
+# `apps.core.hard_delete` para o raciocínio completo (por que
+# `is_superuser`, por que não substitui o soft delete existente — aqui
+# nem existe: `Opportunity` não é `SoftDeleteModel`, ver docstring do
+# model, então até agora não havia NENHUM caminho de exclusão real).
+#
+# Mapa de relações de `Opportunity` (auditoria da rodada — CASCADE/
+# PROTECT/SET_NULL) — este é exatamente o exemplo dado pelo próprio
+# usuário no pedido:
+#   DEPENDÊNCIA EXCLUSIVA (removida junto — já `CASCADE` no schema,
+#   nenhum código extra necessário; o Django cuida sozinho ao excluir a
+#   Opportunity):
+#     - `OpportunityStageChange.opportunity` (`CASCADE`) — histórico de
+#       etapa desta oportunidade, sem sentido órfão.
+#     - `CommercialActivity.opportunity` (`CASCADE`) — atividades
+#       comerciais desta oportunidade, mesmo raciocínio.
+#   REGISTROS COMPARTILHADOS (NUNCA excluídos/alterados por aqui — todas
+#   as outras FKs de `Opportunity` apontam PARA fora, então excluir a
+#   Opportunity nunca dispara o `on_delete` do lado deles):
+#     - `client` (`PROTECT`) — pedido explícito do usuário: "Excluir uma
+#       oportunidade NÃO deve excluir o Cliente." Como `Opportunity` é
+#       quem tem a FK (não o inverso), excluir a Opportunity nem chega a
+#       tocar no Client.
+#     - `stage`/`source`/`loss_reason` (`PROTECT`) — configuração
+#       comercial reaproveitada por outras oportunidades.
+#     - `owner`/`created_by` (`PROTECT`) — `User`, nunca tocado.
+# ---------------------------------------------------------------------------
+
+
+def preview_opportunity_hard_delete(opportunity: Opportunity) -> HardDeleteImpact:
+    """Não altera nada — só descreve o que `hard_delete_opportunity()` removeria junto, para a tela de confirmação."""
+    dependents = {}
+    stage_changes = opportunity.stage_changes.count()
+    activities = opportunity.activities.count()
+    if stage_changes:
+        dependents["histórico de etapas"] = stage_changes
+    if activities:
+        dependents["atividades comerciais"] = activities
+    return HardDeleteImpact(target_label=f'a oportunidade "{opportunity.title}"', dependents=dependents)
+
+
+@transaction.atomic
+def hard_delete_opportunity(*, opportunity_id: int, actor) -> HardDeleteImpact:
+    """
+    Único caminho suportado para excluir uma `Opportunity` de verdade —
+    restrito à "autoridade máxima" (`actor.is_superuser`, checado aqui E
+    na view). `OpportunityStageChange`/`CommercialActivity` somem
+    automaticamente (CASCADE já no schema); levanta `HardDeleteBlocked`
+    se algum relacionamento `PROTECT` inesperado ainda segurar a
+    exclusão — nunca cascateia às cegas para resolver.
+    """
+    if not getattr(actor, "is_superuser", False):
+        raise HardDeleteAuthorizationError("Exclusão definitiva requer autoridade máxima (superusuário).")
+
+    opportunity = Opportunity.objects.select_for_update().get(pk=opportunity_id)
+    label = f'a oportunidade "{opportunity.title}"'
+    dependents = {}
+    stage_changes = opportunity.stage_changes.count()
+    activities = opportunity.activities.count()
+    if stage_changes:
+        dependents["histórico de etapas"] = stage_changes
+    if activities:
+        dependents["atividades comerciais"] = activities
+
+    try:
+        opportunity.delete()
+    except ProtectedError as exc:
+        raise HardDeleteBlocked(describe_protected_error(exc, subject=label)) from exc
+
+    # Ver mesma nota em `apps.clients.services.hard_delete_client()`.
+    Opportunity.history.filter(id=opportunity_id).delete()
+
+    return HardDeleteImpact(target_label=label, dependents=dependents)

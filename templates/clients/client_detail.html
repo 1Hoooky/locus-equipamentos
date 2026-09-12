@@ -44,6 +44,11 @@
   <a href="{% url 'clients:update' client.pk %}" class="link">Editar dados</a>
   <a href="{% url 'clients:fiscal_address_update' client.pk %}" class="link">Editar endereço fiscal</a>
   <a href="{% url 'operations:location_create' %}?client={{ client.pk }}" class="link">Nova unidade</a>
+  {% if user.is_superuser %}
+  <a href="{% url 'clients:hard_delete' client.pk %}" class="link text-red-700">
+    {% icon "trash" size="compact" %} Excluir definitivamente
+  </a>
+  {% endif %}
 </div>
 {% endif %}
 

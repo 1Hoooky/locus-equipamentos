@@ -28,4 +28,9 @@ urlpatterns = [
     path("<str:patrimonio>/condicao/", views.EquipmentChangeConditionView.as_view(), name="change_condition"),
     path("<str:patrimonio>/reclassificar/", views.EquipmentReclassifyView.as_view(), name="reclassify"),
     path("<str:patrimonio>/reemitir/", views.EquipmentSupersedeView.as_view(), name="supersede"),
+    path(
+        "<str:patrimonio>/excluir-definitivamente/",
+        views.EquipmentHardDeleteView.as_view(),
+        name="hard_delete",
+    ),
 ]

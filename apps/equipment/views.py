@@ -25,8 +25,11 @@ from apps.accounts.permissions import (
     CAN_SUPERSEDE_EQUIPMENT,
     CAN_VIEW_ACQUISITION_VALUE,
     RoleRequiredMixin,
+    SuperuserRequiredMixin,
 )
 from apps.catalog.models import Category, EquipmentModel
+from apps.core.forms import HardDeleteConfirmForm
+from apps.core.hard_delete import HardDeleteBlocked
 from apps.core.submission import SubmissionGuard
 from apps.equipment.filters import filter_equipment_queryset
 from apps.equipment.grouping import build_model_groups
@@ -54,6 +57,8 @@ from apps.equipment.services import (
     create_equipment,
     create_equipment_batch,
     get_equipment_history_timeline,
+    hard_delete_equipment,
+    preview_equipment_hard_delete,
     reclassify_model,
     supersede_equipment,
 )
@@ -589,6 +594,47 @@ class EquipmentSupersedeView(RoleRequiredMixin, View):
             )
             return redirect("equipment:detail", patrimonio=new_equipment.patrimonio)
         return render(request, "equipment/supersede.html", {"form": form, "equipment": equipment})
+
+
+class EquipmentHardDeleteView(SuperuserRequiredMixin, View):
+    """
+    Exclusão DEFINITIVA (hard delete) — restrita à "autoridade máxima"
+    (`is_superuser` puro; ver `apps.core.hard_delete` e
+    `apps.equipment.services.hard_delete_equipment` para o mapa completo
+    de dependentes exclusivos removidos junto). Diferente de toda outra
+    ação deste app (que só muda `status`/`condition`/reemite um novo
+    patrimônio) — esta apaga a linha do banco de verdade, sem volta.
+    """
+
+    def get(self, request, patrimonio):
+        equipment = get_object_or_404(Equipment, patrimonio=patrimonio)
+        impact = preview_equipment_hard_delete(equipment)
+        return render(
+            request,
+            "equipment/hard_delete_confirm.html",
+            {"equipment": equipment, "impact": impact, "form": HardDeleteConfirmForm()},
+        )
+
+    def post(self, request, patrimonio):
+        equipment = get_object_or_404(Equipment, patrimonio=patrimonio)
+        impact = preview_equipment_hard_delete(equipment)
+        form = HardDeleteConfirmForm(request.POST)
+        if not form.is_valid():
+            return render(
+                request,
+                "equipment/hard_delete_confirm.html",
+                {"equipment": equipment, "impact": impact, "form": form},
+            )
+
+        try:
+            result = hard_delete_equipment(equipment_id=equipment.pk, actor=request.user)
+        except HardDeleteBlocked as exc:
+            messages.error(request, str(exc))
+            return redirect("equipment:detail", patrimonio=equipment.patrimonio)
+
+        extra = f" ({result.total_dependents} registro(s) dependente(s) removido(s) junto.)" if result.total_dependents else ""
+        messages.success(request, f"{result.target_label.capitalize()} foi excluído definitivamente.{extra}")
+        return redirect("equipment:list")
 
 
 class EquipmentExportView(RoleRequiredMixin, View):

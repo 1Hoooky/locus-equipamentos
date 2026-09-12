@@ -13,4 +13,5 @@ urlpatterns = [
     path("<int:pk>/", views.ClientDetailView.as_view(), name="detail"),
     path("<int:pk>/editar/", views.ClientUpdateView.as_view(), name="update"),
     path("<int:pk>/endereco-fiscal/", views.ClientFiscalAddressUpdateView.as_view(), name="fiscal_address_update"),
+    path("<int:pk>/excluir-definitivamente/", views.ClientHardDeleteView.as_view(), name="hard_delete"),
 ]
