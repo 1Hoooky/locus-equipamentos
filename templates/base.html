@@ -96,7 +96,7 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
                   class="sidebar-group-toggle {% if current_group == "crm" %}sidebar-group-toggle-active{% endif %}"
                   aria-expanded="{% if current_group == "crm" %}true{% else %}false{% endif %}"
                   aria-controls="sidebar-group-body-crm">
-            {% icon "funnel" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">CRM</span>{% icon "rede" size="compact" extra_class="sidebar-group-chevron" %}
+            {% icon "rede" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">CRM</span>{% icon "chevron-down" size="compact" extra_class="sidebar-group-chevron" %}
           </button>
           <div class="sidebar-group-body" id="sidebar-group-body-crm">
             {% if perms.crm.view_opportunities %}
