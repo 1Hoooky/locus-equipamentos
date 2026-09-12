@@ -888,6 +888,57 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     .kanban-toast {
       @apply fixed bottom-4 right-4 z-50 max-w-sm rounded-lg px-4 py-3 text-sm shadow-lg border bg-red-50 text-red-800 border-red-200;
     }
+
+    /* -----------------------------------------------------------------
+     * Abas (tela interna da Oportunidade, CRM) — REDESIGN COMPLETO DA
+     * TELA INTERNA DA OPORTUNIDADE, 12/09/2026. Componente genérico (não
+     * amarrado ao CRM no nome/CSS) para não impedir reaproveitamento
+     * futuro em outra ficha densa. Controlado por um script vanilla
+     * próprio (`[data-tabs]`, ver `<script>` no fim de base.html) — MESMO
+     * padrão dos demais controladores já existentes (`data-action-menu`,
+     * disclosure), nenhuma dependência nova.
+     *
+     * A barra rola horizontalmente em telas estreitas (nunca quebra em
+     * duas linhas nem esconde uma aba) — mesmo raciocínio de rolagem
+     * horizontal já usado no `.kanban-board`, sem barra de rolagem
+     * estilizada própria aqui (a barra nativa já é discreta o bastante
+     * numa faixa deste tamanho). O painel de cada aba usa o atributo
+     * nativo `hidden` (mesma disciplina do `.kanban-modal-backdrop`
+     * acima — `[hidden]` não precisa de reforço aqui porque nenhuma
+     * regra de `display` própria é aplicada a `.tab-panel`). */
+    .tabs {
+      @apply flex items-center gap-1 overflow-x-auto border-b border-gray-200;
+    }
+    .tab-link {
+      @apply inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap px-3 py-2.5 min-h-[44px] sm:min-h-0 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-brand-charcoal hover:border-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-1 rounded-t-md;
+    }
+    .tab-link[aria-selected="true"] {
+      @apply text-brand-gold-dark border-brand-gold font-semibold;
+    }
+    .tab-panel {
+      @apply pt-4;
+    }
+
+    /* Resumo horizontal compacto (Criada/Valor estimado/Origem/
+       Responsável/...) — substitui a antiga `<dl>` em grade solta por uma
+       faixa densa de indicadores, mais perto de um "cabeçalho de ficha"
+       de CRM de terceiro do que de uma lista de campos de formulário
+       (pedido explícito: "não são vários cards gigantes"). Empilha em
+       grade de 2 colunas no mobile (nunca rolagem horizontal escondendo
+       um indicador); a partir de `sm:` vira uma única linha com divisores
+       finos entre os itens. */
+    .stat-strip {
+      @apply grid grid-cols-2 sm:flex sm:flex-wrap gap-x-6 gap-y-3 sm:gap-y-2;
+    }
+    .stat-strip-item {
+      @apply min-w-0 sm:pr-6 sm:border-r sm:border-gray-100 last:border-r-0;
+    }
+    .stat-strip-label {
+      @apply block text-xs text-gray-500;
+    }
+    .stat-strip-value {
+      @apply block text-sm font-semibold text-brand-charcoal truncate;
+    }
   }
 
   /* -----------------------------------------------------------------

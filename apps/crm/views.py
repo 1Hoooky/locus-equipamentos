@@ -277,17 +277,57 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
             if can_view_activities
             else opportunity.activities.none()
         )
+        # Já vem ordenada `-created_at` acima — o primeiro item é sempre o
+        # mais recente. `None` (nunca uma string vazia) quando não há
+        # nenhuma atividade OU quando o usuário não tem
+        # `view_commercial_activities`, para o template distinguir
+        # "sem atividade" de "sem permissão para ver".
+        last_activity = activities.first() if can_view_activities else None
+
+        can_change_stage = request.user.has_perm("crm.change_opportunity_stage")
+
+        # REDESIGN COMPLETO DA TELA INTERNA DA OPORTUNIDADE (12/09/2026):
+        # "Registrar perda"/"Orçamento aceito" nunca hardcodeiam qual
+        # etapa é ganho/perda — sempre a CONFIGURAÇÃO real (`is_won`/
+        # `is_lost`, só entre etapas ATIVAS). Zero, uma ou várias etapas
+        # podem estar marcadas (ver docstring de `OpportunityStage`) — os
+        # botões só aparecem quando existe pelo menos uma candidata, e a
+        # tela apresenta um `<select>` dentro do modal quando há mais de
+        # uma (nunca escolhe sozinha por nome/heurística).
+        # Materializadas em lista (não querysets "vivos") de propósito:
+        # o template reusa cada uma mais de uma vez (contagem para
+        # decidir select-com-múltiplas-opções vs. campo único, iteração
+        # das opções, valor da única candidata) — uma lista evita repetir
+        # a mesma consulta a cada uso, ao contrário de um QuerySet.
+        won_stages = list(OpportunityStage.objects.filter(is_active=True, is_won=True).order_by("order", "name"))
+        lost_stages = list(OpportunityStage.objects.filter(is_active=True, is_lost=True).order_by("order", "name"))
+        all_active_stages = list(OpportunityStage.objects.filter(is_active=True).order_by("order", "name"))
+
+        # A interface precisa refletir o estado JÁ alcançado: uma
+        # oportunidade já perdida não mostra "Registrar perda" como se
+        # ainda estivesse aberta, e vice-versa para "Orçamento aceito"
+        # (pedido explícito). A ação OPOSTA continua disponível — reabrir
+        # por engano é uma mudança de etapa normal, já suportada pelo
+        # `change_opportunity_stage()` (semântica de "reabertura").
+        can_show_registrar_perda = can_change_stage and bool(lost_stages) and not opportunity.stage.is_lost
+        can_show_orcamento_aceito = can_change_stage and bool(won_stages) and not opportunity.stage.is_won
 
         context = {
             "opportunity": opportunity,
             "stage_changes": stage_changes,
             "activities": activities,
+            "last_activity": last_activity,
             "can_view_activities": can_view_activities,
             "can_change_opportunity": request.user.has_perm("crm.change_opportunities"),
-            "can_change_stage": request.user.has_perm("crm.change_opportunity_stage"),
+            "can_change_stage": can_change_stage,
             "can_add_activity": request.user.has_perm("crm.add_commercial_activities"),
-            "stage_change_form": OpportunityStageChangeForm() if request.user.has_perm("crm.change_opportunity_stage") else None,
+            "stage_change_form": OpportunityStageChangeForm() if can_change_stage else None,
             "activity_form": CommercialActivityForm() if can_view_activities and request.user.has_perm("crm.add_commercial_activities") else None,
+            "won_stages": won_stages,
+            "lost_stages": lost_stages,
+            "all_active_stages": all_active_stages,
+            "can_show_registrar_perda": can_show_registrar_perda,
+            "can_show_orcamento_aceito": can_show_orcamento_aceito,
         }
         return render(request, "crm/opportunity_detail.html", context)
 

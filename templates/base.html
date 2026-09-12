@@ -96,7 +96,7 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
                   class="sidebar-group-toggle {% if current_group == "crm" %}sidebar-group-toggle-active{% endif %}"
                   aria-expanded="{% if current_group == "crm" %}true{% else %}false{% endif %}"
                   aria-controls="sidebar-group-body-crm">
-            {% icon "rede" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">CRM</span>{% icon "chevron-down" size="compact" extra_class="sidebar-group-chevron" %}
+            {% icon "funnel" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">CRM</span>{% icon "chevron-down" size="compact" extra_class="sidebar-group-chevron" %}
           </button>
           <div class="sidebar-group-body" id="sidebar-group-body-crm">
             {% if perms.crm.view_opportunities %}
@@ -630,6 +630,118 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
     });
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape") closeAllExcept(null);
+    });
+  })();
+
+  // Abas ("Visão geral"/"Atividades"/...) — REDESIGN COMPLETO DA TELA
+  // INTERNA DA OPORTUNIDADE, 12/09/2026. Controlador ÚNICO e genérico
+  // (não amarrado ao CRM), mesmo espírito dos demais acima: vanilla JS,
+  // segue o padrão ARIA de "tabs" (role="tablist"/"tab"/"tabpanel",
+  // aria-selected, navegação por seta). Suporta múltiplos grupos de
+  // abas por página (cada `[data-tabs]` é independente).
+  //
+  // Marcação esperada (ver templates/_design_tokens.html para as
+  // classes .tabs/.tab-link/.tab-panel): um wrapper com
+  // `[data-tabs]`/`role="tablist"` contendo botões `.tab-link` com
+  // `role="tab"`, `data-tab-trigger="<chave>"`, `aria-controls` e
+  // `aria-selected` ("true" só no botão inicialmente ativo, escolhido
+  // pelo backend/template); e, fora do wrapper, um painel por aba com
+  // `data-tab-panel="<chave>"`, `role="tabpanel"` e o atributo nativo
+  // `hidden` em todos exceto o inicial. O `#hash` da URL (mesma chave)
+  // restaura a aba ativa ao carregar a página (link direto/atualização
+  // da página) e é atualizado a cada troca via `history.replaceState`
+  // (nunca `pushState` — trocar de aba não deve empilhar o histórico de
+  // navegação, só permitir compartilhar/atualizar na aba certa).
+  (function () {
+    var groups = document.querySelectorAll("[data-tabs]");
+    if (!groups.length) return;
+
+    groups.forEach(function (group) {
+      var triggers = Array.prototype.slice.call(
+        group.querySelectorAll("[data-tab-trigger]")
+      );
+      if (!triggers.length) return;
+
+      // Painéis podem estar em qualquer lugar do documento (não
+      // precisam ser filhos do wrapper `.tabs`) — procurados no
+      // documento inteiro pela chave `data-tab-panel`.
+      function panelFor(key) {
+        return document.querySelector('[data-tab-panel="' + key + '"]');
+      }
+
+      function activate(key, opts) {
+        var focusTrigger = opts && opts.focusTrigger;
+        var updateHash = opts && opts.updateHash;
+        var found = false;
+
+        triggers.forEach(function (trigger) {
+          var triggerKey = trigger.getAttribute("data-tab-trigger");
+          var isMatch = triggerKey === key;
+          if (isMatch) found = true;
+        });
+        if (!found) return false;
+
+        triggers.forEach(function (trigger) {
+          var triggerKey = trigger.getAttribute("data-tab-trigger");
+          var isActive = triggerKey === key;
+          trigger.setAttribute("aria-selected", isActive ? "true" : "false");
+          trigger.setAttribute("tabindex", isActive ? "0" : "-1");
+          var panel = panelFor(triggerKey);
+          if (panel) {
+            if (isActive) {
+              panel.removeAttribute("hidden");
+            } else {
+              panel.setAttribute("hidden", "");
+            }
+          }
+          if (isActive && focusTrigger) trigger.focus();
+        });
+
+        if (updateHash) {
+          try {
+            history.replaceState(null, "", "#" + key);
+          } catch (e) {
+            // Ambiente sem History API utilizável — a troca de aba
+            // continua funcionando, só sem atualizar a URL.
+          }
+        }
+        return true;
+      }
+
+      triggers.forEach(function (trigger, index) {
+        trigger.addEventListener("click", function () {
+          activate(trigger.getAttribute("data-tab-trigger"), { updateHash: true });
+        });
+
+        trigger.addEventListener("keydown", function (event) {
+          var targetIndex = null;
+          if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+            targetIndex = (index + 1) % triggers.length;
+          } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+            targetIndex = (index - 1 + triggers.length) % triggers.length;
+          } else if (event.key === "Home") {
+            targetIndex = 0;
+          } else if (event.key === "End") {
+            targetIndex = triggers.length - 1;
+          }
+          if (targetIndex === null) return;
+          event.preventDefault();
+          var targetTrigger = triggers[targetIndex];
+          activate(targetTrigger.getAttribute("data-tab-trigger"), {
+            focusTrigger: true,
+            updateHash: true,
+          });
+        });
+      });
+
+      // Restaura a aba do `#hash` ao carregar (link direto ou página
+      // atualizada com uma aba não-inicial ativa); se o hash não
+      // corresponder a nenhuma aba deste grupo, mantém a ativa inicial
+      // já renderizada pelo backend — nunca força a primeira aba.
+      var initialHash = window.location.hash ? window.location.hash.slice(1) : "";
+      if (initialHash) {
+        activate(initialHash, { updateHash: false });
+      }
     });
   })();
 </script>

@@ -1,162 +1,397 @@
 {% extends "base.html" %}
 {% load icons %}
 {% load currency %}
+{% load static %}
 {% block title %}{{ opportunity.title }} — Locus{% endblock %}
 {% block content %}
+{% comment %}
+REDESIGN COMPLETO DA TELA INTERNA DA OPORTUNIDADE (12/09/2026) — "hub
+visual da negociação". Escopo desta rodada: visualização/hierarquia,
+troca de etapa (sempre via `change_opportunity_stage()`, nunca `.save()`
+direto), "Registrar perda"/"Orçamento aceito" e organização das
+informações já existentes em abas. NÃO inclui orçamento/proposta
+estruturado, contrato, PDF, tabela de preço nem vínculo real de
+equipamento — isso fica para uma etapa futura (ver relatório final).
+
+Nenhuma arquitetura nova no backend: esta tela só chama o MESMO
+`OpportunityStageChangeView`/`OpportunityStageChangeForm`/
+`change_opportunity_stage()` que já existiam (Kanban e a antiga seção
+"Mudar etapa" desta própria página) — "Registrar perda" e "Orçamento
+aceito" são o MESMO POST, só com a etapa-alvo restrita respectivamente
+às etapas ativas `is_lost`/`is_won` (nunca um nome de etapa hardcoded;
+ver `won_stages`/`lost_stages` no contexto, calculados em
+`OpportunityDetailView.get`). O motivo de perda reaproveita o campo
+`loss_reason` do MESMO `stage_change_form` (mesma validação/queryset já
+existentes em apps/crm/forms.py) — não existem dois fluxos de perda.
+{% endcomment %}
 <a href="{% url 'crm:opportunity_list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
 
 <div class="mt-3 card-pad">
-  <div class="flex items-start justify-between gap-3 flex-wrap">
-    <div>
-      <p class="page-subtitle">{{ opportunity.get_business_type_display }}</p>
+  {# ------------------------------------------------------------------ #}
+  {# Cabeçalho: título + cliente logo abaixo, depois a fileira de ações #}
+  {# principais. "Editar oportunidade"/"Excluir definitivamente" vivem   #}
+  {# só no menu "⋯" — nunca lado a lado com Registrar perda/Orçamento   #}
+  {# aceito (hierarquia pedida: aceite = ação positiva principal, perda #}
+  {# = negativa discreta, "⋯" = secundárias).                          #}
+  {# ------------------------------------------------------------------ #}
+  <div class="flex items-start justify-between gap-4 flex-wrap">
+    <div class="min-w-0">
       <h1 class="page-title mb-1">{{ opportunity.title }}</h1>
-      {% if opportunity.stage.is_won %}<span class="badge-success">{{ opportunity.stage.name }}</span>
-      {% elif opportunity.stage.is_lost %}<span class="badge-danger">{{ opportunity.stage.name }}</span>
-      {% else %}<span class="badge-info">{{ opportunity.stage.name }}</span>{% endif %}
+      <p class="text-sm text-gray-600">
+        <a href="{% url 'clients:detail' opportunity.client.pk %}" class="link">{{ opportunity.client.display_name }}</a>
+      </p>
     </div>
+
     <div class="flex flex-wrap items-center gap-2">
-      {% if can_change_opportunity %}
-      <a href="{% url 'crm:opportunity_update' opportunity.pk %}" class="btn-neutral icon-inline">
-        {% icon "pencil" size="compact" %} Editar
-      </a>
+      {% if can_show_registrar_perda %}
+      <button type="button" class="btn-danger" data-open-modal="opp-loss-modal">
+        {% icon "x-circle" size="compact" %} Registrar perda
+      </button>
       {% endif %}
-      {% if user.is_superuser %}
-      {% comment %}
-        Exclusão definitiva (hard delete) — "Nível C", restrita a
-        superusuário puro (ver apps.core.hard_delete), nunca
-        crm.change_opportunities sozinho. PADRONIZAÇÃO GLOBAL DE BOTÕES
-        (12/09/2026): isolada no menu "⋯" — mesmo tratamento já usado em
-        clients/client_detail.html e equipment/detail_private.html, nunca
-        no mesmo peso visual da ação normal "Editar".
-      {% endcomment %}
+      {% if can_show_orcamento_aceito %}
+      <button type="button" class="btn-primary" data-open-modal="opp-accept-modal">
+        {% icon "check-circle" size="compact" %} Orçamento aceito
+      </button>
+      {% endif %}
+      {% if can_change_opportunity or user.is_superuser %}
       <div class="action-menu" data-action-menu>
         <button type="button" class="icon-btn-neutral" data-action-menu-trigger aria-haspopup="true" aria-expanded="false">
           <span class="sr-only">Mais ações</span>
           {% icon "ellipsis-horizontal" size="compact" %}
         </button>
         <div class="action-menu-panel hidden" data-action-menu-panel role="menu">
+          {% if can_change_opportunity %}
+          <a href="{% url 'crm:opportunity_update' opportunity.pk %}" class="action-menu-item" role="menuitem">
+            {% icon "pencil" size="compact" %} Editar oportunidade
+          </a>
+          {% endif %}
+          {% if user.is_superuser %}
+          {% if can_change_opportunity %}<div class="action-menu-divider"></div>{% endif %}
+          {% comment %}
+            Exclusão definitiva (hard delete) — "Nível C", restrita a
+            superusuário puro (ver apps.core.hard_delete), nunca
+            crm.change_opportunities sozinho. Mantida aqui exatamente
+            como isolada na rodada "PADRONIZAÇÃO GLOBAL DE BOTÕES"
+            (12/09/2026) — este redesign só reorganiza o que já existia
+            ao redor dela, nunca muda a regra de quem pode excluir.
+          {% endcomment %}
           <a href="{% url 'crm:opportunity_hard_delete' opportunity.pk %}" class="action-menu-item-danger" role="menuitem">
             {% icon "trash" size="compact" %} Excluir definitivamente
           </a>
+          {% endif %}
         </div>
       </div>
       {% endif %}
     </div>
   </div>
 
-  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-y-3 text-sm mt-4">
-    <dt class="text-gray-500">Cliente</dt>
-    <dd><a href="{% url 'clients:detail' opportunity.client.pk %}" class="link">{{ opportunity.client.display_name }}</a></dd>
-
-    <dt class="text-gray-500">Responsável comercial</dt>
-    <dd>{{ opportunity.owner }}</dd>
-
-    <dt class="text-gray-500">Origem</dt>
-    <dd>{{ opportunity.source.name }}</dd>
-
-    <dt class="text-gray-500">Previsão de fechamento</dt>
-    <dd>{{ opportunity.expected_close_date|date:"d/m/Y"|default:"—" }}</dd>
-
-    <dt class="text-gray-500">Valor estimado</dt>
-    <dd>{{ opportunity.estimated_value|brl }}</dd>
-
-    {% if opportunity.won_at %}
-    <dt class="text-gray-500">Ganha em</dt>
-    <dd>{{ opportunity.won_at|date:"d/m/Y H:i" }}{% if opportunity.closed_value is not None %} — {{ opportunity.closed_value|brl }}{% endif %}</dd>
-    {% endif %}
-
-    {% if opportunity.lost_at %}
-    <dt class="text-gray-500">Perdida em</dt>
-    <dd>{{ opportunity.lost_at|date:"d/m/Y H:i" }}{% if opportunity.loss_reason %} — {{ opportunity.loss_reason.name }}{% endif %}</dd>
-    {% endif %}
-
-    <dt class="text-gray-500">Criada por</dt>
-    <dd>{{ opportunity.created_by }} em {{ opportunity.created_at|date:"d/m/Y H:i" }}</dd>
-  </dl>
-
-  {% if opportunity.notes %}
-  <p class="mt-4 text-sm text-gray-600 border-t border-gray-100 pt-3">{{ opportunity.notes }}</p>
+  {# Indicador visual de estado JÁ alcançado (nunca repete o botão da   #}
+  {# ação que já foi tomada) — texto coerente com o estado atual.       #}
+  {% if opportunity.stage.is_won %}
+  <div class="alert-success mt-3 icon-inline">
+    {% icon "check-circle" size="compact" %}
+    <span>
+      Orçamento aceito{% if opportunity.won_at %} em {{ opportunity.won_at|date:"d/m/Y H:i" }}{% endif %}{% if opportunity.closed_value is not None %} — {{ opportunity.closed_value|brl }}{% endif %}
+    </span>
+  </div>
+  {% elif opportunity.stage.is_lost %}
+  <div class="alert-error mt-3 icon-inline">
+    {% icon "x-circle" size="compact" %}
+    <span>
+      Negociação perdida{% if opportunity.loss_reason %} — Motivo: {{ opportunity.loss_reason.name }}{% endif %}
+    </span>
+  </div>
   {% endif %}
-  {% if opportunity.lost_at and opportunity.loss_notes %}
-  <p class="mt-2 text-sm text-gray-600">Observação da perda: {{ opportunity.loss_notes }}</p>
-  {% endif %}
+
+  {# ------------------------------------------------------------------ #}
+  {# Etapa atual — proeminente, com troca rápida inline quando o        #}
+  {# usuário tem permissão. Escolher uma etapa is_lost/is_won aqui NÃO  #}
+  {# aplica direto: static/crm/opportunity_detail.js intercepta o       #}
+  {# submit e abre o MESMO modal de Registrar perda/Orçamento aceito    #}
+  {# (nunca dois comportamentos diferentes para a mesma etapa-alvo).    #}
+  {# ------------------------------------------------------------------ #}
+  <div class="mt-4 flex flex-wrap items-center gap-3">
+    <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Etapa atual</span>
+    {% if can_change_stage %}
+    <form method="post" action="{% url 'crm:opportunity_change_stage' opportunity.pk %}" class="flex flex-wrap items-center gap-2" id="opp-quick-stage-form">
+      {% csrf_token %}
+      <select name="stage" id="opp-quick-stage-select" class="field-input w-auto">
+        {% for stage in all_active_stages %}
+        <option value="{{ stage.pk }}" data-is-won="{{ stage.is_won|yesno:"true,false" }}" data-is-lost="{{ stage.is_lost|yesno:"true,false" }}" {% if stage.pk == opportunity.stage.pk %}selected{% endif %}>{{ stage.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn-neutral btn-sm">Aplicar</button>
+    </form>
+    {% else %}
+      {% if opportunity.stage.is_won %}<span class="badge-success">{{ opportunity.stage.name }}</span>
+      {% elif opportunity.stage.is_lost %}<span class="badge-danger">{{ opportunity.stage.name }}</span>
+      {% else %}<span class="badge-info">{{ opportunity.stage.name }}</span>{% endif %}
+    {% endif %}
+  </div>
+
+  {# ------------------------------------------------------------------ #}
+  {# Resumo compacto — faixa horizontal densa, nunca vários cards       #}
+  {# gigantes. Só os campos realmente disponíveis (ver auditoria).      #}
+  {# ------------------------------------------------------------------ #}
+  <div class="stat-strip mt-4 pt-4 border-t border-gray-100">
+    <div class="stat-strip-item">
+      <span class="stat-strip-label">Criada</span>
+      <span class="stat-strip-value">{{ opportunity.created_at|date:"d/m/Y" }}</span>
+    </div>
+    <div class="stat-strip-item">
+      <span class="stat-strip-label">Valor estimado</span>
+      <span class="stat-strip-value">{{ opportunity.estimated_value|brl }}</span>
+    </div>
+    <div class="stat-strip-item">
+      <span class="stat-strip-label">Origem</span>
+      <span class="stat-strip-value">{{ opportunity.source.name }}</span>
+    </div>
+    <div class="stat-strip-item">
+      <span class="stat-strip-label">Responsável</span>
+      <span class="stat-strip-value">{{ opportunity.owner }}</span>
+    </div>
+    <div class="stat-strip-item">
+      <span class="stat-strip-label">Previsão de fechamento</span>
+      <span class="stat-strip-value">{{ opportunity.expected_close_date|date:"d/m/Y"|default:"—" }}</span>
+    </div>
+    <div class="stat-strip-item">
+      <span class="stat-strip-label">Tipo de negócio</span>
+      <span class="stat-strip-value">{{ opportunity.get_business_type_display }}</span>
+    </div>
+    {% if can_view_activities %}
+    <div class="stat-strip-item">
+      <span class="stat-strip-label">Última atividade</span>
+      <span class="stat-strip-value">
+        {% if last_activity %}{{ last_activity.get_activity_type_display }} · {{ last_activity.created_at|date:"d/m/Y" }}{% else %}—{% endif %}
+      </span>
+    </div>
+    {% endif %}
+  </div>
 </div>
 
-{% if can_change_stage %}
+{# -------------------------------------------------------------------- #}
+{# Abas — Visão geral/Atividades/Equipamentos/Histórico. "Arquivos" foi #}
+{# deliberadamente OMITIDA nesta rodada: apps.attachments é um app      #}
+{# vazio, nunca implementado (sem model/migração/URL real) — criar uma  #}
+{# aba para uma funcionalidade inexistente violaria "não inventar o que #}
+{# ainda não existe" (ver relatório final para o registro desta         #}
+{# decisão). "Equipamentos" mostra um estado vazio estático (não existe #}
+{# nenhum vínculo Oportunidade↔Equipamento no projeto hoje — desenho    #}
+{# real fica para uma etapa futura).                                    #}
+{# -------------------------------------------------------------------- #}
 <div class="mt-4 card-pad">
-  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Mudar etapa</h2>
-  <form method="post" action="{% url 'crm:opportunity_change_stage' opportunity.pk %}" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    {% csrf_token %}
-    {% for field in stage_change_form %}
-    <div{% if field.name == "reason" or field.name == "loss_notes" %} class="md:col-span-2"{% endif %}>
-      <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-      {{ field }}
-      {% if field.help_text %}<p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>{% endif %}
-      {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  <div class="tabs" role="tablist" data-tabs>
+    <button type="button" class="tab-link" role="tab" id="tab-visao-geral" data-tab-trigger="visao-geral"
+            aria-controls="panel-visao-geral" aria-selected="true">
+      {% icon "identification" size="compact" %} Visão geral
+    </button>
+    {% if can_view_activities %}
+    <button type="button" class="tab-link" role="tab" id="tab-atividades" data-tab-trigger="atividades"
+            aria-controls="panel-atividades" aria-selected="false">
+      {% icon "bolt" size="compact" %} Atividades
+    </button>
+    {% endif %}
+    <button type="button" class="tab-link" role="tab" id="tab-equipamentos" data-tab-trigger="equipamentos"
+            aria-controls="panel-equipamentos" aria-selected="false">
+      {% icon "tag" size="compact" %} Equipamentos
+    </button>
+    <button type="button" class="tab-link" role="tab" id="tab-historico" data-tab-trigger="historico"
+            aria-controls="panel-historico" aria-selected="false">
+      {% icon "folder" size="compact" %} Histórico
+    </button>
+  </div>
+
+  {# ---------------- Visão geral ---------------- #}
+  <div class="tab-panel" id="panel-visao-geral" role="tabpanel" aria-labelledby="tab-visao-geral" data-tab-panel="visao-geral">
+    <div>
+      <h3 class="section-subheading">Observações</h3>
+      {% if opportunity.notes %}
+      <p class="text-sm text-gray-700 whitespace-pre-line">{{ opportunity.notes }}</p>
+      {% else %}
+      <p class="text-sm text-gray-500">Nenhuma observação cadastrada.</p>
+      {% endif %}
     </div>
-    {% endfor %}
-    <div class="md:col-span-2">
-      <button type="submit" class="btn-primary">Aplicar mudança de etapa</button>
+
+    {% if opportunity.lost_at and opportunity.loss_notes %}
+    <div class="mt-4">
+      <h3 class="section-subheading">Observação da perda</h3>
+      <p class="text-sm text-gray-700 whitespace-pre-line">{{ opportunity.loss_notes }}</p>
     </div>
-  </form>
-  <p class="text-xs text-gray-500 mt-2">
-    "Motivo da perda" só é exigido se a etapa escolhida for uma etapa de perda.
-  </p>
+    {% endif %}
+
+    <div class="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-500">
+      Criada por {{ opportunity.created_by }} em {{ opportunity.created_at|date:"d/m/Y H:i" }}
+    </div>
+  </div>
+
+  {# ---------------- Atividades ---------------- #}
+  {% if can_view_activities %}
+  <div class="tab-panel" id="panel-atividades" role="tabpanel" aria-labelledby="tab-atividades" data-tab-panel="atividades" hidden>
+    {% if activities %}
+    <ul class="space-y-2 mb-4">
+      {% for activity in activities %}
+      <li class="text-sm timeline-item py-1">
+        <span class="font-medium">{{ activity.get_activity_type_display }}</span>
+        <span class="text-gray-500"> · {{ activity.created_by }} · {{ activity.created_at|date:"d/m/Y H:i" }}</span>
+        {% if activity.description %}<p class="text-gray-600">{{ activity.description }}</p>{% endif %}
+        {% if activity.scheduled_for %}<p class="text-gray-500">Próximo passo agendado: {{ activity.scheduled_for|date:"d/m/Y H:i" }}</p>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-state">Nenhuma atividade registrada ainda.</p>
+    {% endif %}
+
+    {% if can_add_activity %}
+    <form method="post" action="{% url 'crm:activity_create' opportunity.pk %}" class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-100 pt-4">
+      {% csrf_token %}
+      {% for field in activity_form %}
+      <div{% if field.name == "description" %} class="md:col-span-2"{% endif %}>
+        <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>{% endif %}
+        {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      </div>
+      {% endfor %}
+      <div class="md:col-span-2">
+        <button type="submit" class="btn-primary">{% icon "bolt" size="compact" %} Registrar atividade</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ---------------- Equipamentos ---------------- #}
+  <div class="tab-panel" id="panel-equipamentos" role="tabpanel" aria-labelledby="tab-equipamentos" data-tab-panel="equipamentos" hidden>
+    {% comment %}
+      Não existe nenhum vínculo Oportunidade↔Equipamento no projeto hoje
+      (auditoria desta rodada) — estado vazio estático, sem nenhuma
+      consulta nova, sem novo model, sem alterar estoque/patrimônio. O
+      desenho real deste vínculo fica para uma etapa futura (ver
+      relatório).
+    {% endcomment %}
+    <p class="empty-state">Nenhum equipamento vinculado.</p>
+  </div>
+
+  {# ---------------- Histórico ---------------- #}
+  <div class="tab-panel" id="panel-historico" role="tabpanel" aria-labelledby="tab-historico" data-tab-panel="historico" hidden>
+    {% comment %}
+      Histórico ≠ Atividades: aqui só eventos estruturados de mudança de
+      etapa (`OpportunityStageChange`, sempre gravado por
+      `change_opportunity_stage()`) — nunca um evento inventado. Ex.:
+      "Novo → Qualificação, 10/09 14:32". Atividades (aba anterior) são
+      interações comerciais registradas manualmente pelo usuário.
+    {% endcomment %}
+    {% if stage_changes %}
+    <ul class="space-y-2">
+      {% for change in stage_changes %}
+      <li class="text-sm timeline-item py-1">
+        {% if change.from_stage %}{{ change.from_stage.name }} → {% else %}(criação) → {% endif %}{{ change.to_stage.name }}
+        <span class="text-gray-500"> · {{ change.changed_by }} · {{ change.changed_at|date:"d/m/Y H:i" }}</span>
+        {% if change.reason %}<p class="text-gray-600">{{ change.reason }}</p>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-state">Nenhuma mudança de etapa registrada.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# -------------------------------------------------------------------- #}
+{# Modal "Registrar perda" — MESMO backend/validação do Kanban          #}
+{# (`stage_change_form`/`change_opportunity_stage`), MESMA família de   #}
+{# classes visuais (`.kanban-modal-*`, ver templates/_design_tokens.html#}
+{# e templates/crm/opportunity_list.html). Form simples, sem AJAX/fetch #}
+{# (POST normal + redirect/mensagens — o mesmo padrão já usado pela     #}
+{# antiga seção "Mudar etapa" desta página): nunca um segundo fluxo de  #}
+{# perda paralelo ao do Kanban.                                         #}
+{# -------------------------------------------------------------------- #}
+{% if can_show_registrar_perda %}
+<div id="opp-loss-modal" class="kanban-modal-backdrop" hidden aria-hidden="true">
+  <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="opp-loss-modal-title">
+    <div class="kanban-modal-header">
+      <h2 class="kanban-modal-title icon-inline" id="opp-loss-modal-title">
+        {% icon "x-circle" size="compact" %} Registrar perda
+      </h2>
+      <button type="button" class="icon-btn-neutral" data-close-modal="opp-loss-modal" aria-label="Fechar">
+        {% icon "x-mark" size="compact" %}
+      </button>
+    </div>
+    <form method="post" action="{% url 'crm:opportunity_change_stage' opportunity.pk %}">
+      {% csrf_token %}
+      <div class="kanban-modal-body">
+        {% if lost_stages|length > 1 %}
+        <div>
+          <label class="field-label" for="opp-loss-modal-stage">Etapa de perda</label>
+          <select name="stage" id="opp-loss-modal-stage" class="field-input">
+            {% for stage in lost_stages %}<option value="{{ stage.pk }}">{{ stage.name }}</option>{% endfor %}
+          </select>
+        </div>
+        {% else %}
+        <input type="hidden" name="stage" value="{{ lost_stages.0.pk }}">
+        {% endif %}
+        <div>
+          <label class="field-label" for="{{ stage_change_form.loss_reason.id_for_label }}">{{ stage_change_form.loss_reason.label }}</label>
+          {{ stage_change_form.loss_reason }}
+          <p class="text-xs text-gray-500 mt-1">Obrigatório para registrar a perda.</p>
+        </div>
+        <div>
+          <label class="field-label" for="{{ stage_change_form.loss_notes.id_for_label }}">{{ stage_change_form.loss_notes.label }}</label>
+          {{ stage_change_form.loss_notes }}
+        </div>
+      </div>
+      <div class="kanban-modal-footer">
+        <button type="button" class="btn-neutral" data-close-modal="opp-loss-modal">Cancelar</button>
+        <button type="submit" class="btn-primary">Confirmar perda</button>
+      </div>
+    </form>
+  </div>
 </div>
 {% endif %}
 
-<div class="mt-4 card-pad">
-  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Histórico de etapas</h2>
-  {% if stage_changes %}
-  <ul class="space-y-2">
-    {% for change in stage_changes %}
-    <li class="text-sm timeline-item py-1">
-      {% if change.from_stage %}{{ change.from_stage.name }} → {% else %}(criação) → {% endif %}{{ change.to_stage.name }}
-      <span class="text-gray-500"> · {{ change.changed_by }} · {{ change.changed_at|date:"d/m/Y H:i" }}</span>
-      {% if change.reason %}<p class="text-gray-600">{{ change.reason }}</p>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="text-sm text-gray-500">Nenhuma mudança de etapa registrada.</p>
-  {% endif %}
-</div>
-
-{% if can_view_activities %}
-<div class="mt-4 card-pad">
-  <h2 class="text-sm font-semibold text-brand-charcoal mb-3">Atividades comerciais</h2>
-
-  {% if activities %}
-  <ul class="space-y-2 mb-4">
-    {% for activity in activities %}
-    <li class="text-sm timeline-item py-1">
-      <span class="font-medium">{{ activity.get_activity_type_display }}</span>
-      <span class="text-gray-500"> · {{ activity.created_by }} · {{ activity.created_at|date:"d/m/Y H:i" }}</span>
-      {% if activity.description %}<p class="text-gray-600">{{ activity.description }}</p>{% endif %}
-      {% if activity.scheduled_for %}<p class="text-gray-500">Próximo passo agendado: {{ activity.scheduled_for|date:"d/m/Y H:i" }}</p>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="text-sm text-gray-500 mb-4">Nenhuma atividade registrada ainda.</p>
-  {% endif %}
-
-  {% if can_add_activity %}
-  <form method="post" action="{% url 'crm:activity_create' opportunity.pk %}" class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-100 pt-4">
-    {% csrf_token %}
-    {% for field in activity_form %}
-    <div{% if field.name == "description" %} class="md:col-span-2"{% endif %}>
-      <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-      {{ field }}
-      {% if field.help_text %}<p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>{% endif %}
-      {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+{# -------------------------------------------------------------------- #}
+{# Modal "Orçamento aceito" — fechamento POSITIVO usando a etapa is_won #}
+{# já configurada (nenhum módulo de proposta/orçamento estruturado      #}
+{# existe ainda — fora de escopo nesta rodada). MESMO backend das       #}
+{# demais trocas de etapa.                                              #}
+{# -------------------------------------------------------------------- #}
+{% if can_show_orcamento_aceito %}
+<div id="opp-accept-modal" class="kanban-modal-backdrop" hidden aria-hidden="true">
+  <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="opp-accept-modal-title">
+    <div class="kanban-modal-header">
+      <h2 class="kanban-modal-title icon-inline" id="opp-accept-modal-title">
+        {% icon "check-circle" size="compact" %} Orçamento aceito
+      </h2>
+      <button type="button" class="icon-btn-neutral" data-close-modal="opp-accept-modal" aria-label="Fechar">
+        {% icon "x-mark" size="compact" %}
+      </button>
     </div>
-    {% endfor %}
-    <div class="md:col-span-2">
-      <button type="submit" class="btn-primary">Registrar atividade</button>
-    </div>
-  </form>
-  {% endif %}
+    <form method="post" action="{% url 'crm:opportunity_change_stage' opportunity.pk %}">
+      {% csrf_token %}
+      <div class="kanban-modal-body">
+        <p class="text-sm text-gray-700">Confirmar que esta negociação foi aceita?</p>
+        {% if won_stages|length > 1 %}
+        <div>
+          <label class="field-label" for="opp-accept-modal-stage">Etapa de ganho</label>
+          <select name="stage" id="opp-accept-modal-stage" class="field-input">
+            {% for stage in won_stages %}<option value="{{ stage.pk }}">{{ stage.name }}</option>{% endfor %}
+          </select>
+        </div>
+        {% else %}
+        <input type="hidden" name="stage" value="{{ won_stages.0.pk }}">
+        {% endif %}
+      </div>
+      <div class="kanban-modal-footer">
+        <button type="button" class="btn-neutral" data-close-modal="opp-accept-modal">Cancelar</button>
+        <button type="submit" class="btn-primary">Confirmar aceite</button>
+      </div>
+    </form>
+  </div>
 </div>
+{% endif %}
+
+{% if can_change_stage %}
+<script src="{% static 'crm/opportunity_detail.js' %}"></script>
 {% endif %}
 {% endblock %}
