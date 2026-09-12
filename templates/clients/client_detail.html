@@ -40,14 +40,41 @@
 </div>
 
 {% if user.is_administrativo_ou_superior or user.is_superuser %}
-<div class="mt-4 card-pad flex flex-wrap gap-3 text-sm">
-  <a href="{% url 'clients:update' client.pk %}" class="link">Editar dados</a>
-  <a href="{% url 'clients:fiscal_address_update' client.pk %}" class="link">Editar endereço fiscal</a>
-  <a href="{% url 'operations:location_create' %}?client={{ client.pk }}" class="link">Nova unidade</a>
-  {% if user.is_superuser %}
-  <a href="{% url 'clients:hard_delete' client.pk %}" class="link text-red-700">
-    {% icon "trash" size="compact" %} Excluir definitivamente
+{% comment %}
+  Fileira de ações da ficha — rodada "PADRONIZAÇÃO GLOBAL DE BOTÕES"
+  (12/09/2026): "Nova unidade" é a ação PRIMÁRIA (criação, a mais
+  frequente nesta tela) — `.btn-primary`. "Editar dados"/"Editar
+  endereço fiscal" são secundárias — `.btn-neutral`. "Excluir
+  definitivamente" (só superusuário) fica isolada no menu "⋯"
+  (`.action-menu`, ver templates/_design_tokens.html) — nunca no mesmo
+  peso visual das ações normais. Cliente não tem hoje uma ação de
+  "Arquivar" própria (é `SoftDeleteModel`, mas nenhuma tela expõe
+  `is_active` ainda) — o menu por enquanto só tem o item destrutivo;
+  ganha mais itens no dia em que essa funcionalidade existir, sem
+  mudança de estrutura.
+{% endcomment %}
+<div class="mt-4 card-pad flex flex-wrap items-center gap-2">
+  <a href="{% url 'operations:location_create' %}?client={{ client.pk }}" class="btn-primary">
+    {% icon "plus" size="compact" %} Nova unidade
   </a>
+  <a href="{% url 'clients:update' client.pk %}" class="btn-neutral">
+    {% icon "pencil" size="compact" %} Editar dados
+  </a>
+  <a href="{% url 'clients:fiscal_address_update' client.pk %}" class="btn-neutral">
+    {% icon "map-pin" size="compact" %} Editar endereço fiscal
+  </a>
+  {% if user.is_superuser %}
+  <div class="action-menu" data-action-menu>
+    <button type="button" class="icon-btn-neutral" data-action-menu-trigger aria-haspopup="true" aria-expanded="false">
+      <span class="sr-only">Mais ações</span>
+      {% icon "ellipsis-horizontal" size="compact" %}
+    </button>
+    <div class="action-menu-panel hidden" data-action-menu-panel role="menu">
+      <a href="{% url 'clients:hard_delete' client.pk %}" class="action-menu-item-danger" role="menuitem">
+        {% icon "trash" size="compact" %} Excluir definitivamente
+      </a>
+    </div>
+  </div>
   {% endif %}
 </div>
 {% endif %}
@@ -81,7 +108,9 @@
           {% endif %}
         </div>
         {% if user.is_administrativo_ou_superior or user.is_superuser %}
-        <a href="{% url 'operations:location_address_update' location.pk %}" class="link whitespace-nowrap">Editar endereço</a>
+        <a href="{% url 'operations:location_address_update' location.pk %}" class="btn-neutral btn-sm whitespace-nowrap shrink-0">
+          {% icon "map-pin" size="compact" %} Editar endereço
+        </a>
         {% endif %}
       </div>
     </li>

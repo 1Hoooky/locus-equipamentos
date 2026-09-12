@@ -72,6 +72,21 @@ _ICONS = {
     "plus": (
         '<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />'
     ),
+    # Adicionado na rodada "PADRONIZAÇÃO GLOBAL DE BOTÕES" (12/09/2026) —
+    # gatilho do novo menu de opções (`.action-menu`, ver
+    # templates/_design_tokens.html) — "mais opções" nas fichas que têm
+    # ações pouco frequentes (Arquivar, Excluir definitivamente) fora da
+    # fileira principal de botões.
+    "map-pin": (
+        '<path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />'
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />'
+    ),
+    "ellipsis-horizontal": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 '
+        '12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />'
+    ),
     # Adicionado na rodada "HARD DELETE DURANTE DESENVOLVIMENTO" (11/09/2026) —
     # única ação do sistema que remove a linha do banco de verdade (não
     # `is_active=False`), usada nos 3 botões/telas de exclusão definitiva

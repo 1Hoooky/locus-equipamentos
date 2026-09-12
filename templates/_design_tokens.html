@@ -80,6 +80,15 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     .btn-danger {
       @apply btn border border-red-300 text-red-700 bg-white hover:bg-red-50;
     }
+    /* Baixa ênfase — ações utilitárias (exportar, limpar filtro, ver
+       QR/etiqueta) que precisam continuar parecendo AÇÃO (alvo de toque,
+       hover perceptível) sem competir visualmente com .btn-neutral/
+       .btn-primary da mesma tela. Sem borda (diferente de .btn-neutral) —
+       "fantasma" até o hover, quando ganha um fundo cinza sutil.
+       Rodada "PADRONIZAÇÃO GLOBAL DE BOTÕES", 12/09/2026. */
+    .btn-ghost {
+      @apply btn border border-transparent text-gray-600 bg-transparent hover:bg-gray-100 hover:text-gray-900;
+    }
     .btn-sm {
       @apply px-3 py-1.5 text-xs;
     }
@@ -214,6 +223,36 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
        telas estreitas. */
     .action-group {
       @apply inline-flex flex-wrap items-center gap-1;
+    }
+
+    /* -----------------------------------------------------------------
+     * Menu de opções ("⋯") — rodada "PADRONIZAÇÃO GLOBAL DE BOTÕES",
+     * 12/09/2026. Reúne ações menos frequentes (arquivamento, remoção
+     * permanente de registro) fora da fileira principal de botões de uma
+     * ficha, sem dar a elas o mesmo peso visual das ações primárias/secundárias.
+     * Controlado por um único script genérico e reaproveitável
+     * (`data-action-menu`, ver `<script>` no fim de base.html) — MESMO
+     * padrão vanilla/`aria-expanded`/Escape/clique-fora já usado no
+     * drawer mobile e no acordeão da sidebar, nenhuma dependência nova.
+     * `.action-menu` é só o wrapper posicionador (`position: relative`);
+     * o gatilho em si continua um `.icon-btn-neutral`/`.btn-neutral`
+     * normal — não uma classe própria — para herdar foco/hover/disabled
+     * de graça.
+     * --------------------------------------------------------------- */
+    .action-menu {
+      @apply relative inline-block;
+    }
+    .action-menu-panel {
+      @apply absolute right-0 z-20 mt-1 min-w-[220px] rounded-lg border border-gray-200 bg-white py-1 shadow-md;
+    }
+    .action-menu-item {
+      @apply flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-brand-charcoal hover:bg-gray-50 min-h-[44px] sm:min-h-0 sm:py-2;
+    }
+    .action-menu-item-danger {
+      @apply action-menu-item text-red-700 hover:bg-red-50;
+    }
+    .action-menu-divider {
+      @apply my-1 border-t border-gray-100;
     }
 
     /* -----------------------------------------------------------------

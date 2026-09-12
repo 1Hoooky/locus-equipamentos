@@ -24,9 +24,13 @@
 </div>
 
 {% if user.is_administrativo_ou_superior or user.is_superuser %}
-<div class="mt-4 card-pad flex flex-wrap gap-3 text-sm">
-  <a href="{% url 'operations:location_update' location.pk %}" class="link">Editar unidade</a>
-  <a href="{% url 'operations:location_address_update' location.pk %}" class="link">Editar endereço</a>
+<div class="mt-4 card-pad flex flex-wrap items-center gap-2">
+  <a href="{% url 'operations:location_update' location.pk %}" class="btn-neutral">
+    {% icon "pencil" size="compact" %} Editar unidade
+  </a>
+  <a href="{% url 'operations:location_address_update' location.pk %}" class="btn-neutral">
+    {% icon "map-pin" size="compact" %} Editar endereço
+  </a>
 </div>
 {% endif %}
 

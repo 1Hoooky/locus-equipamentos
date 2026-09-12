@@ -410,9 +410,17 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
         {% if user.is_authenticated %}
         <div class="hidden sm:flex items-center gap-3 text-sm shrink-0">
           <span class="text-gray-300">{{ user }} · {{ user.get_role_display }}</span>
+          {% comment %}
+            PADRONIZAÇÃO GLOBAL DE BOTÕES (12/09/2026): "Sair" usava texto
+            sublinhado aqui, mas `.btn-neutral` (mesmo componente do "Sair"
+            do drawer mobile logo acima) — evita duas linguagens visuais
+            para a MESMA ação só por causa do fundo escuro do header;
+            `.btn-neutral` (branco/borda cinza) já tem contraste adequado
+            sobre `bg-brand-black`.
+          {% endcomment %}
           <form method="post" action="{% url 'accounts:logout' %}" class="inline">
             {% csrf_token %}
-            <button type="submit" class="text-brand-gold hover:text-brand-gold-dark hover:underline">Sair</button>
+            <button type="submit" class="btn-neutral btn-sm">Sair</button>
           </form>
         </div>
         {% endif %}
@@ -564,6 +572,65 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
     if (desktopBreakpoint.addEventListener) {
       desktopBreakpoint.addEventListener("change", handleBreakpointChange);
     }
+  })();
+
+  // Menu de opções ("⋯") — rodada "PADRONIZAÇÃO GLOBAL DE BOTÕES",
+  // 12/09/2026. Controlador ÚNICO e genérico, reaproveitado por qualquer
+  // tela que precise agrupar ações pouco frequentes fora da fileira
+  // principal de botões (Cliente/Equipamento/Oportunidade hoje; qualquer
+  // ficha futura só precisa da marcação — nenhum JS novo por página).
+  // Mesmo espírito do drawer mobile acima: vanilla JS, `aria-expanded`,
+  // Escape fecha, clique fora fecha, só um menu aberto por vez.
+  //
+  // Marcação esperada (ver templates/_design_tokens.html para as
+  // classes): um wrapper com [data-action-menu] contendo o gatilho
+  // (classe icon-btn-neutral ou btn-neutral, atributo
+  // data-action-menu-trigger, aria-haspopup="true", aria-expanded
+  // inicial "false", ícone "ellipsis-horizontal") e o painel (classes
+  // action-menu-panel + hidden, atributo data-action-menu-panel,
+  // role="menu") com os itens (.action-menu-item / .action-menu-item-danger).
+  (function () {
+    var menus = document.querySelectorAll("[data-action-menu]");
+    if (!menus.length) return;
+
+    function closeMenu(menu) {
+      var trigger = menu.querySelector("[data-action-menu-trigger]");
+      var panel = menu.querySelector("[data-action-menu-panel]");
+      if (!trigger || !panel) return;
+      panel.classList.add("hidden");
+      trigger.setAttribute("aria-expanded", "false");
+    }
+
+    function closeAllExcept(exception) {
+      menus.forEach(function (menu) {
+        if (menu !== exception) closeMenu(menu);
+      });
+    }
+
+    menus.forEach(function (menu) {
+      var trigger = menu.querySelector("[data-action-menu-trigger]");
+      var panel = menu.querySelector("[data-action-menu-panel]");
+      if (!trigger || !panel) return;
+
+      trigger.addEventListener("click", function (event) {
+        event.stopPropagation();
+        var isOpen = trigger.getAttribute("aria-expanded") === "true";
+        closeAllExcept(menu);
+        if (isOpen) {
+          closeMenu(menu);
+        } else {
+          panel.classList.remove("hidden");
+          trigger.setAttribute("aria-expanded", "true");
+        }
+      });
+    });
+
+    document.addEventListener("click", function () {
+      closeAllExcept(null);
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") closeAllExcept(null);
+    });
   })();
 </script>
 {% endif %}

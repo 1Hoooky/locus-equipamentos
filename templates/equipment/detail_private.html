@@ -124,7 +124,7 @@ clique extra, mas visualmente subordinado ao cabeçalho.
       {% endfor %}
     </div>
     <a href="{% url 'operations:movement_create' equipment.patrimonio %}" class="low-emphasis-link mt-2">
-      ••• Outras movimentações
+      {% icon "ellipsis-horizontal" size="compact" %} Outras movimentações
     </a>
   </div>
   {% else %}
@@ -155,14 +155,20 @@ clique extra, mas visualmente subordinado ao cabeçalho.
 
   {% comment %}
     Ajustes — status/condição são ações pontuais (não fazem parte do
-    fluxo diário de movimentar/manter/higienizar), por isso ficam como
-    links discretos, numa camada avançada, sem grade/ícone grande.
+    fluxo diário de movimentar/manter/higienizar), por isso usam
+    `.btn-ghost` (rodada "PADRONIZAÇÃO GLOBAL DE BOTÕES", 12/09/2026):
+    continuam parecendo AÇÃO (alvo de toque, ícone, hover), mas numa
+    camada avançada, sem competir com os cards de "Serviços" acima.
   {% endcomment %}
   <div class="pt-3 border-t border-gray-100">
     <h3 class="section-subheading">Ajustes</h3>
-    <div class="flex flex-wrap gap-4 text-sm">
-      <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="link">Alterar status</a>
-      <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="link">Alterar condição</a>
+    <div class="flex flex-wrap gap-2">
+      <a href="{% url 'equipment:change_status' equipment.patrimonio %}" class="btn-ghost btn-sm">
+        {% icon "bolt" size="compact" %} Alterar status
+      </a>
+      <a href="{% url 'equipment:change_condition' equipment.patrimonio %}" class="btn-ghost btn-sm">
+        {% icon "shield-check" size="compact" %} Alterar condição
+      </a>
     </div>
   </div>
 
@@ -186,30 +192,52 @@ clique extra, mas visualmente subordinado ao cabeçalho.
       {% icon "chevron-down" size="compact" extra_class="disclosure-chevron" %}
     </button>
     <div id="ficha-admin-body" class="disclosure-body pt-3">
-      <div class="flex flex-wrap gap-4 text-sm">
+      {% comment %}
+        Rodada "PADRONIZAÇÃO GLOBAL DE BOTÕES" (12/09/2026): Editar dados/
+        Reclassificar viram `.btn-neutral` (ações administrativas
+        normais); "Reemitir patrimônio" continua vermelha — é a MESMA
+        severidade visual da própria tela de confirmação
+        (`equipment/supersede.html`, `.btn-danger`) — mas agora como
+        botão de verdade, não link cru. "Excluir definitivamente"
+        (irreversível, só superusuário) fica isolada no menu "⋯"
+        (`.action-menu`), nunca no mesmo peso visual das demais — mesmo
+        padrão já usado em `clients/client_detail.html`.
+      {% endcomment %}
+      <div class="flex flex-wrap items-center gap-2">
         {% if user.is_administrativo_ou_superior %}
-        <a href="{% url 'equipment:update' equipment.patrimonio %}" class="link">Editar dados</a>
+        <a href="{% url 'equipment:update' equipment.patrimonio %}" class="btn-neutral btn-sm">
+          {% icon "pencil" size="compact" %} Editar dados
+        </a>
         {% endif %}
         {% if user.is_admin %}
-        <a href="{% url 'equipment:reclassify' equipment.patrimonio %}" class="link">Reclassificar modelo</a>
-        {# Ação sensível — decisão aprovada (auditoria 28/08/2026): permanece vermelha, com #}
-        {# texto explícito, sem ícone, só como link de navegação para sua própria tela de #}
-        {# confirmação, nunca botão destrutivo inline aqui. #}
-        <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="text-red-600 hover:underline font-medium">Reemitir patrimônio</a>
+        <a href="{% url 'equipment:reclassify' equipment.patrimonio %}" class="btn-neutral btn-sm">
+          {% icon "tag" size="compact" %} Reclassificar modelo
+        </a>
+        <a href="{% url 'equipment:supersede' equipment.patrimonio %}" class="btn-danger btn-sm">
+          {% icon "arrows-right-left" size="compact" %} Reemitir patrimônio
+        </a>
         {% endif %}
         {% if user.is_superuser %}
-        {# Exclusão definitiva (hard delete) — "Nível C", restrita a superusuário #}
-        {# puro (ver apps.core.hard_delete), nunca a Role.ADMIN sozinho. #}
-        <a href="{% url 'equipment:hard_delete' equipment.patrimonio %}" class="text-red-600 hover:underline font-medium icon-inline">
-          {% icon "trash" size="compact" %} Excluir definitivamente
-        </a>
+        <div class="action-menu" data-action-menu>
+          <button type="button" class="icon-btn-neutral" data-action-menu-trigger aria-haspopup="true" aria-expanded="false">
+            <span class="sr-only">Mais ações</span>
+            {% icon "ellipsis-horizontal" size="compact" %}
+          </button>
+          <div class="action-menu-panel hidden" data-action-menu-panel role="menu">
+            {# Exclusão definitiva (hard delete) — "Nível C", restrita a superusuário #}
+            {# puro (ver apps.core.hard_delete), nunca a Role.ADMIN sozinho. #}
+            <a href="{% url 'equipment:hard_delete' equipment.patrimonio %}" class="action-menu-item-danger" role="menuitem">
+              {% icon "trash" size="compact" %} Excluir definitivamente
+            </a>
+          </div>
+        </div>
         {% endif %}
       </div>
       {% if user.is_administrativo_ou_superior %}
-      <div class="flex flex-wrap gap-4 text-sm mt-3">
-        <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="link icon-inline">{% icon "qr-code" size="compact" %} Ver QR Code</a>
-        <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" download="{{ equipment.patrimonio }}-qr.png" class="link icon-inline">{% icon "arrow-down-tray" size="compact" %} Baixar QR Code (PNG)</a>
-        <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="link icon-inline">{% icon "arrow-down-tray" size="compact" %} Baixar etiqueta (PDF)</a>
+      <div class="flex flex-wrap gap-2 mt-3">
+        <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" target="_blank" class="btn-ghost btn-sm">{% icon "qr-code" size="compact" %} Ver QR Code</a>
+        <a href="{% url 'qrcodes:qr_png' equipment.patrimonio %}" download="{{ equipment.patrimonio }}-qr.png" class="btn-ghost btn-sm">{% icon "arrow-down-tray" size="compact" %} Baixar QR Code (PNG)</a>
+        <a href="{% url 'qrcodes:label_pdf' equipment.patrimonio %}" class="btn-ghost btn-sm">{% icon "arrow-down-tray" size="compact" %} Baixar etiqueta (PDF)</a>
       </div>
       {% endif %}
     </div>

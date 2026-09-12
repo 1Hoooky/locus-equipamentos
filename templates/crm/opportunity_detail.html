@@ -14,18 +14,32 @@
       {% elif opportunity.stage.is_lost %}<span class="badge-danger">{{ opportunity.stage.name }}</span>
       {% else %}<span class="badge-info">{{ opportunity.stage.name }}</span>{% endif %}
     </div>
-    <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       {% if can_change_opportunity %}
       <a href="{% url 'crm:opportunity_update' opportunity.pk %}" class="btn-neutral icon-inline">
         {% icon "pencil" size="compact" %} Editar
       </a>
       {% endif %}
       {% if user.is_superuser %}
-      {# Exclusão definitiva (hard delete) — "Nível C", restrita a superusuário #}
-      {# puro (ver apps.core.hard_delete), nunca crm.change_opportunities sozinho. #}
-      <a href="{% url 'crm:opportunity_hard_delete' opportunity.pk %}" class="btn-danger icon-inline">
-        {% icon "trash" size="compact" %} Excluir definitivamente
-      </a>
+      {% comment %}
+        Exclusão definitiva (hard delete) — "Nível C", restrita a
+        superusuário puro (ver apps.core.hard_delete), nunca
+        crm.change_opportunities sozinho. PADRONIZAÇÃO GLOBAL DE BOTÕES
+        (12/09/2026): isolada no menu "⋯" — mesmo tratamento já usado em
+        clients/client_detail.html e equipment/detail_private.html, nunca
+        no mesmo peso visual da ação normal "Editar".
+      {% endcomment %}
+      <div class="action-menu" data-action-menu>
+        <button type="button" class="icon-btn-neutral" data-action-menu-trigger aria-haspopup="true" aria-expanded="false">
+          <span class="sr-only">Mais ações</span>
+          {% icon "ellipsis-horizontal" size="compact" %}
+        </button>
+        <div class="action-menu-panel hidden" data-action-menu-panel role="menu">
+          <a href="{% url 'crm:opportunity_hard_delete' opportunity.pk %}" class="action-menu-item-danger" role="menuitem">
+            {% icon "trash" size="compact" %} Excluir definitivamente
+          </a>
+        </div>
+      </div>
       {% endif %}
     </div>
   </div>

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load icons %}
 {% block title %}Lote criado — Locus{% endblock %}
 {% block content %}
 <h1 class="page-title mb-4">{{ batch.quantity }} equipamento{{ batch.quantity|pluralize }} criado{{ batch.quantity|pluralize }}</h1>
@@ -23,19 +24,35 @@
   </p>
 </div>
 
-<div class="flex flex-wrap gap-3 text-sm">
+<div class="flex flex-wrap items-center gap-2">
   <a href="{% url 'equipment:list' %}?batch={{ batch.id }}" class="btn-primary">
-    Ver equipamentos criados
+    {% icon "eye" size="compact" %} Ver equipamentos criados
   </a>
-  <a href="{% url 'qrcodes:label_zip' %}?batch={{ batch.id }}" class="link">
-    Exportar etiquetas deste lote
-  </a>
-  <a href="{% url 'qrcodes:qr_zip' %}?batch={{ batch.id }}" data-label-theme-trigger class="link">
-    Exportar QR Codes deste lote
-  </a>
-  <a href="{% url 'qrcodes:qr_only_zip' %}?batch={{ batch.id }}" class="link">
-    Exportar QR Codes (puro) deste lote
-  </a>
+  {% comment %}
+    Mesmo padrão do menu "Exportar" de equipment/list.html
+    (PADRONIZAÇÃO GLOBAL DE BOTÕES, 12/09/2026) — as mesmas 3 ações de
+    exportação de lote, aqui restritas às deste lote específico
+    (`?batch=`). "QR Codes" mantém `data-label-theme-trigger` (delegação
+    de evento em static/qrcodes/label_theme_modal.js, funciona dentro do
+    painel oculto); "QR Codes (puro)" não tem o atributo — decisão
+    explícita de 08/09/2026 preservada.
+  {% endcomment %}
+  <div class="action-menu" data-action-menu>
+    <button type="button" class="btn-neutral" data-action-menu-trigger aria-haspopup="true" aria-expanded="false">
+      {% icon "arrow-down-tray" size="compact" %} Exportar {% icon "chevron-down" size="compact" %}
+    </button>
+    <div class="action-menu-panel hidden" data-action-menu-panel role="menu">
+      <a href="{% url 'qrcodes:label_zip' %}?batch={{ batch.id }}" class="action-menu-item" role="menuitem">
+        {% icon "tag" size="compact" %} Exportar etiquetas deste lote
+      </a>
+      <a href="{% url 'qrcodes:qr_zip' %}?batch={{ batch.id }}" data-label-theme-trigger class="action-menu-item" role="menuitem">
+        {% icon "qr-code" size="compact" %} Exportar QR Codes deste lote
+      </a>
+      <a href="{% url 'qrcodes:qr_only_zip' %}?batch={{ batch.id }}" class="action-menu-item" role="menuitem">
+        {% icon "qr-code" size="compact" %} Exportar QR Codes (puro) deste lote
+      </a>
+    </div>
+  </div>
 </div>
 {% comment %}
 Modal LIGHT/DARK antes do download de etiquetas (pedido de 08/09/2026) —

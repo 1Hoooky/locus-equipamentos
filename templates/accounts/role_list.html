@@ -49,8 +49,8 @@
             <form method="post" action="{% url 'accounts:role_delete' cargo.pk %}"
                   onsubmit="return confirm('Excluir o cargo \'{{ cargo.name }}\'? Só é possível se nenhum usuário estiver com este cargo.');">
               {% csrf_token %}
-              <button type="submit" class="icon-btn-neutral" aria-label="Excluir cargo {{ cargo.name }}" title="Excluir cargo {{ cargo.name }}">
-                {% icon "x-mark" size="compact" %}
+              <button type="submit" class="icon-btn-danger" aria-label="Excluir cargo {{ cargo.name }}" title="Excluir cargo {{ cargo.name }}">
+                {% icon "trash" size="compact" %}
               </button>
             </form>
           {% endif %}

@@ -10,31 +10,51 @@
     <a href="{% url 'equipment:create' %}" class="btn-primary">
       {% icon "plus" size="compact" %} Novo equipamento
     </a>
-    <a href="{% url 'equipment:batch_create' %}" class="link">
-      Adicionar equipamentos em lote
-    </a>
-    <a href="{% url 'equipment:export' %}?format=csv&{{ request.GET.urlencode }}" class="link icon-inline">
-      {% icon "arrow-down-tray" size="compact" %} Exportar CSV
-    </a>
-    <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="link icon-inline">
-      {% icon "arrow-down-tray" size="compact" %} Exportar Excel
-    </a>
-    <a href="{% url 'qrcodes:qr_zip' %}" data-label-theme-trigger class="link icon-inline">
-      {% icon "arrow-down-tray" size="compact" %} Exportar QR Codes
-    </a>
-    <a href="{% url 'qrcodes:label_zip' %}" class="link icon-inline">
-      {% icon "arrow-down-tray" size="compact" %} Exportar Etiquetas
+    <a href="{% url 'equipment:batch_create' %}" class="btn-secondary">
+      {% icon "plus" size="compact" %} Adicionar em lote
     </a>
     {% comment %}
-    "Exportar QR Codes (puro)" (pedido de 10/09/2026) — botão distinto do
-    "Exportar QR Codes" acima (que, apesar do nome, baixa etiquetas 6x6
-    desde 08/09/2026). Sem `data-label-theme-trigger`: QR puro não tem
-    "etiqueta" nenhuma para ter tema LIGHT/DARK. Ver
-    apps/qrcodes/views.QRCodeOnlyZipExportView.
+      Rodada "PADRONIZAÇÃO GLOBAL DE BOTÕES" (12/09/2026): as 5 ações de
+      exportação eram 5 `.link` soltos em sequência na mesma fileira do
+      botão primário — agrupadas num único menu "Exportar" (mesmo
+      componente `.action-menu` do menu "⋯" das fichas, só com um
+      gatilho com rótulo em vez de ícone sozinho, por clareza: aqui não é
+      "mais opções" genérico, é claramente uma família de exportações).
+      `data-label-theme-trigger` (delegação de clique em
+      label_theme_modal.js) continua funcionando normalmente dentro do
+      painel — o listener é no `document`, não depende do painel estar
+      visível no carregamento da página.
     {% endcomment %}
-    <a href="{% url 'qrcodes:qr_only_zip' %}" class="link icon-inline">
-      {% icon "qr-code" size="compact" %} Exportar QR Codes (puro)
-    </a>
+    <div class="action-menu" data-action-menu>
+      <button type="button" class="btn-neutral" data-action-menu-trigger aria-haspopup="true" aria-expanded="false">
+        {% icon "arrow-down-tray" size="compact" %} Exportar {% icon "chevron-down" size="compact" %}
+      </button>
+      <div class="action-menu-panel hidden" data-action-menu-panel role="menu">
+        <a href="{% url 'equipment:export' %}?format=csv&{{ request.GET.urlencode }}" class="action-menu-item" role="menuitem">
+          {% icon "document-text" size="compact" %} Exportar CSV
+        </a>
+        <a href="{% url 'equipment:export' %}?format=xlsx&{{ request.GET.urlencode }}" class="action-menu-item" role="menuitem">
+          {% icon "document-text" size="compact" %} Exportar Excel
+        </a>
+        <div class="action-menu-divider"></div>
+        <a href="{% url 'qrcodes:qr_zip' %}" data-label-theme-trigger class="action-menu-item" role="menuitem">
+          {% icon "qr-code" size="compact" %} Exportar QR Codes
+        </a>
+        <a href="{% url 'qrcodes:label_zip' %}" class="action-menu-item" role="menuitem">
+          {% icon "tag" size="compact" %} Exportar Etiquetas
+        </a>
+        {% comment %}
+        "Exportar QR Codes (puro)" (pedido de 10/09/2026) — item distinto
+        do "Exportar QR Codes" acima (que, apesar do nome, baixa
+        etiquetas 6x6 desde 08/09/2026). Sem `data-label-theme-trigger`:
+        QR puro não tem "etiqueta" nenhuma para ter tema LIGHT/DARK. Ver
+        apps/qrcodes/views.QRCodeOnlyZipExportView.
+        {% endcomment %}
+        <a href="{% url 'qrcodes:qr_only_zip' %}" class="action-menu-item" role="menuitem">
+          {% icon "qr-code" size="compact" %} Exportar QR Codes (puro)
+        </a>
+      </div>
+    </div>
     {% endif %}
   </div>
 </div>
