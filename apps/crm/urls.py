@@ -7,6 +7,11 @@ app_name = "crm"
 urlpatterns = [
     path("oportunidades/", views.OpportunityListView.as_view(), name="opportunity_list"),
     path("oportunidades/nova/", views.OpportunityCreateView.as_view(), name="opportunity_create"),
+    path(
+        "oportunidades/clientes/buscar/",
+        views.OpportunityClientAutocompleteView.as_view(),
+        name="opportunity_client_autocomplete",
+    ),
     path("oportunidades/<int:pk>/", views.OpportunityDetailView.as_view(), name="opportunity_detail"),
     path("oportunidades/<int:pk>/editar/", views.OpportunityUpdateView.as_view(), name="opportunity_update"),
     path("oportunidades/<int:pk>/etapa/", views.OpportunityStageChangeView.as_view(), name="opportunity_change_stage"),

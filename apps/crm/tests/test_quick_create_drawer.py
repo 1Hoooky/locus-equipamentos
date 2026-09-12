@@ -242,14 +242,17 @@ class DrawerValidationTest(QuickCreateDrawerTestBase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Opportunity.objects.count(), before)
 
-    def test_negative_estimated_value_is_rejected(self):
-        self.client.force_login(self.creator)
-        before = Opportunity.objects.count()
-        response = self.client.post(
-            "/crm/oportunidades/nova/", self._valid_payload(estimated_value="-100.00"), **AJAX_HEADERS
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(Opportunity.objects.count(), before)
+    # `test_negative_estimated_value_is_rejected` foi REMOVIDO daqui
+    # (12/09/2026): "Valor estimado" não existe mais em
+    # `OpportunityCreateForm`/neste drawer (ver CORRIGIR DEFINITIVAMENTE
+    # O CAMPO CLIENTE — remoção de "Valor estimado"/"Previsão de
+    # fechamento" da criação), então postar `estimated_value=-100.00`
+    # agora é só uma chave extra ignorada pelo form, não mais uma
+    # rejeição de 400. A MESMA regra de negócio (valor negativo nunca é
+    # aceito) continua coberta, em `test_services.py::
+    # test_negative_estimated_value_is_rejected` — na edição
+    # (`OpportunityUpdateForm`/`update_opportunity`), onde o campo ainda
+    # existe.
 
     def test_missing_required_title_is_rejected_and_keeps_other_values(self):
         """Erro de validação nunca fecha o drawer nem perde os dados —
@@ -260,8 +263,12 @@ class DrawerValidationTest(QuickCreateDrawerTestBase):
         self.assertEqual(response.status_code, 400)
         content = response.content.decode()
         self.assertIn("field-error", content)
-        # Cliente selecionado continua marcado no <select> reexibido.
-        self.assertIn(f'value="{self.client_obj.pk}" selected', content)
+        # Cliente selecionado continua preenchido no widget de
+        # autocomplete reexibido (12/09/2026: não é mais um <select>) —
+        # o input oculto carrega o PK real e o input visível mostra o
+        # nome de exibição do cliente.
+        self.assertIn(f'value="{self.client_obj.pk}" data-client-autocomplete-hidden', content)
+        self.assertIn(f'value="{self.client_obj.display_name()}"', content)
 
 
 # ---------------------------------------------------------------------------

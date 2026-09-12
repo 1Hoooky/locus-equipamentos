@@ -273,5 +273,13 @@ dependência de carregamento entre os dois scripts (cada um só lê os
 próprios elementos pelo próprio id).
 {% endcomment %}
 <script src="{% static 'crm/opportunity_quick_create.js' %}"></script>
+{% comment %}
+Autocomplete pesquisável do campo "Cliente" (CORRIGIR DEFINITIVAMENTE O
+CAMPO CLIENTE, 12/09/2026) — mesmo bloco `can_add_opportunity` acima:
+o widget só existe dentro do form de criação (`OpportunityCreateForm`),
+renderizado neste drawer. Delegação de eventos em `document`, então a
+ordem em relação a `opportunity_quick_create.js` não importa.
+{% endcomment %}
+<script src="{% static 'crm/client_autocomplete.js' %}"></script>
 {% endif %}
 {% endblock %}

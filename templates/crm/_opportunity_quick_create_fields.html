@@ -66,19 +66,18 @@ do form em qualquer agrupamento, então o POST nunca muda de formato.
   </div>
 </div>
 
+{% comment %}
+  "Valor estimado" e "Previsão de fechamento" REMOVIDOS da criação
+  (pedido de 12/09/2026: "não tem necessidade de existir, quando
+  colocarmos os equipamentos os valores vão puxar automático") — os
+  dois campos continuam existindo em `Opportunity`/`OpportunityUpdateForm`,
+  só deixaram de ser pedidos NESTA etapa. Seção "Planejamento" mantida
+  (só com Observações) em vez de removida, para não reestruturar o
+  agrupamento visual além do pedido.
+{% endcomment %}
 <div>
   <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Planejamento</h3>
   <div class="space-y-4">
-    <div>
-      <label class="field-label" for="{{ form.expected_close_date.id_for_label }}">{{ form.expected_close_date.label }}</label>
-      {{ form.expected_close_date }}
-      {% for error in form.expected_close_date.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-    </div>
-    <div>
-      <label class="field-label" for="{{ form.estimated_value.id_for_label }}">{{ form.estimated_value.label }}</label>
-      {{ form.estimated_value }}
-      {% for error in form.estimated_value.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-    </div>
     <div>
       <label class="field-label" for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>
       {{ form.notes }}

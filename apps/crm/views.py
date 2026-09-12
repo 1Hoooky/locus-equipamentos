@@ -32,7 +32,9 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
-from django.db.models import Q
+from django.contrib.postgres.search import TrigramWordSimilarity
+from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models.functions import Greatest
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -40,6 +42,7 @@ from django.views import View
 from django.views.generic import ListView
 
 from apps.accounts.permissions import SuperuserRequiredMixin
+from apps.clients.models import Client
 from apps.core.forms import HardDeleteConfirmForm
 from apps.core.hard_delete import HardDeleteBlocked
 from apps.core.templatetags.currency import format_brl
@@ -387,8 +390,13 @@ class OpportunityCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     business_type=cleaned["business_type"],
                     stage=cleaned["stage"],
                     created_by=request.user,
-                    expected_close_date=cleaned["expected_close_date"],
-                    estimated_value=cleaned["estimated_value"],
+                    # "Valor estimado"/"Previsão de fechamento" REMOVIDOS da
+                    # criação (pedido de 12/09/2026: "quando colocarmos os
+                    # equipamentos os valores vão puxar automático" — não
+                    # tem necessidade de pedir na criação). `NewOpportunityData`
+                    # já tem os dois como `None` por padrão — continuam
+                    # editáveis depois via `OpportunityUpdateForm`, que NÃO
+                    # foi tocado; só a criação ficou mais enxuta.
                     notes=cleaned["notes"],
                 )
             )
@@ -439,6 +447,98 @@ class OpportunityCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
         messages.success(request, f"Oportunidade \"{opportunity.title}\" criada.")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class OpportunityClientAutocompleteView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Endpoint pequeno e específico de busca de `Client` para o campo
+    "Cliente" da criação de oportunidade (CORRIGIR DEFINITIVAMENTE O
+    CAMPO CLIENTE — AUTOCOMPLETE PESQUISÁVEL, 12/09/2026). Substitui o
+    `<select>` nativo que carregava TODOS os clientes ativos de uma vez
+    por uma busca sob demanda: no máximo `RESULT_LIMIT` resultados por
+    requisição, nunca a listagem completa — continua rápido com 700,
+    2.000 ou 10.000 clientes porque a página NUNCA recebe a lista
+    inteira, só o que o usuário efetivamente digitou.
+
+    Só GET, exigindo `crm.add_opportunities` — a MESMA permissão já
+    exigida para alcançar as duas telas onde o campo "Cliente" aparece
+    (`/crm/oportunidades/nova/` e o drawer do Kanban). `client` não
+    existe em `OpportunityUpdateForm` (é imutável depois de criada a
+    oportunidade — ver docstring de `OpportunityCreateForm`), então
+    nenhuma outra permissão precisa ser considerada aqui.
+
+    Query com menos de `MIN_QUERY_LENGTH` caracteres devolve uma lista
+    vazia SEM consultar o banco — não é um erro, é o estado normal
+    enquanto o usuário ainda está digitando (o front-end já nem chega a
+    disparar a requisição antes de 3 caracteres; esta checagem aqui é
+    defesa em profundidade, nunca a única camada). Resposta
+    deliberadamente mínima ("Não retornar dados fiscais completos"): só
+    `id` e `name` (nome de exibição via `Client.display_name()` — nome
+    fantasia, senão razão social, senão o próprio CNPJ), nunca
+    documento/telefone/e-mail/endereço.
+
+    Ordenação em 3 níveis, pedido explícito ("não resultados
+    aleatórios"): (0) prefixo exato — nome ou CNPJ começam com o texto
+    digitado; (1) contém — o texto aparece em qualquer posição; (2)
+    similaridade aproximada real via `pg_trgm`/`TrigramWordSimilarity`
+    (extensão ativada em `apps/clients/migrations/0006_pg_trgm_
+    extension.py`, recurso NATIVO do Postgres, zero infraestrutura
+    nova) — cobre erro de digitação/abreviação sem cair em substring
+    puro nem em resultado aleatório. Dentro de cada nível, desempate por
+    nome (ordem alfabética estável).
+
+    `TrigramWordSimilarity` (Postgres `word_similarity()`), NÃO
+    `TrigramSimilarity` (Postgres `similarity()`) — deliberado, medido
+    manualmente contra o próprio exemplo da especificação ("KAU" deve
+    achar também "Komodoro Ind"/"Kurizaki", que não contêm "kau"):
+    `similarity('kau', 'komodoro ind')` ≈ 0.06 e `similarity('kau',
+    'kurizaki')` ≈ 0.08 — abaixo de qualquer limiar útil sem também
+    deixar passar ruído (`similarity()` penaliza demais a diferença de
+    tamanho entre uma busca curta e um nome de cliente longo).
+    `word_similarity('kau', 'komodoro ind')`/`word_similarity('kau',
+    'kurizaki')` ≈ 0.25 (mede o melhor trecho contínuo do nome que se
+    parece com a busca, em vez do nome inteiro) — já `word_similarity('kau',
+    'construtora abc ltda')` = 0.0, então o limiar abaixo continua sem
+    devolver nomes sem nenhuma relação real com o texto digitado.
+    """
+
+    permission_required = "crm.add_opportunities"
+
+    RESULT_LIMIT = 20
+    MIN_QUERY_LENGTH = 3
+    SIMILARITY_THRESHOLD = 0.2
+
+    def get(self, request):
+        q = request.GET.get("q", "").strip()
+        if len(q) < self.MIN_QUERY_LENGTH:
+            return JsonResponse({"results": []})
+
+        contains_q = Q(trade_name__icontains=q) | Q(company_name__icontains=q) | Q(document__icontains=q)
+        starts_q = Q(trade_name__istartswith=q) | Q(company_name__istartswith=q) | Q(document__istartswith=q)
+
+        clients = (
+            Client.objects.filter(is_active=True)
+            .annotate(
+                similarity=Greatest(
+                    TrigramWordSimilarity(q, "trade_name"),
+                    TrigramWordSimilarity(q, "company_name"),
+                    TrigramWordSimilarity(q, "document"),
+                )
+            )
+            .filter(contains_q | Q(similarity__gte=self.SIMILARITY_THRESHOLD))
+            .annotate(
+                priority=Case(
+                    When(starts_q, then=Value(0)),
+                    When(contains_q, then=Value(1)),
+                    default=Value(2),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("priority", "-similarity", "trade_name", "company_name")[: self.RESULT_LIMIT]
+        )
+
+        results = [{"id": client.pk, "name": client.display_name()} for client in clients]
+        return JsonResponse({"results": results})
 
 
 class OpportunityUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):

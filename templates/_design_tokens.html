@@ -939,6 +939,43 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     .stat-strip-value {
       @apply block text-sm font-semibold text-brand-charcoal truncate;
     }
+
+    /* -----------------------------------------------------------------
+     * Autocomplete pesquisável do campo "Cliente" (CORRIGIR
+     * DEFINITIVAMENTE O CAMPO CLIENTE, 12/09/2026) — substitui o
+     * `<select>` nativo (que listava TODOS os clientes ativos) por um
+     * input de texto + dropdown de resultados vindos do backend sob
+     * demanda (ver `apps.crm.forms.ClientAutocompleteWidget` e
+     * `static/crm/client_autocomplete.js`). Genérico de propósito (não
+     * amarrado a "cliente" no nome/CSS) para eventual reaproveitamento
+     * futuro em outro campo de busca-e-seleção do sistema.
+     *
+     * O input de texto em si usa `.field-input` direto (mesma classe de
+     * qualquer campo do sistema — sem aparência de `<select>` nativo,
+     * sem seta, sem nada específico aqui); só o WRAPPER e o DROPDOWN
+     * precisam de classe própria.
+     * --------------------------------------------------------------- */
+    .client-autocomplete {
+      @apply relative;
+    }
+    .client-autocomplete-dropdown {
+      @apply absolute left-0 right-0 z-20 mt-1 max-h-[300px] overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-md;
+    }
+    .client-autocomplete-dropdown[hidden] {
+      display: none;
+    }
+    .client-autocomplete-item {
+      @apply block w-full cursor-pointer px-3 py-2.5 text-left text-sm text-brand-charcoal hover:bg-gray-50 min-h-[44px] sm:min-h-0 sm:py-2;
+    }
+    /* Item ativo (navegação por teclado) — mesmo tom de destaque já
+       usado em `.mobile-menu-link-active`/seleção do sistema, nunca uma
+       cor nova só para isto. */
+    .client-autocomplete-item[aria-selected="true"] {
+      @apply bg-brand-gold-light text-brand-gold-dark;
+    }
+    .client-autocomplete-status {
+      @apply px-3 py-2.5 text-sm text-gray-500;
+    }
   }
 
   /* -----------------------------------------------------------------

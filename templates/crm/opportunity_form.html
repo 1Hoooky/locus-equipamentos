@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load icons %}
+{% load icons static %}
 {% block title %}{% if is_new %}Nova oportunidade{% else %}Editar oportunidade{% endif %} — Locus{% endblock %}
 {% block content %}
 <h1 class="page-title mb-4">
@@ -38,4 +38,14 @@
     {% endif %}
   </div>
 </form>
+
+{% if is_new %}
+{% comment %}
+Autocomplete pesquisável do campo "Cliente" (CORRIGIR DEFINITIVAMENTE O
+CAMPO CLIENTE, 12/09/2026) — só existe em `OpportunityCreateForm`
+(`is_new`); `OpportunityUpdateForm` nunca tem campo `client` (imutável
+após a criação), então nunca precisa deste script.
+{% endcomment %}
+<script src="{% static 'crm/client_autocomplete.js' %}"></script>
+{% endif %}
 {% endblock %}
