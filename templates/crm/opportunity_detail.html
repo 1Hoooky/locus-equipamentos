@@ -6,23 +6,24 @@
 {% block content %}
 {% comment %}
 REDESIGN COMPLETO DA TELA INTERNA DA OPORTUNIDADE (12/09/2026) — "hub
-visual da negociação". Escopo desta rodada: visualização/hierarquia,
-troca de etapa (sempre via `change_opportunity_stage()`, nunca `.save()`
-direto), "Registrar perda"/"Orçamento aceito" e organização das
-informações já existentes em abas. NÃO inclui orçamento/proposta
-estruturado, contrato, PDF, tabela de preço nem vínculo real de
-equipamento — isso fica para uma etapa futura (ver relatório final).
+visual da negociação". Estendida em 14/09/2026 com a aba "Produtos e
+Serviços" (composição comercial/Proposta/Contrato) e "Anexos" (agora que
+`apps.attachments` tem uma implementação real — ver
+`apps/attachments/models.py`).
 
-Nenhuma arquitetura nova no backend: esta tela só chama o MESMO
-`OpportunityStageChangeView`/`OpportunityStageChangeForm`/
-`change_opportunity_stage()` que já existiam (Kanban e a antiga seção
-"Mudar etapa" desta própria página) — "Registrar perda" e "Orçamento
-aceito" são o MESMO POST, só com a etapa-alvo restrita respectivamente
-às etapas ativas `is_lost`/`is_won` (nunca um nome de etapa hardcoded;
-ver `won_stages`/`lost_stages` no contexto, calculados em
-`OpportunityDetailView.get`). O motivo de perda reaproveita o campo
-`loss_reason` do MESMO `stage_change_form` (mesma validação/queryset já
-existentes em apps/crm/forms.py) — não existem dois fluxos de perda.
+Nenhuma arquitetura nova de TABS: a nova aba usa o MESMO sistema
+`data-tabs`/`data-tab-trigger`/`data-tab-panel` das demais (seção 3 da
+especificação de Produtos e Serviços: "Não criar um segundo sistema de
+tabs").
+
+"Registrar perda"/"Orçamento aceito" continuam o MESMO POST de sempre
+(`OpportunityStageChangeView`/`change_opportunity_stage()`) — usado
+quando a oportunidade é ganha/perdida SEM nenhuma proposta formal. Dentro
+da aba "Produtos e Serviços" existe um segundo caminho de aceite,
+`ProposalAcceptVersionView`, que também termina chamando
+`change_opportunity_stage()` (nunca uma segunda gravação de
+`won_at`/`closed_value` — ver `apps.crm.services.accept_proposal_version`),
+só que já preenchendo `closed_value` a partir do total da versão aceita.
 {% endcomment %}
 <a href="{% url 'crm:opportunity_list' %}" class="text-sm link icon-inline">{% icon "arrow-left" size="compact" %} Voltar</a>
 
@@ -170,14 +171,14 @@ existentes em apps/crm/forms.py) — não existem dois fluxos de perda.
 </div>
 
 {# -------------------------------------------------------------------- #}
-{# Abas — Visão geral/Atividades/Equipamentos/Histórico. "Arquivos" foi #}
-{# deliberadamente OMITIDA nesta rodada: apps.attachments é um app      #}
-{# vazio, nunca implementado (sem model/migração/URL real) — criar uma  #}
-{# aba para uma funcionalidade inexistente violaria "não inventar o que #}
-{# ainda não existe" (ver relatório final para o registro desta         #}
-{# decisão). "Equipamentos" mostra um estado vazio estático (não existe #}
-{# nenhum vínculo Oportunidade↔Equipamento no projeto hoje — desenho    #}
-{# real fica para uma etapa futura).                                    #}
+{# Abas — Visão geral/Atividades/Produtos e Serviços/Equipamentos/       #}
+{# Histórico/Anexos (14/09/2026: "Produtos e Serviços" e "Anexos" novas —#}
+{# `apps.attachments` deixou de ser um esqueleto vazio, ver              #}
+{# `apps/attachments/models.py`). "Equipamentos" mostra um estado vazio  #}
+{# estático (não existe nenhum vínculo Oportunidade↔Equipamento no       #}
+{# projeto hoje — desenho real fica para uma etapa futura, ver seção 13  #}
+{# da especificação: "Essa arquitetura deve ser possível... Apenas não   #}
+{# criar arquitetura que impeça essa integração").                       #}
 {# -------------------------------------------------------------------- #}
 <div class="mt-4 card-pad">
   <div class="tabs" role="tablist" data-tabs>
@@ -191,6 +192,10 @@ existentes em apps/crm/forms.py) — não existem dois fluxos de perda.
       {% icon "bolt" size="compact" %} Atividades
     </button>
     {% endif %}
+    <button type="button" class="tab-link" role="tab" id="tab-produtos-servicos" data-tab-trigger="produtos-servicos"
+            aria-controls="panel-produtos-servicos" aria-selected="false">
+      {% icon "currency-dollar" size="compact" %} Produtos e Serviços
+    </button>
     <button type="button" class="tab-link" role="tab" id="tab-equipamentos" data-tab-trigger="equipamentos"
             aria-controls="panel-equipamentos" aria-selected="false">
       {% icon "tag" size="compact" %} Equipamentos
@@ -198,6 +203,10 @@ existentes em apps/crm/forms.py) — não existem dois fluxos de perda.
     <button type="button" class="tab-link" role="tab" id="tab-historico" data-tab-trigger="historico"
             aria-controls="panel-historico" aria-selected="false">
       {% icon "folder" size="compact" %} Histórico
+    </button>
+    <button type="button" class="tab-link" role="tab" id="tab-anexos" data-tab-trigger="anexos"
+            aria-controls="panel-anexos" aria-selected="false">
+      {% icon "document-text" size="compact" %} Anexos
     </button>
   </div>
 
@@ -261,6 +270,11 @@ existentes em apps/crm/forms.py) — não existem dois fluxos de perda.
   </div>
   {% endif %}
 
+  {# ---------------- Produtos e Serviços ---------------- #}
+  <div class="tab-panel" id="panel-produtos-servicos" role="tabpanel" aria-labelledby="tab-produtos-servicos" data-tab-panel="produtos-servicos" hidden>
+    {% include "crm/_proposal_composition.html" %}
+  </div>
+
   {# ---------------- Equipamentos ---------------- #}
   <div class="tab-panel" id="panel-equipamentos" role="tabpanel" aria-labelledby="tab-equipamentos" data-tab-panel="equipamentos" hidden>
     {% comment %}
@@ -276,24 +290,55 @@ existentes em apps/crm/forms.py) — não existem dois fluxos de perda.
   {# ---------------- Histórico ---------------- #}
   <div class="tab-panel" id="panel-historico" role="tabpanel" aria-labelledby="tab-historico" data-tab-panel="historico" hidden>
     {% comment %}
-      Histórico ≠ Atividades: aqui só eventos estruturados de mudança de
-      etapa (`OpportunityStageChange`, sempre gravado por
-      `change_opportunity_stage()`) — nunca um evento inventado. Ex.:
-      "Novo → Qualificação, 10/09 14:32". Atividades (aba anterior) são
-      interações comerciais registradas manualmente pelo usuário.
+      Histórico ≠ Atividades: eventos estruturados da negociação, nunca
+      um evento inventado (especificação de Produtos e Serviços, seção
+      70: "Registrar eventos, não arquivos"). Funde mudança de etapa
+      (`OpportunityStageChange`) com os eventos que os próprios registros
+      de Proposta/Versão/Contrato já representam (criação/emissão/aceite/
+      geração de contrato) — ver `apps.crm.services.build_opportunity_
+      timeline()`. Atividades (aba anterior) continuam sendo interações
+      comerciais registradas manualmente; PDFs ficam em Anexos (aba
+      seguinte), nunca aqui.
     {% endcomment %}
-    {% if stage_changes %}
+    {% if timeline %}
     <ul class="space-y-2">
-      {% for change in stage_changes %}
+      {% for entry in timeline %}
       <li class="text-sm timeline-item py-1">
-        {% if change.from_stage %}{{ change.from_stage.name }} → {% else %}(criação) → {% endif %}{{ change.to_stage.name }}
-        <span class="text-gray-500"> · {{ change.changed_by }} · {{ change.changed_at|date:"d/m/Y H:i" }}</span>
-        {% if change.reason %}<p class="text-gray-600">{{ change.reason }}</p>{% endif %}
+        {{ entry.label }}
+        <span class="text-gray-500"> · {{ entry.actor }} · {{ entry.when|date:"d/m/Y H:i" }}</span>
       </li>
       {% endfor %}
     </ul>
     {% else %}
-    <p class="empty-state">Nenhuma mudança de etapa registrada.</p>
+    <p class="empty-state">Nenhum evento registrado.</p>
+    {% endif %}
+  </div>
+
+  {# ---------------- Anexos ---------------- #}
+  <div class="tab-panel" id="panel-anexos" role="tabpanel" aria-labelledby="tab-anexos" data-tab-panel="anexos" hidden>
+    {% comment %}
+      PDFs de Proposta Comercial/Contrato gerados pela aba "Produtos e
+      Serviços" (categoria/origem SYSTEM — especificação seção 69).
+      Download sempre pela view autenticada (`crm:attachment_download`),
+      nunca um link `/media/` direto (evitaria a checagem de permissão).
+    {% endcomment %}
+    {% if attachments %}
+    <ul class="space-y-2">
+      {% for attachment in attachments %}
+      <li class="text-sm timeline-item py-1 flex items-center justify-between gap-2">
+        <span>
+          <span class="badge-info">{{ attachment.get_category_display }}</span>
+          {{ attachment.description|default:attachment.original_filename }}
+          <span class="text-gray-500"> · {{ attachment.created_by }} · {{ attachment.created_at|date:"d/m/Y H:i" }}</span>
+        </span>
+        <a href="{% url 'crm:attachment_download' opportunity.pk attachment.pk %}" class="link icon-inline">
+          {% icon "arrow-down-tray" size="compact" %} Baixar
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-state">Nenhum anexo ainda — documentos gerados em "Produtos e Serviços" aparecem aqui.</p>
     {% endif %}
   </div>
 </div>
@@ -393,5 +438,8 @@ existentes em apps/crm/forms.py) — não existem dois fluxos de perda.
 
 {% if can_change_stage %}
 <script src="{% static 'crm/opportunity_detail.js' %}"></script>
+{% endif %}
+{% if item_form %}
+<script src="{% static 'crm/proposal_composition.js' %}"></script>
 {% endif %}
 {% endblock %}

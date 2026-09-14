@@ -1,0 +1,219 @@
+{% load icons %}
+{% load currency %}
+{% comment %}
+Composição comercial da Opportunity ("Produtos e Serviços") — 14/09/2026.
+Layout conceitual segue a especificação (seção 5), aparência 100% do
+design system atual do LocusHub (nunca copiado visualmente do sistema
+antigo, usado só como referência funcional — seção 4).
+
+`current_version` pode ser `None` (nenhuma proposta criada ainda e o
+usuário não tem `crm.change_opportunities`) — nesse caso só um estado
+vazio aparece. Quando `current_version.is_editable` é falso (emitida/
+aceita), os campos aparecem em modo leitura — edição real exige
+"Nova versão" (seção 59/60).
+{% endcomment %}
+
+{% if current_version is None %}
+<p class="empty-state">Nenhuma composição comercial ainda.</p>
+
+{% else %}
+
+<div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+  <div>
+    <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Proposta</span>
+    <span class="text-sm font-medium">{{ proposal.number }} — Versão {{ current_version.version_number }}</span>
+    {% if current_version.status == "DRAFT" %}<span class="badge-info">Rascunho</span>
+    {% elif current_version.status == "ISSUED" %}<span class="badge-warning">Emitida</span>
+    {% elif current_version.status == "ACCEPTED" %}<span class="badge-success">Aceita</span>{% endif %}
+  </div>
+  {% if not current_version.is_editable and can_change_opportunity %}
+  <form method="post" action="{% url 'crm:proposal_new_version' opportunity.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn-neutral btn-sm icon-inline">{% icon "arrow-uturn-left" size="compact" %} Criar nova versão</button>
+  </form>
+  {% endif %}
+</div>
+
+{# ---------------- DOCUMENTOS ---------------- #}
+{% if document_form %}
+<div class="border border-gray-100 rounded-lg p-3 mb-4">
+  <h3 class="section-subheading">Documentos</h3>
+  <form method="post" action="{% url 'crm:proposal_generate_document' opportunity.pk %}" class="flex flex-wrap items-end gap-2">
+    {% csrf_token %}
+    <div>
+      <label class="field-label" for="{{ document_form.document_type.id_for_label }}">{{ document_form.document_type.label }}</label>
+      {{ document_form.document_type }}
+    </div>
+    <button type="submit" class="btn-primary icon-inline">{% icon "document-text" size="compact" %} Gerar documento</button>
+  </form>
+  <p class="text-xs text-gray-500 mt-2">Gerar um documento NÃO significa negócio ganho — o aceite é uma ação separada.</p>
+</div>
+{% endif %}
+
+{# ---------------- CONDIÇÕES COMERCIAIS / PERÍODO / LOGÍSTICA / FINANCEIRO / TEXTOS ---------------- #}
+{% if current_version.is_editable and conditions_form %}
+<form method="post" action="{% url 'crm:proposal_conditions_save' opportunity.pk %}">
+  {% csrf_token %}
+
+  <h3 class="section-subheading mt-2">Condições comerciais</h3>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    {% for field in conditions_form %}
+      {% if field.name in "price_table_label,payment_method,payment_method_other,payment_condition" %}
+      <div>
+        <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <h3 class="section-subheading mt-4">Período / Logística</h3>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    {% for field in conditions_form %}
+      {% if field.name in "contracted_start_date,contracted_end_date,delivery_location,expected_delivery_date,expected_delivery_time,expected_pickup_date,expected_pickup_time" %}
+      <div>
+        <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <h3 class="section-subheading mt-4">Produtos / Serviços</h3>
+</form>
+{% endif %}
+
+<table class="w-full text-sm mt-2" data-proposal-items-table>
+  <thead>
+    <tr class="text-left text-gray-500">
+      <th class="py-1">Produto</th>
+      <th class="py-1">Quantidade</th>
+      <th class="py-1">Valor unitário</th>
+      <th class="py-1">Desconto (%)</th>
+      <th class="py-1">Total</th>
+      <th class="py-1">Observação</th>
+      {% if current_version.is_editable and can_change_opportunity %}<th class="py-1"></th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in proposal_items %}
+    <tr class="border-t border-gray-100">
+      <td class="py-1">{{ item.description_snapshot }}</td>
+      <td class="py-1">{{ item.quantity }}</td>
+      <td class="py-1">{{ item.unit_price|brl }}</td>
+      <td class="py-1">{{ item.item_discount_percent }}%</td>
+      <td class="py-1 font-medium">{{ item.line_total|brl }}</td>
+      <td class="py-1 text-gray-600">{{ item.notes }}</td>
+      {% if current_version.is_editable and can_change_opportunity %}
+      <td class="py-1">
+        <form method="post" action="{% url 'crm:proposal_item_remove' opportunity.pk item.pk %}" class="inline">
+          {% csrf_token %}
+          <button type="submit" class="icon-btn-neutral" aria-label="Remover produto">
+            {% icon "trash" size="compact" %}
+          </button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+    {% empty %}
+    <tr><td colspan="7" class="py-2 empty-state">Nenhum produto/serviço adicionado.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if current_version.is_editable and can_change_opportunity and item_form %}
+<form method="post" action="{% url 'crm:proposal_item_add' opportunity.pk %}" class="border-t border-gray-100 pt-3 mt-3 grid grid-cols-1 md:grid-cols-3 gap-3" data-proposal-item-add-form>
+  {% csrf_token %}
+  {% for field in item_form %}
+  <div>
+    <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+    {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  </div>
+  {% endfor %}
+  <div class="md:col-span-3 flex items-center gap-3">
+    <button type="submit" class="btn-neutral icon-inline">{% icon "plus" size="compact" %} Adicionar produto/serviço</button>
+    <span class="text-xs text-gray-500" data-availability-result hidden></span>
+  </div>
+</form>
+{% endif %}
+
+{# ---------------- RESUMO FINANCEIRO ---------------- #}
+<div class="mt-4 pt-4 border-t border-gray-100">
+  <h3 class="section-subheading">Resumo financeiro</h3>
+  <table class="text-sm">
+    <tr><td class="pr-6 text-gray-500">Subtotal</td><td>{{ current_version.subtotal|brl }}</td></tr>
+    <tr><td class="pr-6 text-gray-500">Desconto</td><td>- {{ current_version.general_discount|brl }}</td></tr>
+    <tr><td class="pr-6 text-gray-500">Juros</td><td>+ {{ current_version.interest_amount|brl }}</td></tr>
+    <tr><td class="pr-6 text-gray-500">Frete</td><td>+ {{ current_version.freight_amount|brl }}</td></tr>
+    <tr class="text-base font-semibold"><td class="pr-6 pt-1">TOTAL</td><td class="pt-1">{{ current_version.total|brl }}</td></tr>
+  </table>
+</div>
+
+{% if current_version.is_editable and conditions_form %}
+<form method="post" action="{% url 'crm:proposal_conditions_save' opportunity.pk %}" class="mt-4">
+  {% csrf_token %}
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    {% for field in conditions_form %}
+      {% if field.name in "general_discount,interest_amount,freight_amount" %}
+      <div>
+        <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <h3 class="section-subheading mt-4">Informações complementares</h3>
+  {% for field in conditions_form %}
+    {% if field.name in "special_clauses,payment_info_notes,general_notes" %}
+    <div class="mb-3">
+      <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    {% endif %}
+  {% endfor %}
+
+  {% if conditions_form.non_field_errors %}
+    {% for error in conditions_form.non_field_errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  {% endif %}
+
+  <button type="submit" class="btn-primary">Salvar rascunho</button>
+</form>
+{% endif %}
+
+{# ---------------- ACEITE DE VERSÃO ---------------- #}
+{% if accept_form and candidate_versions %}
+<div class="mt-4 pt-4 border-t border-gray-100">
+  <h3 class="section-subheading">Aceite</h3>
+  <form method="post" action="{% url 'crm:proposal_accept_version' opportunity.pk %}" class="flex flex-wrap items-end gap-2">
+    {% csrf_token %}
+    {% if candidate_versions|length > 1 %}
+    <div>
+      <label class="field-label" for="accept-version-select">Versão a aceitar</label>
+      <select name="proposal_version" id="accept-version-select" class="field-input">
+        {% for v in candidate_versions %}<option value="{{ v.pk }}">{{ v.proposal.number }} v{{ v.version_number }} — {{ v.total|brl }}</option>{% endfor %}
+      </select>
+    </div>
+    {% else %}
+    <input type="hidden" name="proposal_version" value="{{ candidate_versions.0.pk }}">
+    <p class="text-sm text-gray-700">Aceitar {{ candidate_versions.0.proposal.number }} v{{ candidate_versions.0.version_number }} — {{ candidate_versions.0.total|brl }}?</p>
+    {% endif %}
+    {% if won_stages|length > 1 %}
+    <div>
+      <label class="field-label" for="accept-stage-select">Etapa de ganho</label>
+      {{ accept_form.stage }}
+    </div>
+    {% else %}
+    <input type="hidden" name="stage" value="{{ won_stages.0.pk }}">
+    {% endif %}
+    <button type="submit" class="btn-primary icon-inline">{% icon "check-circle" size="compact" %} Aceitar versão</button>
+  </form>
+</div>
+{% endif %}
+
+{% endif %}
