@@ -27,10 +27,10 @@ core → accounts → catalog → equipment → clients → operations → maint
 | `clients` | Cadastro de clientes, endereço fiscal, consulta de CNPJ, importação Auvo | [`docs/apps/clients.md`](apps/clients.md) |
 | `operations` | `Location` (unidades) e `Movement` (movimentação imutável) | [`docs/apps/operations.md`](apps/operations.md) |
 | `maintenance` | Manutenção (ciclo de vida) e Higienização (evento atômico) | [`docs/apps/maintenance.md`](apps/maintenance.md) |
-| `attachments` | Reservado para fotos/anexos — esqueleto vazio, não implementado | [`docs/apps/attachments.md`](apps/attachments.md) |
+| `attachments` | Armazenamento genérico de arquivo (desde 14/09/2026: PDFs de Proposta/Contrato do CRM, via `GenericForeignKey`) | [`docs/apps/attachments.md`](apps/attachments.md) |
 | `qrcodes` | Geração de QR/código de barras/etiquetas PDF, tudo em memória | [`docs/apps/qrcodes.md`](apps/qrcodes.md) |
 | `dashboard` | Home operacional (`/`), agregação read-only | [`docs/apps/dashboard.md`](apps/dashboard.md) |
-| `crm` | Funil de vendas (Kanban de Oportunidades), único app 100% na arquitetura de Cargo nova | [`docs/apps/crm.md`](apps/crm.md) |
+| `crm` | Funil de vendas (Kanban de Oportunidades) + composição comercial (Proposta/Contrato, desde 14/09/2026), único app 100% na arquitetura de Cargo nova | [`docs/apps/crm.md`](apps/crm.md) |
 
 ## Mapa de dependências real
 
@@ -51,20 +51,22 @@ operations      → core, accounts, clients, equipment, maintenance*** (import l
   ↑
 maintenance     → core, accounts, equipment, operations (topo do módulo — direção "de cima para baixo")
   ↑
-attachments     (isolado — sem models, sem imports de outros apps)
+attachments     → accounts (desde 14/09/2026: `created_by`; continua sem depender de nenhum app "de domínio" — `content_object` é genérico via `GenericForeignKey`, não um import de `crm`/`equipment`/etc.)
 
 qrcodes         → equipment, catalog, accounts
 dashboard       → equipment, maintenance, operations
-crm             → clients, core, accounts
+crm             → clients, core, accounts, catalog****, equipment*****, operations, attachments
 ```
 
 `*` `Equipment.current_client` é FK via string (`"clients.Client"`), sem import direto.
 `**` `apps.equipment` importa `apps.operations`/`apps.maintenance` **localmente**, dentro das funções que precisam (`get_equipment_history_timeline`, hard delete) — nunca no topo do módulo, para não criar import circular (`operations`/`maintenance` também referenciam `Equipment`).
 `***` `apps.operations._validate_transition()` importa `apps.maintenance.services.has_open_maintenance` **localmente** — decisão arquitetural deliberada: `operations` é uma camada mais antiga/baixa e nunca declara em import-time uma dependência de `maintenance` (camada mais nova/alta), para não arriscar um ciclo quando `maintenance` crescer. `apps.maintenance`, por sua vez, importa `Movement`/`MovementType` de `operations` **no topo** — a direção "correta" é maintenance→operations, não o contrário.
+`****` `apps.crm` passou a depender de `apps.catalog.models.EquipmentModel` em 14/09/2026 — `ProposalItem.equipment_model` é uma FK real ao catálogo (nunca a `Equipment`/patrimônio).
+`*****` `apps.crm.services.check_availability()` importa `apps.equipment.models.Equipment`/`Status` **localmente** (só leitura, dentro da função) — mesma disciplina de import local usada em outros pontos do projeto para não criar uma dependência de topo desnecessária num app que crm só consulta esporadicamente.
 
-Esse padrão de "import local para evitar ciclo" se repete em `apps.equipment.movement_panel` (import local de `apps.operations`/`apps.maintenance`) e em `apps.clients.services.create_client()` (import local de `apps.operations`, que por sua vez depende de `clients.Client`).
+Esse padrão de "import local para evitar ciclo" se repete em `apps.equipment.movement_panel` (import local de `apps.operations`/`apps.maintenance`), em `apps.clients.services.create_client()` (import local de `apps.operations`, que por sua vez depende de `clients.Client`) e em `apps.crm.services.issue_proposal()`/`generate_contract()` (import local de `apps.crm.pdf`, para não acoplar o módulo de services inteiro ao WeasyPrint em import-time).
 
-`apps.core` é a única base sem nenhuma dependência interna — todo o resto do projeto depende dela, direta ou indiretamente.
+`apps.core` é a única base sem nenhuma dependência interna — todo o resto do projeto depende dela, direta ou indiretamente. Desde 14/09/2026, `apps.core.models.CompanyProfile` (singleton com os dados da própria Locus, usado nos snapshots de proposta) também vive aqui, seguindo a mesma lógica de "dado compartilhado sem dono de domínio único".
 
 ## O padrão "services.py" — a regra mais importante do projeto
 
@@ -72,7 +74,7 @@ Todo app com regra de negócio real (`clients`, `equipment`, `operations`, `main
 
 - Validação centralizada (nunca duplicada entre view e admin, por exemplo).
 - Transação atômica (`@transaction.atomic`) em toda escrita que precisa ser tudo-ou-nada.
-- `select_for_update()` nos poucos pontos que precisam de lock pessimista contra concorrência real (geração de patrimônio, criação de movimentação, mudança de etapa de oportunidade).
+- `select_for_update()` nos poucos pontos que precisam de lock pessimista contra concorrência real (geração de patrimônio, criação de movimentação, mudança de etapa de oportunidade, numeração de Proposta/Contrato via `NumberingCounter` desde 14/09/2026).
 - Histórico (`django-simple-history` via `_change_reason`, ou um model de histórico estruturado dedicado como `StatusHistory`/`OpportunityStageChange`) sempre gerado junto com a escrita, nunca esquecido.
 - O Django Admin nunca é um caminho de escrita paralelo — campos sensíveis são `readonly_fields` ou a criação é bloqueada, forçando tudo a passar pelo mesmo service.
 

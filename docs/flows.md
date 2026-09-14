@@ -201,6 +201,79 @@ Revisão (GET mostra prévia agrupada por categoria; POST confirma)
 Resumo (GET, lê o resumo da sessão — se ausente, redireciona para Upload)
 ```
 
+## 11. Composição, emissão, versionamento, contrato e aceite de Proposta (CRM — Produtos e Serviços, 14/09/2026)
+
+```
+[usuário abre a aba "Produtos e Serviços" da ficha da Oportunidade]
+  → OpportunityDetailView.get()
+      → get_or_create_active_proposal(opportunity, created_by=request.user)   # se can_change_opportunity
+      → renderiza item_form/conditions_form/document_form/accept_form conforme permissões e current_version.is_editable
+
+ProposalItemAddView (POST)
+  → _get_editable_version_or_404(request, opportunity)
+      → get_or_create_active_proposal(...)                # nunca exige GET prévio
+      → _require_draft(version)                            # ValueError se não for DRAFT
+  → ProposalItemForm.is_valid()
+  → apps.crm.services.add_proposal_item(proposal_version, ProposalItemData)
+      → _validate_item_fields()                             # quantity>0, unit_price≥0, desconto 0-100
+      → ProposalItem.objects.create(equipment_model=..., description_snapshot=modelo.description, ...)
+      → calculate_proposal_version(version)                 # subtotal/total recalculados sempre
+
+[JS: AvailabilityCheckView (GET), disparado por change/input no form de item]
+  → apps.crm.services.check_availability(equipment_model, quantity)
+      → só leitura: Equipment.objects.filter(model=..., is_active=True, status=DISPONIVEL).count()
+      → nunca cria reserva/movimento, nunca seleciona patrimônio — puramente informativo
+
+ProposalConditionsSaveView (POST)
+  → _require_draft(version)
+  → ProposalConditionsForm.is_valid()
+  → apps.crm.services.update_draft_conditions(version, ProposalConditionsData)
+      → grava condições/período/logística/financeiro/texto livre
+      → calculate_proposal_version(version)
+
+ProposalGenerateDocumentView (POST, document_type = PROPOSTA | CONTRATO | PROPOSTA_E_CONTRATO)
+  → checagem manual de permissão conforme document_type (issue_proposal_documents / generate_contract)
+  → apps.crm.services.generate_documents(version, document_type, actor)
+      → @transaction.atomic:
+          se PROPOSTA ou PROPOSTA_E_CONTRATO e ainda DRAFT:
+              → issue_proposal(version, issued_by=actor)
+                  → _require_draft() + exige ≥1 item + recalcula
+                  → congela snapshots (cliente via opportunity.client, empresa via get_company_profile(), vendedor)
+                  → status = ISSUED, issued_at, issued_by
+                  → apps.crm.pdf.render_proposal_pdf(version) → apps.attachments.services.create_attachment(categoria=ORCAMENTO_PROPOSTA)
+          se CONTRATO ou PROPOSTA_E_CONTRATO:
+              → garante emitida (auto-emite se ainda DRAFT)
+              → generate_contract(version, created_by=actor)
+                  → rejeita se ainda DRAFT
+                  → Contract.objects.create(number=..., legal_text_is_placeholder=True)
+                  → apps.crm.pdf.render_contract_pdf(contract) → create_attachment(categoria=CONTRATO)
+  # a partir daqui version.is_editable == False — qualquer alteração exige create_new_version()
+
+ProposalNewVersionView (POST)
+  → apps.crm.services.create_new_version(proposal, created_by)
+      → exige última versão ISSUED/ACCEPTED (nunca DRAFT)
+      → clona condições + itens para nova ProposalVersion(version_number+1, DRAFT)
+      → calculate_proposal_version(nova_versão)
+  # a versão antiga permanece intocada/imutável para sempre — nunca editada in-place
+
+ProposalAcceptVersionView (POST)
+  → valida proposal_version ∈ acceptable_proposal_versions(opportunity)   # proteção IDOR
+  → AcceptProposalVersionForm.is_valid()
+  → apps.crm.services.accept_proposal_version(version, accepted_by, won_stage)
+      → @transaction.atomic:
+          exige status == ISSUED
+          → status = ACCEPTED, accepted_at, accepted_by
+          → apps.crm.services.change_opportunity_stage(opportunity_id=..., new_stage=won_stage,
+                changed_by=accepted_by, closed_value=version.total)   # único efeito sobre Opportunity,
+                                                                        # o mesmo service que já existia
+
+AttachmentDownloadView (GET)
+  → valida attachment.content_type/object_id == (Opportunity, pk da URL)
+  → FileResponse(attachment.file, as_attachment=True)                   # nunca link /media/ direto
+```
+
+"Criar/salvar" (`add_proposal_item`/`update_draft_conditions`) ≠ "emitir" (`issue_proposal`, produz PDF + snapshot + número definitivo) ≠ "gerar contrato" (`generate_contract`) ≠ "aceitar" (`accept_proposal_version`, o único caminho que fecha a Oportunidade). Cada verbo é uma função de `services.py` distinta — nenhum deles implica o próximo automaticamente, exceto a auto-emissão embutida em `generate_documents()` quando o Contrato é pedido diretamente sobre uma versão ainda em rascunho (documentado ali mesmo, não é um atalho oculto).
+
 ## Nota sobre "efeitos colaterais entre apps"
 
 Dois pontos do sistema mudam `Equipment.status` fora de `apps.equipment`, sempre através de `apps.equipment.services.change_status()` (nunca atribuição direta):
@@ -209,3 +282,5 @@ Dois pontos do sistema mudam `Equipment.status` fora de `apps.equipment`, sempre
 - `apps.maintenance.services.open_maintenance()`/`close_maintenance()`/`cancel_maintenance()` — abre/restaura o status conforme o ciclo de vida da manutenção.
 
 Nenhum dos dois grava `current_location`/`current_client` (isso é exclusivo de `create_movement()`), e nenhum dos dois duplica a criação de `StatusHistory` — sempre reaproveitam `change_status()`.
+
+Desde 14/09/2026, `apps.crm.services.check_availability()` é o único ponto do fluxo de Produtos e Serviços que lê `Equipment.status` — e só lê: nunca chama `change_status()`, nunca cria `Movement`, nunca associa um `ProposalItem` a um `Equipment` específico (a composição é sempre por `EquipmentModel`). Reservar estoque de verdade a partir de uma proposta aceita fica para uma etapa futura, deliberadamente fora desta implementação (spec seção 106).

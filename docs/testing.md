@@ -14,19 +14,26 @@ python -m pytest -k "hard_delete"   # por nome
 
 > Esta confusão já aconteceu neste projeto: relatórios anteriores chegaram a caracterizar falhas de `manage.py test` como "problemas de infraestrutura pré-existentes" antes de se descobrir que o runner usado estava errado. Registrado aqui para nunca mais acontecer.
 
-## Estado atual da suíte (última execução completa)
+## Estado atual da suíte (última execução completa, 14/09/2026 — pós Produtos e Serviços)
 
 ```
-1099 passed, 3 failed em 478s (~8min)
+1163 passed, 4 failed em ~376s (~6min)
 ```
 
-Os 3 testes que falham são **pré-existentes**, não relacionados à limpeza/documentação desta rodada, e têm causa raiz identificada:
+A suíte cresceu em +65 testes desde a rodada anterior (`apps/crm/tests/test_proposal_services.py` — 44, `apps/crm/tests/test_proposal_views.py` — 17, mais os 4 novos de `apps/attachments/tests.py`), e os 2 arquivos de `apps/accounts`/`apps/crm` tocados pela mudança de contagem de permissões foram atualizados (ver `docs/permissions.md`).
 
-1. **`apps/core/tests/test_i18n_encoding_audit.py::MojibakeRegressionTest::test_no_mojibake_in_tracked_repository_files`** — bug de auto-referência no próprio teste. Ele varre todo arquivo rastreado pelo git (`.py`/`.html`/`.js`/`.md`/`.txt`/`.css`) procurando marcadores literais de mojibake (`MOJIBAKE_MARKERS`, ex.: `"Ã£"`) — mas **não exclui a si mesmo** da varredura, e como os marcadores são definidos como strings literais dentro do próprio arquivo de teste, ele encontra a si mesmo a cada execução. Não indica mojibake real em nenhum outro arquivo do projeto.
-2. **`apps/catalog/tests/test_model_images.py::ModelImageUrlTemplateTagTest::test_model_with_no_real_file_on_disk_resolves_to_placeholder_url`** — a premissa do teste (documentada no próprio docstring: "'9PRO' está mapeado em `MODEL_IMAGE_MAP`, mas o arquivo real (`9pro.webp`) ainda não foi enviado pela Locus") deixou de ser verdadeira: `static/images/equipment/9pro.webp` **já existe e está versionado no git** — ou seja, a Locus enviou a foto real depois que o teste foi escrito, e a página agora corretamente exibe a imagem real em vez do placeholder. O comportamento do sistema está certo; o teste é que ficou desatualizado em relação ao asset.
-3. **`apps/equipment/tests/test_public_landing.py::PublicLandingBasicContentTest::test_image_src_points_to_an_existing_static_file`** — mesma causa raiz do item 2 (mesmo asset).
+Dos 4 testes que falham numa execução "suja" (rodando a suíte inteira sem isolar `MEDIA_ROOT` primeiro), **3 são pré-existentes e sem relação com Produtos e Serviços**, e **1 foi introduzido e corrigido nesta mesma rodada**:
 
-Nenhum dos três foi alterado nesta rodada de limpeza/documentação, em respeito à regra "não apagar/alterar teste sem antes confirmar que o comportamento realmente mudou" — os itens 2 e 3 são exatamente esse caso (o comportamento mudou, mas do lado dos dados/assets, não do código), e corrigi-los é uma decisão de conteúdo do teste que caberia a quem mantém a suíte, não a uma limpeza de repositório.
+1. **`apps/core/tests/test_i18n_encoding_audit.py::MojibakeRegressionTest::test_no_mojibake_in_tracked_repository_files`** — pré-existente, bug de auto-referência no próprio teste (varre todo arquivo rastreado procurando os próprios `MOJIBAKE_MARKERS`, sem excluir a si mesmo). Não indica mojibake real.
+2. **`apps/catalog/tests/test_model_images.py::ModelImageUrlTemplateTagTest::test_model_with_no_real_file_on_disk_resolves_to_placeholder_url`** — pré-existente (já documentado antes de Produtos e Serviços): a premissa do teste ("AQCP" não tem foto real) deixou de valer porque `static/images/equipment/aqcp.webp` já existe em disco (asset enviado pela Locus depois do teste ter sido escrito). Comportamento do sistema correto; teste desatualizado em relação ao asset — decisão de conteúdo de quem mantém a suíte, não desta rodada.
+3. **`apps/equipment/tests/test_public_landing.py::PublicLandingBasicContentTest::test_image_src_points_to_an_existing_static_file`** — mesma causa raiz do item 2 (`9pro.webp`).
+4. **`apps/attachments/tests.py::CreateAttachmentTest::test_create_attachment_links_to_generic_object`** — **causa raiz identificada e corrigida nesta rodada**: `MEDIA_ROOT` não era isolado entre execuções de teste (apontava para o `media/` real do projeto). Testes manuais de smoke feitos durante o desenvolvimento desta feature (via `manage.py shell`, antes da suíte pytest existir) já haviam gravado `attachments/crm/opportunity/3/teste.pdf` em disco; a segunda gravação do mesmo nome pelo `FileStorage` do Django gera um sufixo aleatório para não sobrescrever, quebrando a asserção `attachment.file.name.endswith("teste.pdf")`. **Corrigido** adicionando `MEDIA_ROOT = tempfile.mkdtemp(...)` em `config/settings/test.py` — cada execução da suíte agora grava em um diretório novo e descartável, nunca no `media/` real. Ver "Isolamento de MEDIA_ROOT nos testes" abaixo. Reexecutado isoladamente após a correção: `apps/attachments apps/crm/tests/test_proposal_services.py apps/crm/tests/test_proposal_views.py` → 65 passed.
+
+Nenhum dos itens 1–3 foi alterado nesta rodada, em respeito à regra "não apagar/alterar teste sem antes confirmar que o comportamento realmente mudou".
+
+## Isolamento de MEDIA_ROOT nos testes (14/09/2026)
+
+`config/settings/test.py` agora define `MEDIA_ROOT = tempfile.mkdtemp(prefix="locus_test_media_")`. Motivo: `apps.attachments` é o primeiro consumidor real de `FileField` do projeto (usado por `apps.crm` para gravar os PDFs de Proposta/Contrato gerados em `issue_proposal()`/`generate_contract()`); sem um `MEDIA_ROOT` isolado, arquivos gravados por uma execução da suíte (ou por testes manuais fora dela) persistem em disco e podem colidir com o nome de arquivo esperado pela execução seguinte, produzindo falhas não-determinísticas que nada têm a ver com o código sendo testado. O diretório temporário é descartável — não é limpo automaticamente ao final da suíte (o SO libera `/tmp` eventualmente), mas nunca é o `media/` real do projeto.
 
 ## Configuração
 
@@ -46,6 +53,8 @@ Vários fluxos críticos têm cobertura de concorrência genuína via `Transacti
 | `apps/maintenance/tests/test_maintenance_movement_concurrency.py` | Abrir manutenção vs. instalar simultaneamente; fechar manutenção vs. instalar simultaneamente |
 | `apps/maintenance/tests/test_maintenance_movement_vinculos_auditoria.py` | Corrida por reclamar o mesmo `departure_movement` duas vezes |
 | `apps/crm/tests/test_stage_change_concurrency.py` | Duas mudanças de etapa simultâneas na mesma oportunidade nunca produzem estado incoerente |
+
+`NumberingCounter` (`apps.crm`, base da numeração de Proposta/Contrato) segue o mesmo padrão de lock pessimista de `EquipmentModel.last_sequence`, mas **não** ganhou um teste de concorrência real dedicado nesta rodada (a spec não exigiu explicitamente e o padrão já está coberto estruturalmente pelos testes de `test_patrimonio_generation.py` sobre o mesmo mecanismo) — sinalizado aqui como candidato natural a um teste `TransactionTestCase`+`threading` futuro, seguindo o modelo já existente.
 
 Estes testes só são confiáveis contra PostgreSQL real — documentado explicitamente nos próprios docstrings (SQLite sem `SELECT FOR UPDATE` confiável não reproduz a corrida).
 
