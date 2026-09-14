@@ -63,6 +63,8 @@ Padrões seguidos (auditados no repositório atual antes de codar):
   foi criada além destas 7.
 """
 
+from decimal import Decimal
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -403,3 +405,316 @@ class CommercialActivity(models.Model):
 
     def __str__(self) -> str:
         return f"{self.opportunity_id}: {self.get_activity_type_display()}"
+
+
+# ---------------------------------------------------------------------------
+# Produtos e Serviços / Proposta Comercial + Contrato (implementação
+# completa, 14/09/2026 — ver especificação "LOCUSHUB — CRM / IMPLEMENTAÇÃO
+# COMPLETA DA ABA 'PRODUTOS E SERVIÇOS'"). Auditoria feita antes de
+# codificar (seção 0 da especificação): `Category`/`EquipmentModel`
+# reaproveitados de `apps.catalog` (nunca uma segunda lista de
+# equipamentos dentro do CRM — seção 9); `Client`/`Address` continuam
+# exclusivamente de `apps.clients`/`apps.core` (seção 37); numeração seue
+# o MESMO padrão de `apps.equipment.services.create_equipment()`
+# (contador dedicado + `select_for_update()`, nunca MAX(id)+1 — seção 82,
+# ver `NumberingCounter`/`apps.crm.services._next_document_number()`).
+#
+# Modelagem final (nomes auditados contra a arquitetura real, seção 52):
+#   Proposal        — identidade da proposta dentro da Opportunity.
+#   ProposalVersion — "fotografia" comercial imutável assim que emitida:
+#                      condições, período, logística, financeiro, textos
+#                      e os snapshots de cliente/Locus (seção 54).
+#   ProposalItem    — produto/modelo + quantidade + preço + desconto
+#                      daquela versão (seção 55).
+#   Contract        — documento contratual derivado de UMA ProposalVersion
+#                      (seção 63/67).
+#
+# Decisão de produto registrada (seção 53: "Não assumir exatamente esses
+# campos sem auditar" — `Proposal.status` NÃO foi criado como campo
+# armazenado. Um `status` gravado em `Proposal`, ao lado do `status` já
+# necessário em cada `ProposalVersion` (rascunho/emitida/aceita), seria
+# EXATAMENTE a "duas fontes conflitantes" que a própria especificação
+# probe em outro ponto (seção 75, sobre `closed_value`) — qual dos dois
+# venceria se divergissem? `Proposal.status` é sempre DERIVADO da versão
+# mais recente (`Proposal.latest_version`/`Proposal.display_status`
+# abaixo), nunca uma segunda gravação.
+# ---------------------------------------------------------------------------
+
+
+class NumberingCounter(models.Model):
+    """
+    Contador dedicado para numeração seura de documentos (seção 82: "Não
+    usar MAX(id)+1 sem proteção") — mesmo raciocínio de
+    `EquipmentModel.last_sequence`: uma linha pequena e dedicada, travada
+    via `select_for_update()` dentro de uma transação
+    (`apps.crm.services._next_document_number()`), nunca contado a partir
+    da própria tabela de destino (`Proposal`/`Contract`), o que exigiria
+    travar a tabela inteira ou arriscar corrida entre o SELECT e o
+    INSERT.
+    """
+
+    key = models.CharField(max_length=30, unique=True)
+    last_value = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "contador de numeração"
+        verbose_name_plural = "contadores de numeração"
+
+    def __str__(self) -> str:
+        return f"{self.key}: {self.last_value}"
+
+
+class PaymentMethod(models.TextChoices):
+    """
+    Forma de pagamento — seção 30: "Não hardcodar a arquitetura para
+    somente [PIX/Boleto/Cartão]." Auditoria confirmou que não existe
+    nenhuma estrutura equivalente já no projeto — `TextChoices` pequeno e
+    fechado (não uma entidade configurável como `CommercialSource`,
+    seria over-engineering para 5 opções conceitualmente estáveis), com
+    `OUTRO` + `payment_method_other` texto livre como válvula de escape
+    (mesmo padrão já usado em `MovementType.OUTRO`/`Movement.reason`).
+    """
+
+    PIX = "PIX", "PIX"
+    BOLETO = "BOLETO", "Boleto"
+    CARTAO = "CARTAO", "Cartão"
+    TRANSFERENCIA = "TRANSFERENCIA", "Transferência bancária"
+    OUTRO = "OUTRO", "Outro"
+
+
+class ProposalVersionStatus(models.TextChoices):
+    DRAFT = "DRAFT", "Rascunho"
+    ISSUED = "ISSUED", "Emitida"
+    ACCEPTED = "ACCEPTED", "Aceita"
+
+
+class Proposal(TimeStampedModel):
+    """
+    Identidade da proposta comercial dentro da Opportunity (seção 53) —
+    o "número" (`PROP-000123`) e a relação com a Opportunity. Toda a
+    substância comercial (condições/itens/financeiro/textos) vive em
+    `ProposalVersion` — `Proposal` nunca é editada diretamente por
+    nenhuma tela (ver `apps.crm.services`).
+    """
+
+    opportunity = models.ForeignKey(Opportunity, on_delete=models.CASCADE, related_name="proposals")
+    number = models.CharField(max_length=20, unique=True, editable=False)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="proposals_created")
+
+    class Meta:
+        verbose_name = "proposta"
+        verbose_name_plural = "propostas"
+        ordering = ["-created_at"]
+        permissions = [
+            ("issue_proposal_documents", "Pode emitir documentos de proposta (Proposta Comercial)"),
+        ]
+
+    @property
+    def latest_version(self) -> "ProposalVersion | None":
+        return self.versions.order_by("-version_number").first()
+
+    @property
+    def display_status(self) -> str:
+        """Status DERIVADO da versão mais recente — nunca uma segunda gravação (ver nota do módulo)."""
+        latest = self.latest_version
+        return latest.get_status_display() if latest else "Sem versão"
+
+    def __str__(self) -> str:
+        return self.number
+
+
+class ProposalVersion(TimeStampedModel):
+    """
+    "Fotografia" comercial de uma negociação em um momento — a unidade
+    real de versionamento (seção 54/59/60). `status=DRAFT` pode ser
+    editada livremente (seção 56); `ISSUED`/`ACCEPTED` são imutáveis —
+    a imutabilidade é garantida em `apps.crm.services` (toda função de
+    escrita rejeita `status != DRAFT`), não só por convenção de UI.
+
+    Snapshots (`client_*_snapshot`/`company_*_snapshot`) ficam em branco
+    enquanto `DRAFT` (o rascunho consulta `Opportunity.client`/
+    `apps.core.services.get_company_profile()` AO VIVO para exibição) e
+    são preenchidos uma única vez, em `issue_proposal()`, no momento da
+    emissão (seção 21/38/39) — depois disso, o PDF de uma versão emitida
+    nunca mais consulta `Client`/`CompanyProfile` ao vivo.
+    """
+
+    proposal = models.ForeignKey(Proposal, on_delete=models.CASCADE, related_name="versions")
+    version_number = models.PositiveIntegerField()
+    status = models.CharField(max_length=10, choices=ProposalVersionStatus.choices, default=ProposalVersionStatus.DRAFT)
+
+    # --- Condições comerciais (seção 4/30/31) ---------------------------
+    price_table_label = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Texto livre por enquanto — ponto de extensão para a futura PriceTable (seção 19/102, não implementada nesta etapa).",
+    )
+    payment_method = models.CharField(max_length=20, choices=PaymentMethod.choices, blank=True)
+    payment_method_other = models.CharField(
+        max_length=100, blank=True, help_text="Usado quando 'Forma de pagamento' = Outro."
+    )
+    payment_condition = models.CharField(
+        max_length=150, blank=True, help_text="Ex.: 'À vista', '28 dias' — texto livre (seção 31)."
+    )
+
+    # --- Período contratado / logística (seção 42-51) --------------------
+    contracted_start_date = models.DateField(null=True, blank=True)
+    contracted_end_date = models.DateField(null=True, blank=True)
+    expected_delivery_date = models.DateField(null=True, blank=True)
+    expected_delivery_time = models.TimeField(null=True, blank=True)
+    expected_pickup_date = models.DateField(null=True, blank=True)
+    expected_pickup_time = models.TimeField(null=True, blank=True)
+    # Local de entrega/operação — Location real (seção 41), NUNCA
+    # sobrescreve o endereço fiscal do Client.
+    delivery_location = models.ForeignKey(
+        "operations.Location",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="proposal_versions",
+    )
+
+    # --- Resumo financeiro (seção 24-29, Decimal sempre, nunca float) ----
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    general_discount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0.00"), help_text="Valor monetário, não percentual (seção 25)."
+    )
+    interest_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"), help_text="Juros (seção 26).")
+    freight_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    total = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+
+    # --- Textos (seção 32-34) --------------------------------------------
+    special_clauses = models.TextField(blank=True)
+    payment_info_notes = models.TextField(blank=True)
+    general_notes = models.TextField(blank=True)
+
+    # --- Snapshot do cliente (seção 35/38) --------------------------------
+    client_name_snapshot = models.CharField(max_length=200, blank=True)
+    client_document_snapshot = models.CharField(max_length=20, blank=True)
+    client_contact_snapshot = models.CharField(max_length=150, blank=True)
+    client_phone_snapshot = models.CharField(max_length=30, blank=True)
+    client_email_snapshot = models.CharField(max_length=254, blank=True)
+    client_address_snapshot = models.TextField(blank=True)
+
+    # --- Snapshot da Locus (seção 35/36/39/40) ----------------------------
+    company_name_snapshot = models.CharField(max_length=200, blank=True)
+    company_document_snapshot = models.CharField(max_length=20, blank=True)
+    company_address_snapshot = models.TextField(blank=True)
+    company_phone_snapshot = models.CharField(max_length=30, blank=True)
+    company_email_snapshot = models.CharField(max_length=254, blank=True)
+    seller_snapshot = models.CharField(
+        max_length=150, blank=True, help_text="Responsável/vendedor (owner da Opportunity) no momento da emissão (seção 40)."
+    )
+
+    issued_at = models.DateTimeField(null=True, blank=True)
+    issued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="proposal_versions_issued"
+    )
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="proposal_versions_accepted"
+    )
+
+    class Meta:
+        verbose_name = "versão da proposta"
+        verbose_name_plural = "versões da proposta"
+        ordering = ["proposal_id", "version_number"]
+        constraints = [
+            models.UniqueConstraint(fields=["proposal", "version_number"], name="uniq_proposal_version_number"),
+            models.CheckConstraint(check=models.Q(subtotal__gte=0), name="proposal_version_subtotal_not_negative"),
+            models.CheckConstraint(check=models.Q(total__gte=0), name="proposal_version_total_not_negative"),
+            models.CheckConstraint(check=models.Q(general_discount__gte=0), name="proposal_version_general_discount_not_negative"),
+            models.CheckConstraint(check=models.Q(interest_amount__gte=0), name="proposal_version_interest_not_negative"),
+            models.CheckConstraint(check=models.Q(freight_amount__gte=0), name="proposal_version_freight_not_negative"),
+        ]
+        permissions = [
+            ("generate_contract", "Pode gerar contratos a partir de uma proposta"),
+        ]
+
+    @property
+    def is_editable(self) -> bool:
+        """Só DRAFT pode ser editada — ver docstring da classe. Checagem real fica em `apps.crm.services`, isto é só conveniência de leitura (templates)."""
+        return self.status == ProposalVersionStatus.DRAFT
+
+    def __str__(self) -> str:
+        return f"{self.proposal.number} v{self.version_number}"
+
+
+class ProposalItem(models.Model):
+    """
+    Produto/modelo comercial de uma `ProposalVersion` (seção 55). Sempre
+    referencia `EquipmentModel` (o MODELO, ex. "NI23TC") — NUNCA um
+    `Equipment`/patrimônio físico individual (seção 10, REGRA CRÍTICA: a
+    seleção de patrimônio pertence exclusivamente à aba Equipamentos).
+
+    `description_snapshot` é preenchido uma única vez, na criação do item
+    (`apps.crm.services.add_proposal_item()`), a partir do nome/código do
+    `EquipmentModel` no momento — nunca resincronizado depois. Como cada
+    nova versão CLONA seus próprios itens (`create_new_version()`, nunca
+    reaproveita a linha da versão anterior), isso já garante que uma
+    versão emitida nunca muda de descrição por causa de uma edição
+    posterior do catálogo (seção 21/62), sem precisar de nenhuma lógica
+    extra de "congelamento" no momento da emissão.
+    """
+
+    proposal_version = models.ForeignKey(ProposalVersion, on_delete=models.CASCADE, related_name="items")
+    equipment_model = models.ForeignKey(
+        "catalog.EquipmentModel", on_delete=models.PROTECT, related_name="proposal_items"
+    )
+    description_snapshot = models.CharField(max_length=200, blank=True)
+    quantity = models.PositiveIntegerField()
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    item_discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    line_total = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    notes = models.TextField(blank=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "item da proposta"
+        verbose_name_plural = "itens da proposta"
+        ordering = ["order", "id"]
+        constraints = [
+            models.CheckConstraint(check=models.Q(quantity__gt=0), name="proposal_item_quantity_positive"),
+            models.CheckConstraint(check=models.Q(unit_price__gte=0), name="proposal_item_unit_price_not_negative"),
+            models.CheckConstraint(
+                check=models.Q(item_discount_percent__gte=0) & models.Q(item_discount_percent__lte=100),
+                name="proposal_item_discount_percent_in_range",
+            ),
+            models.CheckConstraint(check=models.Q(line_total__gte=0), name="proposal_item_line_total_not_negative"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.description_snapshot} x{self.quantity}"
+
+
+class Contract(models.Model):
+    """
+    Documento contratual derivado de UMA `ProposalVersion` (seção 63/67)
+    — entidade separada, nunca um "PDF híbrido" com a proposta (seção
+    65). `on_delete=PROTECT` em `proposal_version`: um contrato já
+    gerado nunca pode ficar órfão (nenhum fluxo exclui `ProposalVersion`
+    de qualquer forma, mas a proteção documenta a intenção).
+
+    `legal_text_is_placeholder` (seção 68: "NÃO inventar cláusulas
+    jurídicas... Se não existir [contrato real aprovado]: implementar
+    infraestrutura e documentar que o conteúdo aprovado precisa ser
+    fornecido"): auditoria não encontrou nenhum template de contrato
+    real/aprovado no repositório — o PDF gerado usa um texto-placeholder
+    claramente identificado como tal (ver `templates/crm/pdf/contract.html`),
+    nunca uma cláusula jurídica inventada. `True` até a Locus fornecer o
+    texto aprovado (fora do escopo desta implementação).
+    """
+
+    proposal_version = models.ForeignKey(ProposalVersion, on_delete=models.PROTECT, related_name="contracts")
+    number = models.CharField(max_length=20, unique=True, editable=False)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="contracts_created")
+    created_at = models.DateTimeField(auto_now_add=True)
+    legal_text_is_placeholder = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "contrato"
+        verbose_name_plural = "contratos"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return self.number

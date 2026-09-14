@@ -10,7 +10,7 @@ duplicar essa lógica em dois apps.
 
 from dataclasses import dataclass
 
-from apps.core.models import Address
+from apps.core.models import Address, CompanyProfile
 
 
 @dataclass
@@ -71,3 +71,54 @@ def update_address(*, address: Address, data: AddressData, change_reason: str = 
     address.reference_notes = data.reference_notes
     address.save()
     return address
+
+
+# ---------------------------------------------------------------------------
+# CompanyProfile — singleton "dados da Locus" (ver apps.core.models).
+# ---------------------------------------------------------------------------
+
+
+def get_company_profile() -> CompanyProfile:
+    """
+    Único acessor suportado — `get_or_create(pk=1)` (nunca
+    `CompanyProfile.objects.create()` solto em view/service): garante que
+    sempre existe exatamente uma linha, mesmo antes de qualquer
+    Administrador ter preenchido os dados (a tela de edição usa este
+    mesmo acessor, então o formulário sempre tem uma instância para
+    editar in-place, nunca "criar a primeira vez").
+    """
+    profile, _ = CompanyProfile.objects.get_or_create(pk=1)
+    return profile
+
+
+@dataclass
+class CompanyProfileData:
+    company_name: str = ""
+    cnpj: str = ""
+    logradouro: str = ""
+    numero: str = ""
+    bairro: str = ""
+    cidade: str = ""
+    uf: str = ""
+    cep: str = ""
+    phone: str = ""
+    mobile_phone: str = ""
+    email: str = ""
+
+
+def update_company_profile(data: CompanyProfileData) -> CompanyProfile:
+    """Edição in-place do singleton — nunca cria uma segunda linha."""
+    profile = get_company_profile()
+    profile.company_name = data.company_name
+    profile.cnpj = data.cnpj
+    profile.logradouro = data.logradouro
+    profile.numero = data.numero
+    profile.bairro = data.bairro
+    profile.cidade = data.cidade
+    profile.uf = data.uf
+    profile.cep = data.cep
+    profile.phone = data.phone
+    profile.mobile_phone = data.mobile_phone
+    profile.email = data.email
+    profile.save()
+    return profile

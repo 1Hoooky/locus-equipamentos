@@ -122,3 +122,68 @@ class Address(TimeStampedModel):
     def __str__(self) -> str:
         parts = [p for p in (self.logradouro, self.numero, self.cidade, self.uf) if p]
         return ", ".join(parts) if parts else f"Endereço #{self.pk}"
+
+
+class CompanyProfile(TimeStampedModel):
+    """
+    Dados cadastrais da própria Locus ("DADOS DO CONTRATADO") — criado
+    para a implementação de Produtos e Serviços/Propostas do CRM
+    (14/09/2026, especificação seção 36: "Auditar se existe configuração
+    empresarial. Se existir: reutilizar. Se não existir: criar/propor
+    configuração apropriada e simples. Não hardcodar informações da
+    empresa em múltiplos templates.") — auditoria confirmou que NENHUMA
+    configuração empresarial existia antes desta rodada (nem em
+    `apps.qrcodes`, nem em nenhum outro app; só `LOCUS_*_URL` para CTAs
+    da landing pública, que são links, não dados cadastrais).
+
+    Singleton simples: sempre `pk=1`, sem tela de "criar novo" — só uma
+    linha existe, editada in-place pela tela de configuração (ver
+    `apps.core.services.get_company_profile()`). Não é `SoftDeleteModel`:
+    não existe "desativar a própria empresa".
+
+    Campos = exatamente o bloco "DADOS DO CONTRATADO" do documento real
+    da Locus (especificação, seção 35) — nenhum campo extra especulativo.
+    Endereço como texto solto (não `Address` FK): o endereço do
+    CONTRATADO aqui é só para impressão no PDF da proposta/contrato,
+    nunca navegado/reaproveitado como `Location`/endereço operacional —
+    usar o model `Address` (pensado para CEP/logradouro/bairro
+    estruturado e reuso por `Client`/`Location`) seria over-engineering
+    para um dado que nunca muda de forma e nunca aparece em mais de um
+    lugar.
+
+    Snapshot: `apps.crm.models.ProposalVersion`/`Contract` NUNCA leem
+    `CompanyProfile` diretamente no momento de gerar o PDF de uma versão
+    já emitida — copiam os campos abaixo para os próprios campos
+    `company_*_snapshot` no momento da emissão (especificação, seção 39:
+    "Se os dados empresariais mudarem no futuro: documento antigo
+    continua reproduzível como foi emitido"). Só o RASCUNHO consulta este
+    model ao vivo, para pré-preencher o cabeçalho da futura proposta.
+    """
+
+    company_name = models.CharField(max_length=200, blank=True, help_text="Razão social/nome da empresa.")
+    cnpj = models.CharField(max_length=20, blank=True)
+    logradouro = models.CharField(max_length=255, blank=True)
+    numero = models.CharField(max_length=20, blank=True)
+    bairro = models.CharField(max_length=100, blank=True)
+    cidade = models.CharField(max_length=100, blank=True)
+    uf = models.CharField(max_length=2, blank=True)
+    cep = models.CharField(max_length=9, blank=True)
+    phone = models.CharField(max_length=30, blank=True, help_text="Telefone fixo.")
+    mobile_phone = models.CharField(max_length=30, blank=True, help_text="Celular.")
+    email = models.EmailField(blank=True)
+
+    class Meta:
+        verbose_name = "dados da empresa"
+        verbose_name_plural = "dados da empresa"
+        # Uma única Permission de escrita — reaproveitada de
+        # `crm.manage_commercial_settings` (ver apps.crm.services), nunca
+        # uma Permission nova só para isto: hoje o único consumidor real
+        # é a área comercial do CRM (proposta/contrato), então uma
+        # segunda Permission redundante violaria "evitar excesso de
+        # permissions" (especificação, seção 83). Se outro app passar a
+        # escrever aqui no futuro (ex.: etiquetas com dados da empresa),
+        # revisitar essa decisão.
+        permissions: list[tuple[str, str]] = []
+
+    def __str__(self) -> str:
+        return self.company_name or "Dados da empresa"

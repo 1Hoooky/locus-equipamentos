@@ -127,6 +127,31 @@ PERMISSION_CATALOG: tuple[PermissionSpec, ...] = (
     PermissionSpec("view_commercial_activities", "crm", "commercialactivity"),
     PermissionSpec("add_commercial_activities", "crm", "commercialactivity"),
     PermissionSpec("manage_commercial_settings", "crm", "commercialsource"),
+    # ------------------------------------------------------------------
+    # Produtos e Serviços / Proposta Comercial + Contrato (LocusHub,
+    # 14/09/2026). Só DUAS permissões novas — deliberado (especificação,
+    # seção 83: "Avaliar permissions necessárias... Evitar excesso de
+    # permissions"). As demais ações da nova área comercial REAPROVEITAM
+    # permissões já existentes, por serem exatamente o mesmo poder que já
+    # concedem:
+    #   - ver a composição comercial (itens/condições/resumo financeiro)
+    #     = `crm.view_opportunities` (é parte do Hub da oportunidade);
+    #   - editar rascunho (adicionar/remover item, mudar condições,
+    #     salvar) = `crm.change_opportunities` (é edição de dado
+    #     comercial da própria oportunidade);
+    #   - criar nova versão = consequência de editar um rascunho depois
+    #     de uma versão emitida — mesma permissão de editar
+    #     (`crm.change_opportunities`), nunca uma permissão à parte;
+    #   - aceitar uma versão = `crm.change_opportunity_stage` (aceitar
+    #     literalmente chama `change_opportunity_stage()` — é o MESMO
+    #     poder de mudar a etapa/ganho da oportunidade, não um poder
+    #     novo).
+    # As duas permissões novas cobrem as duas ações que não têm
+    # equivalente: emitir um documento comercial para o cliente (ato
+    # distinto de só editar o rascunho internamente) e gerar contrato
+    # (ato ainda mais sensível — compromete juridicamente a Locus).
+    PermissionSpec("issue_proposal_documents", "crm", "proposal"),
+    PermissionSpec("generate_contract", "crm", "proposalversion"),
 )
 
 # Nome amigável do módulo (app) para agrupar a tela de cargos —
