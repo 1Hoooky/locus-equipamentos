@@ -46,17 +46,21 @@ class PermissionCatalogIntegrityTest(TestCase):
 
     A partir de 10/09/2026 (LocusHub CRM, Etapa 1) o catálogo passou a
     também incluir entradas SEM CAN_* equivalente (`legacy_constant is
-    None`) — hoje as 7 do módulo `crm`, ver
-    `apps/accounts/permission_catalog.py`. Os testes abaixo continuam
+    None`) — inicialmente as 7 do módulo `crm`; em 14/09/2026 (Produtos e
+    Serviços/Proposta Comercial + Contrato) mais 2 se somaram a essas 7
+    (`issue_proposal_documents`/`generate_contract`, seção 83 da
+    especificação: "evitar excesso de permissions" — só estas 2 novas,
+    o resto da nova área comercial reaproveita permissões já existentes,
+    ver `apps/accounts/permission_catalog.py`). Os testes abaixo continuam
     verificando a correspondência 1:1 só dentro do subconjunto legado,
     e verificam separadamente que o novo subconjunto está corretamente
     marcado como não-legado.
     """
 
-    def test_catalog_has_exactly_25_entries(self):
-        # 18 legadas (espelhando CAN_*) + 7 nativas do CRM, sem CAN_*
+    def test_catalog_has_exactly_27_entries(self):
+        # 18 legadas (espelhando CAN_*) + 9 nativas do CRM, sem CAN_*
         # equivalente (ver classe CrmCatalogEntriesTest abaixo).
-        self.assertEqual(len(PERMISSION_CATALOG), 25)
+        self.assertEqual(len(PERMISSION_CATALOG), 27)
 
     def test_catalog_codenames_are_unique(self):
         codenames = [spec.codename for spec in PERMISSION_CATALOG]
@@ -96,7 +100,8 @@ class PermissionCatalogIntegrityTest(TestCase):
 
 class CrmCatalogEntriesTest(TestCase):
     """
-    As 7 entradas do CRM (LocusHub, Etapa 1 — 10/09/2026): nenhum CAN_*
+    As 9 entradas do CRM (7 do LocusHub Etapa 1 — 10/09/2026 — + 2 de
+    Produtos e Serviços/Proposta Comercial — 14/09/2026): nenhum CAN_*
     equivalente por design (o módulo nasceu 100% na arquitetura nova),
     por isso isoladas do resto do catálogo legado nesta classe própria.
     """
@@ -104,8 +109,8 @@ class CrmCatalogEntriesTest(TestCase):
     def _crm_specs(self):
         return [spec for spec in PERMISSION_CATALOG if spec.app_label == "crm"]
 
-    def test_exactly_7_crm_entries(self):
-        self.assertEqual(len(self._crm_specs()), 7)
+    def test_exactly_9_crm_entries(self):
+        self.assertEqual(len(self._crm_specs()), 9)
 
     def test_expected_crm_codenames(self):
         codenames = {spec.codename for spec in self._crm_specs()}
@@ -119,6 +124,8 @@ class CrmCatalogEntriesTest(TestCase):
                 "view_commercial_activities",
                 "add_commercial_activities",
                 "manage_commercial_settings",
+                "issue_proposal_documents",
+                "generate_contract",
             },
         )
 

@@ -225,11 +225,41 @@ class NoParallelArchitectureTest(TestCase):
         forbidden = {"orcamento_aceito", "accepted_budget", "budget_accepted", "is_accepted"}
         self.assertFalse(field_names & forbidden, f"campo booleano paralelo encontrado: {field_names & forbidden}")
 
-    def test_no_proposal_model_exists_in_crm_app(self):
+    def test_proposal_version_has_no_parallel_won_lost_mechanism(self):
+        """
+        14/09/2026: `Proposal`/`ProposalVersion`/`ProposalItem`/`Contract`
+        foram implementados (especificação "Produtos e Serviços") — a
+        asserção original deste teste ("Proposal não existe") ficou
+        obsoleta por definição. A proteção que este teste realmente
+        expressa (nunca um caminho de ganho/perda paralelo a
+        `change_opportunity_stage()`) continua válida e é reforçada aqui:
+        `ProposalVersion` não tem NENHUM campo próprio de "ganho"/"perda"
+        (`is_won`/`won`/`accepted_budget`) — só `status`
+        (rascunho/emitida/aceita) e `accepted_at`/`accepted_by`, que nunca
+        escrevem em `Opportunity.won_at`/`stage` diretamente (ver
+        `apps.crm.services.accept_proposal_version`, testado em
+        `test_proposal_services.py::AcceptTest`, que SEMPRE chama
+        `change_opportunity_stage()` — nunca um `opportunity.save()`
+        solto).
+        """
         import apps.crm.models as crm_models
 
-        self.assertFalse(hasattr(crm_models, "Proposal"))
-        self.assertFalse(hasattr(crm_models, "ProposalItem"))
+        self.assertTrue(hasattr(crm_models, "Proposal"))
+        self.assertTrue(hasattr(crm_models, "ProposalItem"))
+
+        version_field_names = {f.name for f in crm_models.ProposalVersion._meta.get_fields()}
+        forbidden = {"is_won", "won", "won_at", "accepted_budget"}
+        self.assertFalse(
+            version_field_names & forbidden,
+            f"ProposalVersion não deve ter campo de ganho/perda próprio: {version_field_names & forbidden}",
+        )
+
+        import inspect
+
+        from apps.crm import services as crm_services
+
+        accept_source = inspect.getsource(crm_services.accept_proposal_version)
+        self.assertIn("change_opportunity_stage(", accept_source)
 
 
 # 10. GET nunca muda estado (endpoint único, já sem `get()`) ------------------
