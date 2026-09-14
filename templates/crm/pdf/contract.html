@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+{% load currency %}
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; font-size: 10.5pt; color: #1a1a1a; }
+  h1 { font-size: 15pt; margin: 0 0 2mm 0; }
+  h2 { font-size: 11pt; margin: 6mm 0 2mm 0; border-bottom: 0.4mm solid #111; padding-bottom: 1mm; text-transform: uppercase; letter-spacing: 0.02em; }
+  .header { border-bottom: 1mm solid #111; padding-bottom: 3mm; margin-bottom: 4mm; }
+  .two-col { display: flex; gap: 8mm; }
+  .two-col > div { flex: 1; }
+  .field-line { margin: 0.6mm 0; }
+  .field-label { color: #555; }
+  table.items { width: 100%; border-collapse: collapse; margin-top: 2mm; }
+  table.items th, table.items td { border: 0.25mm solid #ccc; padding: 1.6mm 2mm; font-size: 9.5pt; text-align: left; }
+  table.items th { background: #f2f2f2; }
+  table.items td.num { text-align: right; }
+  table.summary { width: 60mm; margin-left: auto; margin-top: 3mm; border-collapse: collapse; }
+  table.summary td { padding: 1mm 2mm; font-size: 10pt; }
+  table.summary td.num { text-align: right; }
+  table.summary tr.total td { font-weight: bold; font-size: 12pt; border-top: 0.4mm solid #111; padding-top: 2mm; }
+  .placeholder-notice { background: #fff6df; border: 0.3mm solid #d9a441; padding: 3mm; font-size: 9pt; margin-top: 4mm; }
+  .signature-row { display: flex; gap: 12mm; margin-top: 18mm; }
+  .signature-box { flex: 1; text-align: center; border-top: 0.3mm solid #333; padding-top: 2mm; font-size: 9pt; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Contrato de Locação de Equipamentos</h1>
+  <div class="field-line">Contrato {{ contract.number }} — referente à {{ proposal.number }} v{{ version.version_number }}</div>
+  <div class="field-line">Emitido em {{ contract.created_at|date:"d/m/Y H:i" }}</div>
+</div>
+
+<div class="two-col">
+  <div>
+    <h2>Contratado</h2>
+    <div class="field-line"><strong>{{ version.company_name_snapshot }}</strong></div>
+    <div class="field-line">CNPJ: {{ version.company_document_snapshot }}</div>
+    <div class="field-line">{{ version.company_address_snapshot }}</div>
+  </div>
+  <div>
+    <h2>Contratante</h2>
+    <div class="field-line"><strong>{{ version.client_name_snapshot }}</strong></div>
+    <div class="field-line">Documento: {{ version.client_document_snapshot }}</div>
+    <div class="field-line">{{ version.client_address_snapshot }}</div>
+  </div>
+</div>
+
+<h2>Objeto e Período</h2>
+<div class="field-line"><span class="field-label">Período contratado:</span> {{ version.contracted_start_date|date:"d/m/Y"|default:"—" }} a {{ version.contracted_end_date|date:"d/m/Y"|default:"—" }}</div>
+<div class="field-line"><span class="field-label">Local de entrega/operação:</span> {{ version.delivery_location|default:"—" }}</div>
+<div class="field-line"><span class="field-label">Forma/condição de pagamento:</span> {{ version.get_payment_method_display|default:version.payment_method_other }} — {{ version.payment_condition|default:"—" }}</div>
+
+<h2>Produtos/Serviços Contratados</h2>
+<table class="items">
+  <thead><tr><th>Descrição</th><th>Qtd.</th><th>Valor unitário</th><th>Total</th></tr></thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td>{{ item.description_snapshot }}</td>
+      <td class="num">{{ item.quantity }}</td>
+      <td class="num">{{ item.unit_price|brl }}</td>
+      <td class="num">{{ item.line_total|brl }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<table class="summary">
+  <tr class="total"><td>VALOR TOTAL</td><td class="num">{{ version.total|brl }}</td></tr>
+</table>
+
+{% if contract.legal_text_is_placeholder %}
+<div class="placeholder-notice">
+  <strong>Aviso:</strong> este contrato foi gerado com infraestrutura pronta para o texto jurídico
+  definitivo, mas o texto de cláusulas contratuais abaixo é um PLACEHOLDER — nenhuma cláusula
+  jurídica foi redigida ou inventada pelo sistema. O conteúdo aprovado pela Locus (advocacia/
+  jurídico) precisa ser fornecido e integrado antes deste documento ser usado como contrato real.
+</div>
+{% endif %}
+
+<h2>Cláusulas</h2>
+<div class="text-block">
+  [TEXTO JURÍDICO A SER FORNECIDO PELA LOCUS — este contrato reflete fielmente cliente, local,
+  período, produtos, quantidades, preços, descontos, frete, total e condições da Proposta
+  Comercial {{ proposal.number }} v{{ version.version_number }}, mas não contém cláusulas
+  jurídicas definitivas.]
+</div>
+
+{% if version.special_clauses %}
+<h2>Cláusulas Especiais (da Proposta)</h2>
+<div class="text-block">{{ version.special_clauses }}</div>
+{% endif %}
+
+<div class="signature-row">
+  <div class="signature-box">{{ version.company_name_snapshot }}<br>Contratado</div>
+  <div class="signature-box">{{ version.client_name_snapshot }}<br>Contratante</div>
+</div>
+
+</body>
+</html>
