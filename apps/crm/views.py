@@ -33,39 +33,61 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.contrib.postgres.search import TrigramWordSimilarity
+from django.core.exceptions import PermissionDenied
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.db.models.functions import Greatest
-from django.http import JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.views import View
 from django.views.generic import ListView
 
 from apps.accounts.permissions import SuperuserRequiredMixin
+from apps.attachments.models import Attachment
+from apps.attachments.services import attachments_for
+from apps.catalog.models import EquipmentModel
 from apps.clients.models import Client
 from apps.core.forms import HardDeleteConfirmForm
 from apps.core.hard_delete import HardDeleteBlocked
 from apps.core.templatetags.currency import format_brl
 from apps.crm.forms import (
+    AcceptProposalVersionForm,
     CommercialActivityForm,
     CommercialSourceForm,
+    DocumentGenerationForm,
     LossReasonForm,
     OpportunityCreateForm,
     OpportunityStageChangeForm,
     OpportunityStageForm,
     OpportunityUpdateForm,
+    ProposalConditionsForm,
+    ProposalItemForm,
 )
-from apps.crm.models import CommercialSource, LossReason, Opportunity, OpportunityStage
+from apps.crm.models import CommercialSource, LossReason, Opportunity, OpportunityStage, ProposalItem
 from apps.crm.services import (
+    DocumentType,
     NewActivityData,
     NewOpportunityData,
     OpportunityUpdateData,
+    ProposalConditionsData,
+    ProposalItemData,
+    acceptable_proposal_versions,
+    accept_proposal_version,
+    add_proposal_item,
+    build_opportunity_timeline,
     change_opportunity_stage,
+    check_availability,
     create_activity,
+    create_new_version,
     create_opportunity,
+    generate_documents,
+    get_or_create_active_proposal,
     hard_delete_opportunity,
     preview_opportunity_hard_delete,
+    remove_proposal_item,
+    update_draft_conditions,
     update_opportunity,
+    update_proposal_item,
 )
 
 # ---------------------------------------------------------------------------
@@ -315,13 +337,87 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
         can_show_registrar_perda = can_change_stage and bool(lost_stages) and not opportunity.stage.is_lost
         can_show_orcamento_aceito = can_change_stage and bool(won_stages) and not opportunity.stage.is_won
 
+        # ------------------------------------------------------------
+        # Produtos e Serviços (14/09/2026) — a composição comercial é
+        # sempre a Proposal mais recente da Opportunity (ver docstring
+        # de `get_or_create_active_proposal`). GET nunca cria nada por
+        # conta própria: só quem já tem `crm.change_opportunities`
+        # (poder de editar) dispara a criação lazy; quem só tem
+        # `crm.view_opportunities` vê a composição já existente, ou um
+        # estado vazio se ainda não existe nenhuma.
+        # ------------------------------------------------------------
+        can_change_opportunity = request.user.has_perm("crm.change_opportunities")
+        can_issue_proposal = request.user.has_perm("crm.issue_proposal_documents")
+        can_generate_contract = request.user.has_perm("crm.generate_contract")
+
+        proposal = None
+        current_version = None
+        if can_change_opportunity:
+            proposal = get_or_create_active_proposal(opportunity=opportunity, created_by=request.user)
+        else:
+            proposal = opportunity.proposals.order_by("-created_at").first()
+        if proposal is not None:
+            current_version = proposal.latest_version
+
+        item_form = ProposalItemForm() if (can_change_opportunity and current_version and current_version.is_editable) else None
+        conditions_form = (
+            ProposalConditionsForm(
+                initial={
+                    "price_table_label": current_version.price_table_label,
+                    "payment_method": current_version.payment_method,
+                    "payment_method_other": current_version.payment_method_other,
+                    "payment_condition": current_version.payment_condition,
+                    "contracted_start_date": current_version.contracted_start_date,
+                    "contracted_end_date": current_version.contracted_end_date,
+                    "expected_delivery_date": current_version.expected_delivery_date,
+                    "expected_delivery_time": current_version.expected_delivery_time,
+                    "expected_pickup_date": current_version.expected_pickup_date,
+                    "expected_pickup_time": current_version.expected_pickup_time,
+                    "delivery_location": current_version.delivery_location_id,
+                    "general_discount": current_version.general_discount,
+                    "interest_amount": current_version.interest_amount,
+                    "freight_amount": current_version.freight_amount,
+                    "special_clauses": current_version.special_clauses,
+                    "payment_info_notes": current_version.payment_info_notes,
+                    "general_notes": current_version.general_notes,
+                }
+            )
+            if (can_change_opportunity and current_version and current_version.is_editable)
+            else None
+        )
+        # `document_form` aparece quando existe uma versão com pelo menos
+        # um item — mesmo em rascunho, já que "Gerar documento" emite
+        # automaticamente se ainda estiver em rascunho (ver
+        # `generate_documents()`).
+        document_form = (
+            DocumentGenerationForm()
+            if (current_version is not None and current_version.items.exists() and (can_issue_proposal or can_generate_contract))
+            else None
+        )
+
+        candidate_versions = list(acceptable_proposal_versions(opportunity)) if can_change_stage else []
+        accept_form = None
+        if can_change_stage and candidate_versions:
+            accept_form = AcceptProposalVersionForm(
+                initial={"stage": won_stages[0].pk if len(won_stages) == 1 else None}
+            )
+
+        # `OpportunityDetailView.permission_required` já exige
+        # `crm.view_opportunities` para chegar até aqui — nenhuma
+        # checagem extra necessária para listar os anexos (Anexos ainda
+        # não tem sua própria Permission de leitura nesta rodada, ver
+        # docstring de `apps.attachments.models.Attachment`).
+        attachments = list(attachments_for(opportunity))
+        timeline = build_opportunity_timeline(opportunity)
+
         context = {
             "opportunity": opportunity,
             "stage_changes": stage_changes,
+            "timeline": timeline,
             "activities": activities,
             "last_activity": last_activity,
             "can_view_activities": can_view_activities,
-            "can_change_opportunity": request.user.has_perm("crm.change_opportunities"),
+            "can_change_opportunity": can_change_opportunity,
             "can_change_stage": can_change_stage,
             "can_add_activity": request.user.has_perm("crm.add_commercial_activities"),
             "stage_change_form": OpportunityStageChangeForm() if can_change_stage else None,
@@ -331,6 +427,19 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
             "all_active_stages": all_active_stages,
             "can_show_registrar_perda": can_show_registrar_perda,
             "can_show_orcamento_aceito": can_show_orcamento_aceito,
+            # Produtos e Serviços
+            "proposal": proposal,
+            "current_version": current_version,
+            "proposal_items": current_version.items.select_related("equipment_model") if current_version else [],
+            "item_form": item_form,
+            "conditions_form": conditions_form,
+            "document_form": document_form,
+            "accept_form": accept_form,
+            "candidate_versions": candidate_versions,
+            "can_issue_proposal": can_issue_proposal,
+            "can_generate_contract": can_generate_contract,
+            # Anexos
+            "attachments": attachments,
         }
         return render(request, "crm/opportunity_detail.html", context)
 
@@ -887,3 +996,318 @@ class LossReasonUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
             messages.success(request, f"Motivo de perda \"{reason.name}\" atualizado.")
             return redirect("crm:loss_reason_list")
         return render(request, "crm/loss_reason_form.html", {"form": form, "is_new": False, "reason": reason})
+
+
+# ---------------------------------------------------------------------------
+# Produtos e Serviços / Proposta Comercial + Contrato (14/09/2026).
+#
+# Toda escrita aqui é SÓ POST (seção 85, "Nunca GET para: emitir/aceitar/
+# cancelar/gerar contrato/criar versão/remover item") — nenhuma destas
+# views define `get()`, então um `GET` acidental recebe 405 do próprio
+# `django.views.View` (mesmo raciocínio de `OpportunityStageChangeView`).
+# Todas exigem `crm.view_opportunities` + a permissão específica da ação
+# (seção 84: "Não confiar em botão escondido — toda ação protegida no
+# backend").
+# ---------------------------------------------------------------------------
+
+
+def _get_editable_version_or_404(request, opportunity):
+    """
+    A versão em edição é sempre a `latest_version` da proposta ATIVA da
+    Opportunity — mesma fonte única de verdade usada por
+    `OpportunityDetailView.get` (nunca aceita um `proposal_version` vindo
+    do POST/URL para "qual versão editar": eliminaria por construção
+    qualquer risco de um POST tentar editar a versão de OUTRA Opportunity
+    só adivinhando um pk). `get_or_create_active_proposal()` (mesma
+    função usada pelo GET do Hub) garante que um POST de "adicionar
+    item"/"salvar rascunho" nunca depende de o usuário ter visitado a
+    tela antes — cria a Proposal/v1 na hora se ainda não existir.
+    """
+    proposal = get_or_create_active_proposal(opportunity=opportunity, created_by=request.user)
+    version = proposal.latest_version
+    if version is None or not version.is_editable:
+        raise Http404("Não há nenhuma versão em rascunho para editar — crie uma nova versão primeiro.")
+    return version
+
+
+class ProposalItemAddView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = ("crm.view_opportunities", "crm.change_opportunities")
+
+    def post(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        version = _get_editable_version_or_404(request, opportunity)
+        form = ProposalItemForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Não foi possível adicionar o produto — corrija os erros abaixo.")
+            for field_errors in form.errors.values():
+                for error in field_errors:
+                    messages.error(request, error)
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        cleaned = form.cleaned_data
+        try:
+            add_proposal_item(
+                proposal_version=version,
+                data=ProposalItemData(
+                    equipment_model=cleaned["equipment_model"],
+                    quantity=cleaned["quantity"],
+                    unit_price=cleaned["unit_price"],
+                    item_discount_percent=cleaned["item_discount_percent"] or Decimal("0"),
+                    notes=cleaned["notes"],
+                ),
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, "Produto adicionado.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class ProposalItemUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = ("crm.view_opportunities", "crm.change_opportunities")
+
+    def post(self, request, pk, item_pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        item = get_object_or_404(ProposalItem, pk=item_pk)
+        if item.proposal_version.proposal.opportunity_id != opportunity.pk:
+            raise Http404("Item não pertence a esta oportunidade.")
+
+        form = ProposalItemForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Não foi possível atualizar o produto — corrija os erros abaixo.")
+            for field_errors in form.errors.values():
+                for error in field_errors:
+                    messages.error(request, error)
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        cleaned = form.cleaned_data
+        try:
+            update_proposal_item(
+                item=item,
+                data=ProposalItemData(
+                    equipment_model=cleaned["equipment_model"],
+                    quantity=cleaned["quantity"],
+                    unit_price=cleaned["unit_price"],
+                    item_discount_percent=cleaned["item_discount_percent"] or Decimal("0"),
+                    notes=cleaned["notes"],
+                ),
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, "Produto atualizado.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class ProposalItemRemoveView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = ("crm.view_opportunities", "crm.change_opportunities")
+
+    def post(self, request, pk, item_pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        item = get_object_or_404(ProposalItem, pk=item_pk)
+        if item.proposal_version.proposal.opportunity_id != opportunity.pk:
+            raise Http404("Item não pertence a esta oportunidade.")
+
+        try:
+            remove_proposal_item(item=item)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, "Produto removido.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class ProposalConditionsSaveView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """"Salvar rascunho" (seção 5/57) — condições/período/logística/financeiro/textos."""
+
+    permission_required = ("crm.view_opportunities", "crm.change_opportunities")
+
+    def post(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        version = _get_editable_version_or_404(request, opportunity)
+        form = ProposalConditionsForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Não foi possível salvar — corrija os erros abaixo.")
+            for field_errors in form.errors.values():
+                for error in field_errors:
+                    messages.error(request, error)
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        cleaned = form.cleaned_data
+        try:
+            update_draft_conditions(
+                proposal_version=version,
+                data=ProposalConditionsData(
+                    price_table_label=cleaned["price_table_label"],
+                    payment_method=cleaned["payment_method"],
+                    payment_method_other=cleaned["payment_method_other"],
+                    payment_condition=cleaned["payment_condition"],
+                    contracted_start_date=cleaned["contracted_start_date"],
+                    contracted_end_date=cleaned["contracted_end_date"],
+                    expected_delivery_date=cleaned["expected_delivery_date"],
+                    expected_delivery_time=cleaned["expected_delivery_time"],
+                    expected_pickup_date=cleaned["expected_pickup_date"],
+                    expected_pickup_time=cleaned["expected_pickup_time"],
+                    delivery_location=cleaned["delivery_location"],
+                    general_discount=cleaned["general_discount"] or Decimal("0"),
+                    interest_amount=cleaned["interest_amount"] or Decimal("0"),
+                    freight_amount=cleaned["freight_amount"] or Decimal("0"),
+                    special_clauses=cleaned["special_clauses"],
+                    payment_info_notes=cleaned["payment_info_notes"],
+                    general_notes=cleaned["general_notes"],
+                ),
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, "Rascunho salvo.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class ProposalNewVersionView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = ("crm.view_opportunities", "crm.change_opportunities")
+
+    def post(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        proposal = opportunity.proposals.order_by("-created_at").first()
+        if proposal is None:
+            raise Http404("Esta oportunidade ainda não tem nenhuma proposta.")
+        try:
+            create_new_version(proposal=proposal, created_by=request.user)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, "Nova versão criada a partir da anterior.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class ProposalGenerateDocumentView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Dropdown "Gerar documento" (seção 6/64/65). Permissão varia por tipo
+    de documento — checada manualmente no corpo (não dá para expressar
+    "OR condicional ao dado do POST" em `permission_required` estático):
+    Proposta Comercial exige `crm.issue_proposal_documents`; Contrato e
+    Proposta+Contrato exigem `crm.generate_contract` (gerar contrato é
+    sempre o poder mais sensível das três opções).
+    """
+
+    permission_required = "crm.view_opportunities"
+
+    def post(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        # A versão a documentar é a mais recente da proposta ativa,
+        # emitida OU em rascunho (gerar documento pode emitir na hora) —
+        # por isso não reaproveita `_get_editable_version_or_404` (que
+        # exige DRAFT).
+        proposal = opportunity.proposals.order_by("-created_at").first()
+        if proposal is None:
+            raise Http404("Esta oportunidade ainda não tem nenhuma proposta.")
+        version = proposal.latest_version
+        if version is None or not version.items.exists():
+            messages.error(request, "Não é possível gerar documento sem nenhum produto/serviço na composição.")
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        form = DocumentGenerationForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Selecione um tipo de documento válido.")
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        document_type = form.cleaned_data["document_type"]
+        if document_type == DocumentType.PROPOSTA and not request.user.has_perm("crm.issue_proposal_documents"):
+            raise PermissionDenied("Você não tem permissão para emitir Proposta Comercial.")
+        if document_type in (DocumentType.CONTRATO, DocumentType.PROPOSTA_E_CONTRATO) and not request.user.has_perm(
+            "crm.generate_contract"
+        ):
+            raise PermissionDenied("Você não tem permissão para gerar Contrato.")
+
+        try:
+            generate_documents(proposal_version=version, document_type=document_type, actor=request.user)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, "Documento(s) gerado(s) — ver aba Anexos.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class ProposalAcceptVersionView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Aceite (seção 71-74) — exige `crm.change_opportunity_stage` (é
+    literalmente o mesmo poder: aceitar chama `change_opportunity_stage()`,
+    ver `apps.crm.services.accept_proposal_version`).
+    """
+
+    permission_required = ("crm.view_opportunities", "crm.change_opportunity_stage")
+
+    def post(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        form = AcceptProposalVersionForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Não foi possível aceitar — corrija os erros abaixo.")
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        candidates = acceptable_proposal_versions(opportunity)
+        version = candidates.filter(pk=form.cleaned_data["proposal_version"]).first()
+        if version is None:
+            messages.error(request, "Versão inválida ou não está mais disponível para aceite.")
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        try:
+            accept_proposal_version(proposal_version=version, accepted_by=request.user, won_stage=form.cleaned_data["stage"])
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, f"Proposta {version.proposal.number} v{version.version_number} aceita — negócio ganho.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class AvailabilityCheckView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    "Consulta de disponibilidade" (seção 11/12/76/77) — SÓ LEITURA, AJAX,
+    GET (não é uma mudança de estado — seção 85 só exige POST para
+    escrita). Nunca cria reserva/movimento/seleção de patrimônio.
+    """
+
+    permission_required = "crm.view_opportunities"
+
+    def get(self, request, pk):
+        equipment_model_id = request.GET.get("equipment_model", "")
+        quantity_raw = request.GET.get("quantity", "1")
+        if not equipment_model_id.isdigit():
+            return JsonResponse({"ok": False, "error": "Modelo inválido."}, status=400)
+        try:
+            quantity = int(quantity_raw)
+        except (TypeError, ValueError):
+            quantity = 1
+        equipment_model = get_object_or_404(EquipmentModel, pk=equipment_model_id)
+        result = check_availability(equipment_model=equipment_model, requested_quantity=max(quantity, 1))
+        return JsonResponse(
+            {
+                "ok": True,
+                "requested": result.requested,
+                "available": result.available,
+                "missing": result.missing,
+            }
+        )
+
+
+class AttachmentDownloadView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """Download autenticado de um Anexo — nunca um link `/media/` direto (evitaria a checagem de permissão)."""
+
+    permission_required = "crm.view_opportunities"
+
+    def get(self, request, pk, attachment_pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        attachment = get_object_or_404(Attachment, pk=attachment_pk)
+        from django.contrib.contenttypes.models import ContentType
+
+        opportunity_ct = ContentType.objects.get_for_model(Opportunity)
+        if attachment.content_type_id != opportunity_ct.pk or attachment.object_id != opportunity.pk:
+            raise Http404("Anexo não pertence a esta oportunidade.")
+        return FileResponse(attachment.file.open("rb"), as_attachment=True, filename=attachment.original_filename or attachment.file.name)

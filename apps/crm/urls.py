@@ -25,6 +25,52 @@ urlpatterns = [
         views.CommercialActivityCreateView.as_view(),
         name="activity_create",
     ),
+    # Produtos e Serviços / Proposta Comercial + Contrato (14/09/2026)
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/itens/adicionar/",
+        views.ProposalItemAddView.as_view(),
+        name="proposal_item_add",
+    ),
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/itens/<int:item_pk>/editar/",
+        views.ProposalItemUpdateView.as_view(),
+        name="proposal_item_update",
+    ),
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/itens/<int:item_pk>/remover/",
+        views.ProposalItemRemoveView.as_view(),
+        name="proposal_item_remove",
+    ),
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/condicoes/",
+        views.ProposalConditionsSaveView.as_view(),
+        name="proposal_conditions_save",
+    ),
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/nova-versao/",
+        views.ProposalNewVersionView.as_view(),
+        name="proposal_new_version",
+    ),
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/gerar-documento/",
+        views.ProposalGenerateDocumentView.as_view(),
+        name="proposal_generate_document",
+    ),
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/aceitar/",
+        views.ProposalAcceptVersionView.as_view(),
+        name="proposal_accept_version",
+    ),
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/disponibilidade/",
+        views.AvailabilityCheckView.as_view(),
+        name="proposal_availability_check",
+    ),
+    path(
+        "oportunidades/<int:pk>/anexos/<int:attachment_pk>/download/",
+        views.AttachmentDownloadView.as_view(),
+        name="attachment_download",
+    ),
     path("configuracoes/origens/", views.CommercialSourceListView.as_view(), name="commercial_source_list"),
     path("configuracoes/origens/nova/", views.CommercialSourceCreateView.as_view(), name="commercial_source_create"),
     path(

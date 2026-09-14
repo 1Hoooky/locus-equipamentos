@@ -20,9 +20,18 @@ from django import forms
 from django.urls import reverse
 from django.utils.html import format_html
 
+from apps.catalog.models import EquipmentModel
 from apps.clients.models import Client
-from apps.crm.models import ActivityType, BusinessType, CommercialSource, LossReason, OpportunityStage
-from apps.crm.services import eligible_owner_queryset
+from apps.crm.models import (
+    ActivityType,
+    BusinessType,
+    CommercialSource,
+    LossReason,
+    OpportunityStage,
+    PaymentMethod,
+)
+from apps.crm.services import DocumentType, eligible_owner_queryset
+from apps.operations.models import Location
 
 TEXT_INPUT_CLASS = "field-input"
 
@@ -306,3 +315,110 @@ class LossReasonForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _apply_input_class(self.fields, skip=("is_active",))
+
+
+# ---------------------------------------------------------------------------
+# Produtos e Serviços / Proposta Comercial (14/09/2026) — todos `forms.Form`
+# (não `ModelForm`), mesmo raciocínio de `OpportunityCreateForm`/
+# `OpportunityStageChangeForm`: a escrita real sempre passa por
+# `apps.crm.services` (recálculo/imutabilidade/snapshot), o form só valida
+# ENTRADA.
+# ---------------------------------------------------------------------------
+
+
+class ProposalItemForm(forms.Form):
+    """Adicionar/editar um item de `ProposalVersion` — seção 8/17/18/22."""
+
+    equipment_model = forms.ModelChoiceField(
+        label="Produto/Modelo",
+        queryset=EquipmentModel.objects.filter(is_active=True).select_related("category").order_by("category__name", "name"),
+        help_text="Reaproveita o catálogo real (seção 9) — nunca um LOC-* de patrimônio (seção 10).",
+    )
+    quantity = forms.IntegerField(label="Quantidade", min_value=1)
+    unit_price = forms.DecimalField(label="Valor unitário", max_digits=10, decimal_places=2, min_value=0)
+    item_discount_percent = forms.DecimalField(
+        label="Desconto do item (%)", max_digits=5, decimal_places=2, min_value=0, max_value=100, required=False
+    )
+    notes = forms.CharField(label="Observação", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_input_class(self.fields)
+
+
+class ProposalConditionsForm(forms.Form):
+    """
+    Condições comerciais/período/logística/financeiro/textos de uma
+    `ProposalVersion` em rascunho — "Salvar rascunho" (seção 5/56/57).
+    """
+
+    price_table_label = forms.CharField(label="Tabela de preço", required=False, max_length=100)
+    payment_method = forms.ChoiceField(
+        label="Forma de pagamento", choices=(("", "—"),) + tuple(PaymentMethod.choices), required=False
+    )
+    payment_method_other = forms.CharField(label="Outra forma (especifique)", required=False, max_length=100)
+    payment_condition = forms.CharField(label="Condição", required=False, max_length=150)
+
+    contracted_start_date = forms.DateField(label="Início contratado", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    contracted_end_date = forms.DateField(label="Final contratado", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    expected_delivery_date = forms.DateField(label="Entrega prevista (data)", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    expected_delivery_time = forms.TimeField(label="Entrega prevista (horário)", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
+    expected_pickup_date = forms.DateField(label="Retirada prevista (data)", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    expected_pickup_time = forms.TimeField(label="Retirada prevista (horário)", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
+    delivery_location = forms.ModelChoiceField(
+        label="Local de entrega/operação",
+        queryset=Location.objects.filter(is_active=True).order_by("name"),
+        required=False,
+        help_text="Reaproveita Location real (seção 41) — nunca sobrescreve o endereço fiscal do cliente.",
+    )
+
+    general_discount = forms.DecimalField(label="Desconto geral (R$)", max_digits=12, decimal_places=2, min_value=0, required=False)
+    interest_amount = forms.DecimalField(label="Juros (R$)", max_digits=12, decimal_places=2, min_value=0, required=False)
+    freight_amount = forms.DecimalField(label="Frete (R$)", max_digits=12, decimal_places=2, min_value=0, required=False)
+
+    special_clauses = forms.CharField(label="Cláusulas especiais", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    payment_info_notes = forms.CharField(
+        label="Informações de valor e pagamento", required=False, widget=forms.Textarea(attrs={"rows": 3})
+    )
+    general_notes = forms.CharField(label="Observações", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_input_class(self.fields)
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("payment_method") == PaymentMethod.OUTRO and not cleaned.get("payment_method_other"):
+            self.add_error("payment_method_other", "Especifique a forma de pagamento quando escolher 'Outro'.")
+        start = cleaned.get("contracted_start_date")
+        end = cleaned.get("contracted_end_date")
+        if start and end and end < start:
+            self.add_error("contracted_end_date", "A data final contratada não pode ser anterior à data inicial.")
+        return cleaned
+
+
+class DocumentGenerationForm(forms.Form):
+    """Dropdown "Gerar documento" (seção 6/64/65)."""
+
+    document_type = forms.ChoiceField(label="Tipo de documento", choices=DocumentType.choices)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_input_class(self.fields)
+
+
+class AcceptProposalVersionForm(forms.Form):
+    """
+    Aceite de uma versão (seção 71-74). `proposal_version`/`stage` são
+    restritos por queryset pela VIEW (que conhece a Opportunity) — este
+    form só valida o formato do POST.
+    """
+
+    proposal_version = forms.IntegerField(widget=forms.HiddenInput)
+    stage = forms.ModelChoiceField(
+        label="Etapa de ganho", queryset=OpportunityStage.objects.filter(is_active=True, is_won=True).order_by("order", "name")
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_input_class(self.fields, skip=("proposal_version",))
