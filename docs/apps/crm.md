@@ -2,9 +2,13 @@
 
 ## Objetivo
 
+<<<<<<< HEAD
 `apps.crm` é o funil de vendas/CRM do LocusHub: gerencia `Opportunity` desde a criação até o fechamento (ganho ou perdido), organizadas num Kanban por `OpportunityStage` configurável. Reutiliza `apps.clients.models.Client` como fonte oficial de cliente (nunca cópia, nunca escreve). Inclui registro de atividades comerciais (`CommercialActivity`), histórico estruturado de mudança de etapa (`OpportunityStageChange`) e configuração de Origem/Etapa/Motivo de perda.
 
 Desde 14/09/2026 (implementação "Produtos e Serviços"), também inclui a composição comercial completa de uma negociação: `Proposal`/`ProposalVersion`/`ProposalItem`/`Contract` — versionamento, snapshots, cálculo financeiro, emissão de PDF (Proposta Comercial/Contrato) e aceite (que fecha a `Opportunity` via `change_opportunity_stage()`, nunca um caminho paralelo). Agenda central, dashboard, financeiro, comissão, automações, integrações externas e **tabela de preços** (`PriceTable`) ficam para etapas futuras — ver seção "Preparação para PriceTable" no relatório final.
+=======
+`apps.crm` é o funil de vendas/CRM do LocusHub: gerencia `Opportunity` desde a criação até o fechamento (ganho ou perdido), organizadas num Kanban por `OpportunityStage` configurável. Reutiliza `apps.clients.models.Client` como fonte oficial de cliente (nunca cópia, nunca escreve). Inclui registro de atividades comerciais (`CommercialActivity`), histórico estruturado de mudança de etapa (`OpportunityStageChange`) e configuração de Origem/Etapa/Motivo de perda. Propostas, contratos, agenda central, dashboard, financeiro, comissão, automações e integrações externas ficam para etapas futuras.
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 ## Models
 
@@ -16,6 +20,7 @@ Arquivo: `apps/crm/models.py`.
 - **`OpportunityStageChange`** — histórico estruturado append-only: `opportunity` (CASCADE), `from_stage`/`to_stage` (PROTECT), `changed_by` (PROTECT), `changed_at`, `reason`.
 - `ActivityType` (TextChoices). **`CommercialActivity`** — `opportunity` (CASCADE), `activity_type`, `description`, `occurred_at`, `scheduled_for` (alimentará futura Agenda Central), `completed_at`, `created_by` (PROTECT). Sem histórico (sem fluxo de edição/exclusão). `Meta.permissions`: `view_commercial_activities`, `add_commercial_activities`.
 
+<<<<<<< HEAD
 ### Produtos e Serviços / Proposta Comercial (14/09/2026)
 
 - `NumberingCounter` — contador dedicado (`key` único + `last_value`), lido/incrementado sempre sob `select_for_update()` em `_next_document_number()` (`services.py`) — mesmo padrão já usado por `EquipmentModel.last_sequence` (`apps.equipment`), nunca `COUNT(*)+1`. Hoje só duas `key`s existem em uso: `"proposal"` (prefixo `PROP-`) e `"contract"` (prefixo `CONTR-`).
@@ -26,6 +31,8 @@ Arquivo: `apps/crm/models.py`.
 - **`ProposalItem`** — `proposal_version` (FK CASCADE), `equipment_model` (FK `catalog.EquipmentModel`, **PROTECT** — nunca uma FK a `Equipment`/patrimônio físico: a composição da proposta é sempre por modelo/quantidade, nunca por número de série específico, conforme a especificação seção ~15-20), `description_snapshot` (congela a descrição do modelo no momento em que o item foi adicionado), `quantity` (`PositiveIntegerField`), `unit_price`, `item_discount_percent`, `line_total` (calculado, nunca editado direto), `notes`, `order`. `CheckConstraint`s: quantity > 0, unit_price ≥ 0, desconto entre 0 e 100, line_total ≥ 0.
 - **`Contract`** — `proposal_version` (FK **PROTECT** — um contrato nunca é apagado em cascata junto da proposta/versão, é a trava que bloqueia hard delete de oportunidades com contrato emitido), `number` (único, via `NumberingCounter`), `created_by` (PROTECT), `created_at`, `legal_text_is_placeholder` (`BooleanField`, default `True`) — documenta explicitamente que o texto jurídico usado no PDF é placeholder (a especificação seção 106 proíbe inventar cláusulas legais reais); o PDF do contrato exibe um aviso visível disso enquanto o campo for `True`. Sem model de "aceite de contrato" separado — aceite é sempre de `ProposalVersion` (ver Services), o Contrato é só o documento gerado a partir de uma versão já emitida.
 
+=======
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 ## Services
 
 Arquivo: `apps/crm/services.py`.
@@ -35,6 +42,7 @@ Arquivo: `apps/crm/services.py`.
 - `update_opportunity(*, opportunity, data, changed_by)` — só campos cadastrais; nunca `client`/`stage`/campos de fechamento.
 - **`change_opportunity_stage(*, opportunity_id, new_stage, changed_by, reason="", loss_reason=None, loss_notes="", closed_value=None)`** — `@transaction.atomic` + `select_for_update()` (testado com concorrência real). Único caminho de escrita de `stage`/`won_at`/`lost_at`/`loss_reason`/`closed_value`. Regras: rejeita mesma etapa/etapa inativa; ganho → seta `won_at`, limpa perda; perda → exige `loss_reason`; etapa intermediária → reabre, limpa todo estado de fechamento. Sempre cria `OpportunityStageChange`.
 - `create_activity(data)` — valida `activity_type`.
+<<<<<<< HEAD
 - `preview_opportunity_hard_delete()` / `hard_delete_opportunity(*, opportunity_id, actor)` — `select_for_update()`, exige `actor.is_superuser`, cascade automático de stage_changes/activities. Desde 14/09/2026 a prévia também soma "propostas (com versões e itens)" como dependente; se alguma versão já tiver `Contract` (PROTECT), o hard delete é bloqueado pela mesma engrenagem `HardDeleteBlocked`/`describe_protected_error` já usada para outros FKs protegidos — nenhuma lógica nova de bloqueio foi criada.
 
 ### Produtos e Serviços / Proposta Comercial (14/09/2026)
@@ -56,6 +64,9 @@ Arquivo: `apps/crm/services.py`.
 - `acceptable_proposal_versions(opportunity)` — QuerySet de versões ISSUED (ainda não aceitas) de todas as `Proposal`s da oportunidade — é o universo válido usado para validar o POST de aceite (proteção IDOR).
 - **`accept_proposal_version(*, proposal_version, accepted_by, won_stage)`** — `@transaction.atomic`; exige ISSUED; marca ACCEPTED/`accepted_at`/`accepted_by`; único efeito colateral sobre `Opportunity` é chamar o `change_opportunity_stage()` já existente (`closed_value=proposal_version.total`) — "aceitar" nunca é um caminho de escrita paralelo ao Kanban, é literalmente o mesmo service que já fazia isso antes desta implementação. "Criar/salvar" ≠ "emitir" ≠ "aceitar": são três verbos/três funções diferentes, nunca fundidos.
 - `TimelineEntry` (`when`, `label`, `actor`) + `build_opportunity_timeline(opportunity)` — mescla `OpportunityStageChange` com eventos de criação/emissão/aceite de `Proposal`/`ProposalVersion`/`Contract` num único histórico ordenado; **nenhuma tabela nova de log foi criada** — reaproveita os timestamps que cada model já tinha.
+=======
+- `preview_opportunity_hard_delete()` / `hard_delete_opportunity(*, opportunity_id, actor)` — `select_for_update()`, exige `actor.is_superuser`, cascade automático de stage_changes/activities.
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 ## Forms
 
@@ -64,10 +75,13 @@ Arquivo: `apps/crm/services.py`.
 - `OpportunityUpdateForm` — sem campo `client` (imutável pós-criação).
 - `OpportunityStageChangeForm` — `loss_reason` obrigatório via `clean()` se `stage.is_lost`.
 - `CommercialActivityForm`, `CommercialSourceForm`/`OpportunityStageForm`/`LossReasonForm` (ModelForms de configuração).
+<<<<<<< HEAD
 - **`ProposalItemForm`** (14/09/2026) — `equipment_model` (`ModelChoiceField` sobre `EquipmentModel` ativo — nunca `Equipment`/patrimônio), `quantity` (`IntegerField`, `min_value=1`), `unit_price` (`DecimalField`, `min_value=0`), `item_discount_percent` (opcional, 0–100), `notes`.
 - **`ProposalConditionsForm`** — todos os campos de condição/período/logística/financeiro/texto livre de `ProposalVersion`. `clean()`: `payment_method_other` obrigatório quando `payment_method=OUTRO`; `contracted_end_date` ≥ `contracted_start_date`.
 - **`DocumentGenerationForm`** — `document_type` (`ChoiceField` sobre `DocumentType`).
 - **`AcceptProposalVersionForm`** — `proposal_version` (`IntegerField`, `HiddenInput` — validado contra `acceptable_proposal_versions()` na view, não só aqui), `stage` (`ModelChoiceField` restrito a etapas ativas com `is_won=True`).
+=======
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 ## Views
 
@@ -82,6 +96,7 @@ Arquivo: `apps/crm/views.py`. **Único app que usa `LoginRequiredMixin`+`Permiss
 | `OpportunityStageChangeView` | `("crm.view_opportunities", "crm.change_opportunity_stage")` |
 | `CommercialActivityCreateView` | `("crm.view_opportunities", "crm.add_commercial_activities")` |
 | `CommercialSource*`/`OpportunityStage*`/`LossReason*` (9 views) | `crm.manage_commercial_settings` |
+<<<<<<< HEAD
 | `ProposalItemAddView`/`ProposalItemUpdateView`/`ProposalItemRemoveView`/`ProposalConditionsSaveView`/`ProposalNewVersionView` | `("crm.view_opportunities", "crm.change_opportunities")`, **POST-only** |
 | `ProposalGenerateDocumentView` | `crm.view_opportunities` na classe + checagem manual no `post()` conforme `document_type`: PROPOSTA exige `crm.issue_proposal_documents`; CONTRATO/PROPOSTA_E_CONTRATO exigem `crm.generate_contract` (`PermissionDenied` explícito) — **POST-only** |
 | `ProposalAcceptVersionView` | `("crm.view_opportunities", "crm.change_opportunity_stage")`, **POST-only** |
@@ -95,6 +110,8 @@ Todas as ações que mudam estado (`add`/`update`/`remove` de item, salvar condi
 `_get_editable_version_or_404(request, opportunity)` — helper interno usado pelas views de item; **chama `get_or_create_active_proposal()`** em vez de exigir uma `Proposal` pré-existente, para que os endpoints de item nunca dependam de o usuário já ter visitado a página de detalhe antes de adicionar o primeiro item (corrigido durante os testes — ver `docs/testing.md`).
 
 `ProposalAcceptVersionView` valida o `proposal_version` submetido contra `acceptable_proposal_versions(opportunity)` (não apenas `get_object_or_404` solto) — proteção IDOR explícita: um usuário não pode aceitar uma versão que não pertence à oportunidade da URL, nem uma versão que já não esteja ISSUED.
+=======
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 ### `OpportunityClientAutocompleteView`
 
@@ -104,6 +121,7 @@ Todas as ações que mudam estado (`add`/`update`/`remove` de item, salvar condi
 
 ## URLs
 
+<<<<<<< HEAD
 `app_name="crm"`, montado como `path("crm/", ...)`. 17 rotas legadas: `oportunidades/` (+ CRUD, autocomplete, etapa, hard delete, atividades) e `configuracoes/` (origens, etapas, motivos de perda). Desde 14/09/2026, +9 rotas de Produtos e Serviços, todas aninhadas sob `oportunidades/<int:pk>/`: `produtos-servicos/itens/adicionar/`, `produtos-servicos/itens/<int:item_pk>/editar/`, `produtos-servicos/itens/<int:item_pk>/remover/`, `produtos-servicos/condicoes/`, `produtos-servicos/nova-versao/`, `produtos-servicos/gerar-documento/`, `produtos-servicos/aceitar/`, `produtos-servicos/disponibilidade/` e `anexos/<int:attachment_pk>/download/`.
 
 ## Permissions
@@ -149,4 +167,44 @@ A aba "Histórico" passou a iterar `TimelineEntry` (via `build_opportunity_timel
 - **"Criar/salvar" ≠ "emitir" ≠ "aceitar"** — três verbos, três funções de `services.py` distintas (`create_proposal`/`update_draft_conditions`, `issue_proposal`, `accept_proposal_version`), nunca fundidos numa única ação. Emitir não implica aceitar; gerar contrato não implica aceitar.
 - **`Proposal` não guarda `status` próprio** — sempre derivado de `latest_version.status` (`display_status`), para nunca ter duas fontes de verdade divergentes.
 - **Limitação conhecida de UI**: `update_proposal_item()`/`ProposalItemUpdateView` existem e têm cobertura de teste, mas `_proposal_composition.html` só oferece botões de adicionar/remover item — não há um controle de "editar" inline na tela; para mudar quantidade/preço de um item já adicionado, hoje é preciso remover e adicionar de novo. Disclosed no relatório final.
+=======
+`app_name="crm"`, montado como `path("crm/", ...)`. 17 rotas: `oportunidades/` (+ CRUD, autocomplete, etapa, hard delete, atividades) e `configuracoes/` (origens, etapas, motivos de perda).
+
+## Permissions
+
+7 `PermissionSpec` com `app_label="crm"` — **as únicas do catálogo sem equivalente legado** (`legacy_constant=None`): `view_opportunities`, `add_opportunities`, `change_opportunities`, `change_opportunity_stage`, `view_commercial_activities`, `add_commercial_activities`, `manage_commercial_settings`. `OpportunityHardDeleteView` fica fora do catálogo (`SuperuserRequiredMixin`/`is_superuser` puro — "Nível C").
+
+## Templates
+
+`templates/crm/`: `opportunity_list.html` (Kanban + drawer de criação rápida + toolbar de filtros), `_opportunity_kanban_card.html` (fonte única do card, reusada via `render_to_string` na resposta JSON), `_opportunity_quick_create_fields.html` (parcial reenviado como fragmento AJAX em erro), `opportunity_form.html`, `opportunity_detail.html` (abas Visão geral/Atividades/Equipamentos/Histórico), `opportunity_hard_delete_confirm.html`, e os CRUDs simples de configuração.
+
+## JavaScript
+
+`static/crm/*.js`: **`client_autocomplete.js`** (debounce 275ms, `AbortController` para descartar respostas obsoletas), **`kanban.js`** (drag-and-drop nativo HTML5, POST via `fetch`, move o card no DOM só após confirmação do backend — nunca otimista), **`opportunity_detail.js`** (roteia submits de mudança de etapa para o modal de perda/ganho conforme `data-is-lost`/`data-is-won` na `<option>`), **`opportunity_quick_create.js`** (drawer com focus trap, estado "sujo" com confirmação de descarte).
+
+## Dependências
+
+`apps.clients.models.Client`; `apps.core` (SoftDeleteModel, TimeStampedModel, hard_delete, `HardDeleteConfirmForm`, `format_brl`); `apps.accounts` (User, `SuperuserRequiredMixin`); `django.contrib.postgres.search.TrigramWordSimilarity`; `simple_history`.
+
+## Quem chama apps.crm
+
+`config/urls.py`/`settings.py` (registro padrão); `templates/base.html` (menu condicionado a `perms.crm.*`). Nenhum outro app importa `apps.crm.views`/`forms` diretamente — o acoplamento externo é só leitura unidirecional de `Client`.
+
+## Testes
+
+9 arquivos em `apps/crm/tests/`: `test_client_autocomplete.py` (23 testes), `test_kanban_view.py`, `test_opportunity_detail_redesign.py`, `test_opportunity_hard_delete.py`, `test_permission_matrix.py`, `test_quick_create_drawer.py`, `test_security.py` (IDOR, CSRF, integridade won/lost a nível de banco), `test_services.py`, `test_stage_change_concurrency.py` (`TransactionTestCase`).
+
+## Migrations
+
+Apenas `0001_initial.py` (10/09/2026). A extensão `pg_trgm` está em `apps.clients` (`0006_pg_trgm_extension.py`), **não** em `apps.crm`.
+
+## Pontos importantes
+
+- **Único app nascido 100% na arquitetura de Cargo** — as 7 permissions `crm.*` são as únicas do catálogo sem `legacy_constant`. CRM foi construído depois da aprovação da nova arquitetura, então nunca passou pelo sistema legado.
+- **Botão escondido ≠ bloqueio no backend** — a autorização real é sempre `PermissionRequiredMixin`; POST manual de campos de perda/ganho sem permissão é bloqueado mesmo que o botão nunca tivesse aparecido (testado explicitamente).
+- **`get_object_or_404` sem filtro por usuário/dono é deliberado** — a proteção contra IDOR é a permissão (`view_opportunities`), não esconder o PK.
+- **Dupla camada de validação**: toda regra crítica (ganho/perda mutuamente exclusivos, valores não-negativos) tem `CheckConstraint` no banco E validação explícita em `clean()`/services.
+- **`TrigramWordSimilarity` vs `TrigramSimilarity`**: escolha documentada por medição manual — `word_similarity` mede o melhor trecho contínuo do nome, mais adequado para buscas curtas contra nomes longos.
+- **Aba "Equipamentos" na ficha é estado vazio estático** — não existe vínculo Oportunidade↔Equipamento implementado. Aba "Arquivos" omitida (app `attachments` vazio).
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 - Sem TODOs/FIXMEs literais — decisões pendentes são documentadas em prosa nas docstrings.

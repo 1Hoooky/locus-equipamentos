@@ -39,7 +39,11 @@ Um usuário **pode ter `Role` e Cargo ao mesmo tempo, e eles são completamente 
 | `CAN_VIEW_ACQUISITION_VALUE` | ADMIN, ADMINISTRATIVO | equipment (ficha pública/privada) |
 | `CAN_REGISTER_OPERATIONS` | ADMIN, ADMINISTRATIVO, OPERACIONAL | operations, maintenance |
 | `CAN_CHANGE_STATUS_CONDITION` | ADMIN, ADMINISTRATIVO, OPERACIONAL | equipment |
+<<<<<<< HEAD
 | `CAN_ADD_PHOTOS` | ADMIN, ADMINISTRATIVO, OPERACIONAL | (reservada — hoje `apps.attachments` já tem implementação real, mas o único consumidor é `apps.crm`, gated por `crm.view_opportunities`/Cargo, não por esta constante; ver `docs/apps/attachments.md`) |
+=======
+| `CAN_ADD_PHOTOS` | ADMIN, ADMINISTRATIVO, OPERACIONAL | (reservada — `apps.attachments` ainda não implementado) |
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 | `CAN_EXPORT_DATA` | ADMIN, ADMINISTRATIVO | equipment (export CSV/XLSX) |
 | `CAN_IMPORT_LEGACY_SPREADSHEET` | ADMIN | equipment (importação legada) |
 | `CAN_SUPERSEDE_EQUIPMENT` | ADMIN | equipment (reemissão) |
@@ -70,10 +74,17 @@ Decora um `Group` (`OneToOneField`, `CASCADE`) com `description` e `is_protected
 
 ### `PERMISSION_CATALOG` (`apps/accounts/permission_catalog.py`)
 
+<<<<<<< HEAD
 Tupla de 27 `PermissionSpec` (`codename`, `app_label`, `model`, `legacy_constant: str|None`, `legacy_admin_only: bool`):
 
 - **18 entradas espelham 1:1 as 18 constantes `CAN_*`** listadas acima (mesmos codenames/app/model), com `legacy_constant` apontando para o nome da constante original — rastreabilidade explícita.
 - **9 entradas são exclusivas de `apps.crm`**, com `legacy_constant=None` — nasceram direto na arquitetura nova, nunca passaram por `CAN_*`. As 7 originais (10/09/2026): `view_opportunities`, `add_opportunities`, `change_opportunities`, `change_opportunity_stage`, `view_commercial_activities`, `add_commercial_activities`, `manage_commercial_settings`. Mais 2 de 14/09/2026 (Produtos e Serviços/Proposta Comercial): `issue_proposal_documents` (emitir Proposta em PDF) e `generate_contract` (gerar Contrato em PDF) — o restante da nova área comercial (adicionar/editar/remover item, salvar condições, criar nova versão) reaproveita `change_opportunities`, e aceitar reaproveita `change_opportunity_stage`, seguindo à risca "evitar excesso de permissions" (ver `docs/apps/crm.md` para o raciocínio completo).
+=======
+Tupla de 25 `PermissionSpec` (`codename`, `app_label`, `model`, `legacy_constant: str|None`, `legacy_admin_only: bool`):
+
+- **18 entradas espelham 1:1 as 18 constantes `CAN_*`** listadas acima (mesmos codenames/app/model), com `legacy_constant` apontando para o nome da constante original — rastreabilidade explícita.
+- **7 entradas são exclusivas de `apps.crm`** (`view_opportunities`, `add_opportunities`, `change_opportunities`, `change_opportunity_stage`, `view_commercial_activities`, `add_commercial_activities`, `manage_commercial_settings`), com `legacy_constant=None` — nasceram direto na arquitetura nova, nunca passaram por `CAN_*`.
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 `MODULE_LABELS` mapeia `app_label`→rótulo amigável para a tela de gestão de cargos (7 chaves: `accounts`, `catalog`, `equipment`, `operations`, `clients`, `maintenance`, `crm`).
 
@@ -103,11 +114,15 @@ Cada `hard_delete_*()` (em `apps.clients.services`, `apps.equipment.services`, `
 
 ## Botão escondido ≠ bloqueio no backend
 
+<<<<<<< HEAD
 Padrão consistente em todo o projeto: a UI pode esconder um botão/link com base em `perms.*`/roles, mas isso é só conveniência — a autorização real está sempre na view (`RoleRequiredMixin`/`PermissionRequiredMixin`) e, para as ações mais sensíveis, também no service (`_ensure_not_protected`, checagem de `is_superuser`, etc.). Isso é comprovado por testes explícitos em `apps.crm` (POST manual de campos de perda/ganho sem permissão é bloqueado mesmo que o botão nunca tivesse aparecido; o mesmo vale para todas as ações de Produtos e Serviços — adicionar item, salvar condições, emitir, gerar contrato, aceitar) e em `apps.accounts` (POST direto em cargo protegido é rejeitado mesmo que a UI nem renderize o form).
 
 ## Nota sobre `apps.crm` — checagem manual de permissão dentro de uma view (14/09/2026)
 
 `ProposalGenerateDocumentView` é uma exceção deliberada ao padrão de "uma `permission_required` fixa por classe": como a mesma view atende três `document_type` diferentes (PROPOSTA exige `crm.issue_proposal_documents`; CONTRATO/PROPOSTA_E_CONTRATO exigem `crm.generate_contract`), a permissão correta só é conhecida depois de ler o corpo do POST. A view usa `crm.view_opportunities` como piso de acesso na classe e levanta `PermissionDenied` explicitamente dentro de `post()` conforme o `document_type` submetido — documentado aqui para não ser confundido com um esquecimento de `permission_required` na próxima auditoria.
+=======
+Padrão consistente em todo o projeto: a UI pode esconder um botão/link com base em `perms.*`/roles, mas isso é só conveniência — a autorização real está sempre na view (`RoleRequiredMixin`/`PermissionRequiredMixin`) e, para as ações mais sensíveis, também no service (`_ensure_not_protected`, checagem de `is_superuser`, etc.). Isso é comprovado por testes explícitos em `apps.crm` (POST manual de campos de perda/ganho sem permissão é bloqueado mesmo que o botão nunca tivesse aparecido) e em `apps.accounts` (POST direto em cargo protegido é rejeitado mesmo que a UI nem renderize o form).
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 ## Django Admin
 

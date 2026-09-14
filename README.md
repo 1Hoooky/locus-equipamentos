@@ -10,7 +10,10 @@ Este README é só a porta de entrada. A documentação completa vive em [`docs/
 - [`docs/permissions.md`](docs/permissions.md) — os dois sistemas de autorização do projeto (legado `Role`/`CAN_*` e o novo "Cargo"), e como eles se relacionam.
 - [`docs/flows.md`](docs/flows.md) — os fluxos principais do sistema, passo a passo (geração de patrimônio, movimentação, manutenção, CRM, hard delete, importações).
 - [`docs/testing.md`](docs/testing.md) — como rodar a suíte (`pytest`, não `manage.py test`), estado atual, testes de concorrência real.
+<<<<<<< HEAD
 - [`docs/storage.md`](docs/storage.md) — estáticos vs. mídia, quem serve cada um em cada caminho de deploy, por que download de anexo nunca é um link `/media/` direto.
+=======
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 - [`docs/deployment.md`](docs/deployment.md) — os dois caminhos de deploy (VPS Oracle+FRP e Render+Neon).
 - [`docs/apps/`](docs/apps/) — um documento por app Django, cobrindo models, services, forms, views, URLs, permissões, templates, JS, dependências, testes e armadilhas conhecidas.
 
@@ -25,7 +28,11 @@ Este README é só a porta de entrada. A documentação completa vive em [`docs/
 | [`clients`](docs/apps/clients.md) | Clientes, endereço fiscal, consulta de CNPJ, importação Auvo |
 | [`operations`](docs/apps/operations.md) | Unidades (`Location`) e movimentação (`Movement`) |
 | [`maintenance`](docs/apps/maintenance.md) | Manutenção e Higienização |
+<<<<<<< HEAD
 | [`attachments`](docs/apps/attachments.md) | Anexos genéricos (hoje: PDFs de Proposta Comercial/Contrato do CRM) |
+=======
+| [`attachments`](docs/apps/attachments.md) | Reservado para fotos/anexos — ainda não implementado |
+>>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 | [`qrcodes`](docs/apps/qrcodes.md) | Geração de QR/código de barras/etiquetas PDF |
 | [`dashboard`](docs/apps/dashboard.md) | Home operacional |
 | [`crm`](docs/apps/crm.md) | Funil de vendas (Kanban de Oportunidades) |
