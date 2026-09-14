@@ -43,6 +43,8 @@ Arquivo: `apps/operations/services.py` (506 linhas) — único caminho suportado
 
 `LocationForm`/`LocationUpdateForm` (`forms.Form`, criação via service), `MovementForm` — filtra o dropdown de destino pelo tipo de movimentação já submetido e exclui a localização atual em `TRANSFERENCIA` (rejeita no form, antes do service, um destino manipulado via POST — `create_movement()` continua sendo a autoridade final). `DestinationLocationSelect` injeta `data-type`/`data-search` para o JS de conveniência.
 
+`location_display_label(location)` (renomeada de `_destination_label` em 14/09/2026 — REFINAMENTO VISUAL "Produtos e Serviços" do `apps.crm`; `_destination_label` continua existindo como alias, nada quebrou) — rótulo "Cliente — Unidade"/só "Cliente" (quando o cliente só tem 1 unidade ativa) de uma `Location` do tipo CLIENTE. Nome público de propósito: reaproveitada por `apps.crm.forms.ProposalConditionsForm` (campo "Local de entrega/operação") para resolver o mesmo problema de exibição sem duplicar a lógica — qualquer novo select de `Location` em outro app deveria reaproveitar esta função, nunca reimplementá-la.
+
 ## Views
 
 Arquivo: `apps/operations/views.py`. Guards de submissão: `_location_create_guard`, `_movement_guard(patrimonio)` (escopo por equipamento).

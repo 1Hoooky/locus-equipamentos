@@ -66,9 +66,9 @@ class DestinationLocationSelect(forms.Select):
         return option
 
 
-def _destination_label(location: Location) -> str:
+def location_display_label(location: Location) -> str:
     """
-    Rótulo do destino no select de movimentação — duas decisões do usuário
+    Rótulo "Cliente — Unidade" de uma `Location` — duas decisões do usuário
     combinadas:
 
     1. (1º reteste) O select mostrava só `location.name` (ex.: "Maringá"),
@@ -94,6 +94,15 @@ def _destination_label(location: Location) -> str:
             return client_name
         return f"{client_name} — {location.name}"
     return location.name
+
+
+# Alias mantido por compatibilidade — `MovementForm` (abaixo) e qualquer
+# import existente continuam funcionando; `location_display_label` é o
+# nome público, reaproveitado por `apps.crm.forms.ProposalConditionsForm`
+# (REFINAMENTO VISUAL "PRODUTOS E SERVIÇOS", 14/09/2026, seção 23-28) para
+# resolver o mesmo problema de exibição (nome da Location sozinho não
+# identifica a matriz/cliente) sem duplicar a lógica.
+_destination_label = location_display_label
 
 
 def _destination_queryset(movement_type: str | None, *, exclude_location_id: int | None = None):

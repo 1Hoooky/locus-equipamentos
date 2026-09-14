@@ -201,7 +201,6 @@ Revisão (GET mostra prévia agrupada por categoria; POST confirma)
 Resumo (GET, lê o resumo da sessão — se ausente, redireciona para Upload)
 ```
 
-<<<<<<< HEAD
 ## 11. Composição, emissão, versionamento, contrato e aceite de Proposta (CRM — Produtos e Serviços, 14/09/2026)
 
 ```
@@ -275,8 +274,6 @@ AttachmentDownloadView (GET)
 
 "Criar/salvar" (`add_proposal_item`/`update_draft_conditions`) ≠ "emitir" (`issue_proposal`, produz PDF + snapshot + número definitivo) ≠ "gerar contrato" (`generate_contract`) ≠ "aceitar" (`accept_proposal_version`, o único caminho que fecha a Oportunidade). Cada verbo é uma função de `services.py` distinta — nenhum deles implica o próximo automaticamente, exceto a auto-emissão embutida em `generate_documents()` quando o Contrato é pedido diretamente sobre uma versão ainda em rascunho (documentado ali mesmo, não é um atalho oculto).
 
-=======
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 ## Nota sobre "efeitos colaterais entre apps"
 
 Dois pontos do sistema mudam `Equipment.status` fora de `apps.equipment`, sempre através de `apps.equipment.services.change_status()` (nunca atribuição direta):
@@ -285,8 +282,5 @@ Dois pontos do sistema mudam `Equipment.status` fora de `apps.equipment`, sempre
 - `apps.maintenance.services.open_maintenance()`/`close_maintenance()`/`cancel_maintenance()` — abre/restaura o status conforme o ciclo de vida da manutenção.
 
 Nenhum dos dois grava `current_location`/`current_client` (isso é exclusivo de `create_movement()`), e nenhum dos dois duplica a criação de `StatusHistory` — sempre reaproveitam `change_status()`.
-<<<<<<< HEAD
 
 Desde 14/09/2026, `apps.crm.services.check_availability()` é o único ponto do fluxo de Produtos e Serviços que lê `Equipment.status` — e só lê: nunca chama `change_status()`, nunca cria `Movement`, nunca associa um `ProposalItem` a um `Equipment` específico (a composição é sempre por `EquipmentModel`). Reservar estoque de verdade a partir de uma proposta aceita fica para uma etapa futura, deliberadamente fora desta implementação (spec seção 106).
-=======
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7

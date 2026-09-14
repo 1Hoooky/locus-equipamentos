@@ -976,6 +976,76 @@ só identidade visual (cores/tailwind.config) e os componentes reutilizáveis
     .client-autocomplete-status {
       @apply px-3 py-2.5 text-sm text-gray-500;
     }
+
+    /* -----------------------------------------------------------------
+     * Aba "Produtos e Serviços" da Oportunidade — REFINAMENTO VISUAL E
+     * FUNCIONAL, 14/09/2026. Problema de origem: todo o bloco tinha o
+     * MESMO peso visual (título maiúsculo pequeno repetido, sem
+     * hierarquia real) e os itens comerciais apareciam como linha de
+     * tabela genérica, competindo em destaque com célula de ação
+     * (ícone de lixeira solto). A correção NÃO transforma a tela numa
+     * pilha de cartões — só o item comercial (`.proposal-item-card`)
+     * ganha cartão de verdade; os demais blocos (`.proposal-block`) só
+     * recebem espaçamento/divisor sutil.
+     * --------------------------------------------------------------- */
+
+    /* Separador entre os 6 blocos da aba (Documento / Condições
+       comerciais / Período-Logística / Produtos-Serviços / Resumo
+       financeiro / Informações complementares) — espaçamento e um fio
+       de divisor, nunca uma caixa/sombra própria. */
+    .proposal-block {
+      @apply pt-6 mt-6 border-t border-gray-100 first:pt-0 first:mt-0 first:border-t-0;
+    }
+
+    /* Grid Período/Logística — 3 linhas × 2 colunas em ordem fixa
+       (Início/Fim · Entrega data/hora · Retirada data/hora), 1 coluna
+       no mobile mantendo a MESMA ordem lógica (a ordem no HTML já é a
+       ordem de leitura; o grid só reflui). */
+    .proposal-period-grid {
+      @apply grid grid-cols-1 sm:grid-cols-2 gap-4;
+    }
+
+    /* Cartão de item comercial — substitui a linha de tabela genérica.
+       Nome do produto com maior ênfase, total em destaque alinhado à
+       direita, quantidade/preço unitário/desconto como linha
+       secundária, observação (quando houver) separada por um fio. */
+    .proposal-item-card {
+      @apply card p-3 sm:p-4;
+    }
+    .proposal-item-card-row {
+      @apply flex items-start justify-between gap-3;
+    }
+    .proposal-item-card-name {
+      @apply text-sm sm:text-base font-semibold text-brand-charcoal leading-snug;
+    }
+    .proposal-item-card-total {
+      @apply text-base sm:text-lg font-bold text-brand-charcoal whitespace-nowrap shrink-0 tabular-nums;
+    }
+    .proposal-item-card-meta {
+      @apply mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500;
+    }
+    .proposal-item-card-qty {
+      @apply font-medium text-gray-700;
+    }
+    .proposal-item-card-note {
+      @apply mt-2 pt-2 border-t border-gray-100 text-sm text-gray-600;
+    }
+
+    /* Painel "Adicionar produto/serviço" — deliberadamente distinto do
+       cartão acima (borda tracejada + fundo levemente acinzentado) para
+       ler como AÇÃO DE CRIAÇÃO, nunca como mais um item já adicionado
+       (problema de origem, seção 10/11 da especificação). */
+    .proposal-add-item-panel {
+      @apply mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50/60 p-3 sm:p-4;
+    }
+
+    /* Tabela do Resumo financeiro — largura contida (nunca esticada por
+       toda a largura do bloco) com valores alinhados à direita, para
+       que Subtotal/Desconto/Juros/Frete/TOTAL fiquem legíveis em coluna
+       (seção 29-32: "valores alinhados, TOTAL com mais destaque"). */
+    .proposal-summary-table {
+      @apply w-full max-w-sm;
+    }
   }
 
   /* -----------------------------------------------------------------

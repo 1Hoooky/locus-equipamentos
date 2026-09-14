@@ -2,13 +2,9 @@
 
 ## Objetivo
 
-<<<<<<< HEAD
 `apps.crm` é o funil de vendas/CRM do LocusHub: gerencia `Opportunity` desde a criação até o fechamento (ganho ou perdido), organizadas num Kanban por `OpportunityStage` configurável. Reutiliza `apps.clients.models.Client` como fonte oficial de cliente (nunca cópia, nunca escreve). Inclui registro de atividades comerciais (`CommercialActivity`), histórico estruturado de mudança de etapa (`OpportunityStageChange`) e configuração de Origem/Etapa/Motivo de perda.
 
 Desde 14/09/2026 (implementação "Produtos e Serviços"), também inclui a composição comercial completa de uma negociação: `Proposal`/`ProposalVersion`/`ProposalItem`/`Contract` — versionamento, snapshots, cálculo financeiro, emissão de PDF (Proposta Comercial/Contrato) e aceite (que fecha a `Opportunity` via `change_opportunity_stage()`, nunca um caminho paralelo). Agenda central, dashboard, financeiro, comissão, automações, integrações externas e **tabela de preços** (`PriceTable`) ficam para etapas futuras — ver seção "Preparação para PriceTable" no relatório final.
-=======
-`apps.crm` é o funil de vendas/CRM do LocusHub: gerencia `Opportunity` desde a criação até o fechamento (ganho ou perdido), organizadas num Kanban por `OpportunityStage` configurável. Reutiliza `apps.clients.models.Client` como fonte oficial de cliente (nunca cópia, nunca escreve). Inclui registro de atividades comerciais (`CommercialActivity`), histórico estruturado de mudança de etapa (`OpportunityStageChange`) e configuração de Origem/Etapa/Motivo de perda. Propostas, contratos, agenda central, dashboard, financeiro, comissão, automações e integrações externas ficam para etapas futuras.
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 ## Models
 
@@ -20,19 +16,16 @@ Arquivo: `apps/crm/models.py`.
 - **`OpportunityStageChange`** — histórico estruturado append-only: `opportunity` (CASCADE), `from_stage`/`to_stage` (PROTECT), `changed_by` (PROTECT), `changed_at`, `reason`.
 - `ActivityType` (TextChoices). **`CommercialActivity`** — `opportunity` (CASCADE), `activity_type`, `description`, `occurred_at`, `scheduled_for` (alimentará futura Agenda Central), `completed_at`, `created_by` (PROTECT). Sem histórico (sem fluxo de edição/exclusão). `Meta.permissions`: `view_commercial_activities`, `add_commercial_activities`.
 
-<<<<<<< HEAD
 ### Produtos e Serviços / Proposta Comercial (14/09/2026)
 
 - `NumberingCounter` — contador dedicado (`key` único + `last_value`), lido/incrementado sempre sob `select_for_update()` em `_next_document_number()` (`services.py`) — mesmo padrão já usado por `EquipmentModel.last_sequence` (`apps.equipment`), nunca `COUNT(*)+1`. Hoje só duas `key`s existem em uso: `"proposal"` (prefixo `PROP-`) e `"contract"` (prefixo `CONTR-`).
-- `PaymentMethod` (TextChoices, fixo): PIX, BOLETO, CARTAO, TRANSFERENCIA, OUTRO (com `payment_method_other` de texto livre em `ProposalVersion` quando `OUTRO`).
+- `PaymentMethod` (TextChoices, fixo): PIX, BOLETO, CARTAO, TRANSFERENCIA, OUTRO — os 5 valores continuam no enum (nenhuma migration), mas desde o REFINAMENTO VISUAL de 14/09/2026 (rodada 2) `OUTRO` não é mais OFERECIDO no `<select>` de "Forma de pagamento" (`ProposalConditionsForm.payment_method.choices` filtra o enum), porque a UI de "Outra forma (especifique)"/`payment_method_other` foi removida sem nenhuma lógica condicional — ver "Refinamento visual" abaixo.
 - `ProposalVersionStatus` (TextChoices, fixo): DRAFT, ISSUED, ACCEPTED — nunca um quarto estado "recusado"/"perdido" (perda continua sendo só de `Opportunity`, via `change_opportunity_stage()`).
 - **`Proposal(TimeStampedModel)`** — `opportunity` (FK CASCADE — apagar a oportunidade apaga suas propostas, mas `Contract.proposal_version` é PROTECT, então uma proposta com contrato emitido bloqueia o hard delete via a mesma engrenagem de `describe_protected_error`/`HardDeleteBlocked` já existente), `number` (único, `editable=False`, gerado via `NumberingCounter`), `created_by` (PROTECT). **Deliberadamente sem campo `status` próprio** — a propriedade `display_status` sempre deriva de `latest_version.status`; guardar um segundo campo de status em `Proposal` criaria duas fontes de verdade que podem divergir (a mesma armadilha que a especificação alerta em outro contexto, seção 75) sempre que uma nova versão for criada sem sincronizar os dois. `Meta.permissions`: `issue_proposal_documents`.
 - **`ProposalVersion(TimeStampedModel)`** — `proposal` (FK CASCADE), `version_number`, `status` (`ProposalVersionStatus`), `price_table_label` (texto livre — único "gancho" para a futura `PriceTable`, não uma FK, para não acoplar a nenhum desenho futuro ainda não aprovado). Campos de condição/logística: `payment_method`/`payment_method_other`/`payment_condition`, `contracted_start_date`/`contracted_end_date`, `expected_delivery_date`/`expected_delivery_time`, `expected_pickup_date`/`expected_pickup_time`, `delivery_location` (FK `operations.Location`, PROTECT, opcional). Financeiro (todos `Decimal`, nunca float): `subtotal`, `general_discount`, `interest_amount`, `freight_amount`, `total` — todos calculados exclusivamente por `calculate_proposal_version()` (`services.py`), nunca escritos à mão em view/form. Texto livre: `special_clauses`, `payment_info_notes`, `general_notes`. Snapshot de cliente/empresa/vendedor (`client_name_snapshot`, `client_document_snapshot`, `client_contact_snapshot`, `client_phone_snapshot`, `client_email_snapshot`, `client_address_snapshot`, `company_name_snapshot`, `company_document_snapshot`, `company_address_snapshot`, `company_phone_snapshot`, `company_email_snapshot`, `seller_snapshot`) — preenchidos uma única vez em `issue_proposal()`, nunca recalculados depois (mesmo que o cliente/`CompanyProfile`/catálogo mudem). `issued_at`/`issued_by`/`accepted_at`/`accepted_by`. `Meta`: `UniqueConstraint(proposal, version_number)`; `CheckConstraint`s garantindo subtotal/total/desconto/juros/frete ≥ 0 (nunca total negativo, nem por bug de aplicação); `Meta.permissions`: `generate_contract`. Propriedade `is_editable` = `status == DRAFT` — é o único ponto que decide se a UI mostra campos editáveis ou só leitura.
 - **`ProposalItem`** — `proposal_version` (FK CASCADE), `equipment_model` (FK `catalog.EquipmentModel`, **PROTECT** — nunca uma FK a `Equipment`/patrimônio físico: a composição da proposta é sempre por modelo/quantidade, nunca por número de série específico, conforme a especificação seção ~15-20), `description_snapshot` (congela a descrição do modelo no momento em que o item foi adicionado), `quantity` (`PositiveIntegerField`), `unit_price`, `item_discount_percent`, `line_total` (calculado, nunca editado direto), `notes`, `order`. `CheckConstraint`s: quantity > 0, unit_price ≥ 0, desconto entre 0 e 100, line_total ≥ 0.
 - **`Contract`** — `proposal_version` (FK **PROTECT** — um contrato nunca é apagado em cascata junto da proposta/versão, é a trava que bloqueia hard delete de oportunidades com contrato emitido), `number` (único, via `NumberingCounter`), `created_by` (PROTECT), `created_at`, `legal_text_is_placeholder` (`BooleanField`, default `True`) — documenta explicitamente que o texto jurídico usado no PDF é placeholder (a especificação seção 106 proíbe inventar cláusulas legais reais); o PDF do contrato exibe um aviso visível disso enquanto o campo for `True`. Sem model de "aceite de contrato" separado — aceite é sempre de `ProposalVersion` (ver Services), o Contrato é só o documento gerado a partir de uma versão já emitida.
 
-=======
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 ## Services
 
 Arquivo: `apps/crm/services.py`.
@@ -42,7 +35,6 @@ Arquivo: `apps/crm/services.py`.
 - `update_opportunity(*, opportunity, data, changed_by)` — só campos cadastrais; nunca `client`/`stage`/campos de fechamento.
 - **`change_opportunity_stage(*, opportunity_id, new_stage, changed_by, reason="", loss_reason=None, loss_notes="", closed_value=None)`** — `@transaction.atomic` + `select_for_update()` (testado com concorrência real). Único caminho de escrita de `stage`/`won_at`/`lost_at`/`loss_reason`/`closed_value`. Regras: rejeita mesma etapa/etapa inativa; ganho → seta `won_at`, limpa perda; perda → exige `loss_reason`; etapa intermediária → reabre, limpa todo estado de fechamento. Sempre cria `OpportunityStageChange`.
 - `create_activity(data)` — valida `activity_type`.
-<<<<<<< HEAD
 - `preview_opportunity_hard_delete()` / `hard_delete_opportunity(*, opportunity_id, actor)` — `select_for_update()`, exige `actor.is_superuser`, cascade automático de stage_changes/activities. Desde 14/09/2026 a prévia também soma "propostas (com versões e itens)" como dependente; se alguma versão já tiver `Contract` (PROTECT), o hard delete é bloqueado pela mesma engrenagem `HardDeleteBlocked`/`describe_protected_error` já usada para outros FKs protegidos — nenhuma lógica nova de bloqueio foi criada.
 
 ### Produtos e Serviços / Proposta Comercial (14/09/2026)
@@ -64,9 +56,6 @@ Arquivo: `apps/crm/services.py`.
 - `acceptable_proposal_versions(opportunity)` — QuerySet de versões ISSUED (ainda não aceitas) de todas as `Proposal`s da oportunidade — é o universo válido usado para validar o POST de aceite (proteção IDOR).
 - **`accept_proposal_version(*, proposal_version, accepted_by, won_stage)`** — `@transaction.atomic`; exige ISSUED; marca ACCEPTED/`accepted_at`/`accepted_by`; único efeito colateral sobre `Opportunity` é chamar o `change_opportunity_stage()` já existente (`closed_value=proposal_version.total`) — "aceitar" nunca é um caminho de escrita paralelo ao Kanban, é literalmente o mesmo service que já fazia isso antes desta implementação. "Criar/salvar" ≠ "emitir" ≠ "aceitar": são três verbos/três funções diferentes, nunca fundidos.
 - `TimelineEntry` (`when`, `label`, `actor`) + `build_opportunity_timeline(opportunity)` — mescla `OpportunityStageChange` com eventos de criação/emissão/aceite de `Proposal`/`ProposalVersion`/`Contract` num único histórico ordenado; **nenhuma tabela nova de log foi criada** — reaproveita os timestamps que cada model já tinha.
-=======
-- `preview_opportunity_hard_delete()` / `hard_delete_opportunity(*, opportunity_id, actor)` — `select_for_update()`, exige `actor.is_superuser`, cascade automático de stage_changes/activities.
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 ## Forms
 
@@ -75,13 +64,10 @@ Arquivo: `apps/crm/services.py`.
 - `OpportunityUpdateForm` — sem campo `client` (imutável pós-criação).
 - `OpportunityStageChangeForm` — `loss_reason` obrigatório via `clean()` se `stage.is_lost`.
 - `CommercialActivityForm`, `CommercialSourceForm`/`OpportunityStageForm`/`LossReasonForm` (ModelForms de configuração).
-<<<<<<< HEAD
 - **`ProposalItemForm`** (14/09/2026) — `equipment_model` (`ModelChoiceField` sobre `EquipmentModel` ativo — nunca `Equipment`/patrimônio), `quantity` (`IntegerField`, `min_value=1`), `unit_price` (`DecimalField`, `min_value=0`), `item_discount_percent` (opcional, 0–100), `notes`.
-- **`ProposalConditionsForm`** — todos os campos de condição/período/logística/financeiro/texto livre de `ProposalVersion`. `clean()`: `payment_method_other` obrigatório quando `payment_method=OUTRO`; `contracted_end_date` ≥ `contracted_start_date`.
+- **`ProposalConditionsForm`** — período/logística/financeiro/texto livre de `ProposalVersion`, mais `payment_method`. Desde o REFINAMENTO VISUAL de 14/09/2026 (rodada 2), **`price_table_label`/`payment_method_other`/`payment_condition` NÃO são mais campos deste form** (removidos da UI — nenhum dos três tinha catálogo/opções reais por trás; ver "Refinamento visual" abaixo). `clean()`: só `contracted_end_date` ≥ `contracted_start_date` (a antiga validação de `payment_method_other` obrigatório quando `OUTRO` foi removida junto — `OUTRO` nem é mais oferecido nos `choices`).
 - **`DocumentGenerationForm`** — `document_type` (`ChoiceField` sobre `DocumentType`).
 - **`AcceptProposalVersionForm`** — `proposal_version` (`IntegerField`, `HiddenInput` — validado contra `acceptable_proposal_versions()` na view, não só aqui), `stage` (`ModelChoiceField` restrito a etapas ativas com `is_won=True`).
-=======
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 ## Views
 
@@ -96,7 +82,6 @@ Arquivo: `apps/crm/views.py`. **Único app que usa `LoginRequiredMixin`+`Permiss
 | `OpportunityStageChangeView` | `("crm.view_opportunities", "crm.change_opportunity_stage")` |
 | `CommercialActivityCreateView` | `("crm.view_opportunities", "crm.add_commercial_activities")` |
 | `CommercialSource*`/`OpportunityStage*`/`LossReason*` (9 views) | `crm.manage_commercial_settings` |
-<<<<<<< HEAD
 | `ProposalItemAddView`/`ProposalItemUpdateView`/`ProposalItemRemoveView`/`ProposalConditionsSaveView`/`ProposalNewVersionView` | `("crm.view_opportunities", "crm.change_opportunities")`, **POST-only** |
 | `ProposalGenerateDocumentView` | `crm.view_opportunities` na classe + checagem manual no `post()` conforme `document_type`: PROPOSTA exige `crm.issue_proposal_documents`; CONTRATO/PROPOSTA_E_CONTRATO exigem `crm.generate_contract` (`PermissionDenied` explícito) — **POST-only** |
 | `ProposalAcceptVersionView` | `("crm.view_opportunities", "crm.change_opportunity_stage")`, **POST-only** |
@@ -110,8 +95,17 @@ Todas as ações que mudam estado (`add`/`update`/`remove` de item, salvar condi
 `_get_editable_version_or_404(request, opportunity)` — helper interno usado pelas views de item; **chama `get_or_create_active_proposal()`** em vez de exigir uma `Proposal` pré-existente, para que os endpoints de item nunca dependam de o usuário já ter visitado a página de detalhe antes de adicionar o primeiro item (corrigido durante os testes — ver `docs/testing.md`).
 
 `ProposalAcceptVersionView` valida o `proposal_version` submetido contra `acceptable_proposal_versions(opportunity)` (não apenas `get_object_or_404` solto) — proteção IDOR explícita: um usuário não pode aceitar uma versão que não pertence à oportunidade da URL, nem uma versão que já não esteja ISSUED.
-=======
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
+
+### Refinamento visual "Produtos e Serviços" (14/09/2026, rodada 2)
+
+Rodada de UI/UX sobre a implementação funcional acima (14/09/2026, rodada 1) — **arquitetura preservada** (models/services/imutabilidade/versionamento inalterados), só apresentação + 3 campos comerciais sem opções reais removidos da UI:
+
+- **Hierarquia de 6 blocos** (`_proposal_composition.html`, `.proposal-block` em `templates/_design_tokens.html`) substitui o antigo "tudo com o mesmo peso visual": Documento → Condições comerciais → Período/Logística → Produtos/Serviços → Resumo financeiro → Informações complementares.
+- **Cartão de item comercial** (`.proposal-item-card*`) substitui a linha de tabela genérica: nome do produto em destaque, total em negrito alinhado à direita, quantidade com peso próprio ("2 unidades"), preço unitário/desconto como linha secundária, ações (hoje só "Remover" — "Editar" via `ProposalItemUpdateView` já existe no backend mas não tem UI própria ainda, ver Pendências) agrupadas no menu "⋯" (`.action-menu`, nunca mais um ícone de lixeira isolado). "Adicionar produto/serviço" ganhou painel visualmente distinto (`.proposal-add-item-panel`, borda tracejada) — não lê mais como mais uma linha da mesma tabela.
+- **Grid Período/Logística** (`.proposal-period-grid`, `grid-cols-1 sm:grid-cols-2`) — 3 linhas × 2 colunas (Início/Fim do contrato · Entrega data/hora · Retirada data/hora) no desktop, 1 coluna mantendo a mesma ordem no mobile. Rótulos renomeados para o texto exato pedido: "Início do contrato", "Fim do contrato", "Entrega prevista", "Horário de entrega", "Retirada prevista", "Horário de retirada" (antes: "Início contratado"/"Final contratado"/"Entrega prevista (data/horário)"/etc. — só o `label=` do form mudou, os `name`/campos do model continuam os mesmos). "Local de entrega/operação" saiu do grid — fica em linha própria logo abaixo.
+- **Campos removidos da UI (não do model)** — "Tabela de preço" (`price_table_label`), "Condição" (`payment_condition`) e "Outra forma (especifique)" (`payment_method_other`) não aparecem mais na tela. Nenhum dos três tinha um catálogo/entidade real por trás (auditoria confirmada: são `CharField` livre sem nada equivalente em nenhum outro app do projeto) — a especificação pediu para não inventar um catálogo/estado temporário agora (isso fica para quando a futura `PriceTable`/catálogo de condições forem desenhados de verdade). **Os 3 campos continuam existindo em `ProposalVersion`, sem migration** — `ProposalConditionsSaveView.post()` repassa o valor JÁ GRAVADO da própria versão para os três (nunca `""`), para que "Salvar rascunho" pela tela nova nunca apague silenciosamente um valor legado gravado antes desta mudança (ex.: via admin). "Condições específicas de pagamento/parcelamento" (o exemplo dado foi "50% de entrada via PIX e 50% em boleto para 28 dias") passam a ser registradas em `payment_info_notes` ("Informações de valor e pagamento", que já existia e já cobria esse propósito).
+- **Matriz/Unidade** (seção 23-28 da especificação) — o select "Local de entrega/operação" agora mostra `Location`s do tipo CLIENTE qualificadas pelo cliente (`apps.clients.models.Client`, que É a "matriz" nesta modelagem — não existe uma entidade separada de matriz/filial, nem hierarquia entre `Client`s). Reaproveita **a mesma função já testada** `apps.operations.forms.location_display_label` (renomeada de `_destination_label`, mantido `_destination_label` como alias por compatibilidade) usada pelo select de destino de `MovementForm` — nenhuma lógica divergente nova. Regra: cliente com só 1 unidade ativa mostra só o nome do cliente (sufixo "— Unidade" seria redundante); cliente com 2+ unidades mostra "Cliente — Unidade" (ex.: "Gerdau — Unidade Norte"). **Nenhuma mudança em `Client`/`Location`/`Address`/CNPJ/endereço fiscal** — é só apresentação (`ModelChoiceField.label_from_instance`), a mesma disciplina já usada em `MovementForm`.
+- Testes: `apps/crm/tests/test_proposal_composition_refinamento.py` (novo, 22 testes) — cobre especificamente os 10 pontos da correção da especificação (campos removidos não aparecem/nem ficam órfãos no HTML, Forma de pagamento/Informações de valor e pagamento continuam funcionando, criação/edição/emissão/cálculo sem regressão, rótulos novos do grid, e a regra Matriz/Unidade). Suíte completa (`apps/crm`+`apps/operations`+`apps/attachments`+`apps/clients`): 504 passed. Suíte inteira do projeto: 1185 passed, 4 failed — os 4 são pré-existentes/não relacionados (assets de imagem ausentes no sandbox de validação, e um teste de auditoria de mojibake que aponta para si mesmo, por conter os próprios marcadores de busca no código-fonte).
 
 ### `OpportunityClientAutocompleteView`
 
@@ -121,7 +115,6 @@ Todas as ações que mudam estado (`add`/`update`/`remove` de item, salvar condi
 
 ## URLs
 
-<<<<<<< HEAD
 `app_name="crm"`, montado como `path("crm/", ...)`. 17 rotas legadas: `oportunidades/` (+ CRUD, autocomplete, etapa, hard delete, atividades) e `configuracoes/` (origens, etapas, motivos de perda). Desde 14/09/2026, +9 rotas de Produtos e Serviços, todas aninhadas sob `oportunidades/<int:pk>/`: `produtos-servicos/itens/adicionar/`, `produtos-servicos/itens/<int:item_pk>/editar/`, `produtos-servicos/itens/<int:item_pk>/remover/`, `produtos-servicos/condicoes/`, `produtos-servicos/nova-versao/`, `produtos-servicos/gerar-documento/`, `produtos-servicos/aceitar/`, `produtos-servicos/disponibilidade/` e `anexos/<int:attachment_pk>/download/`.
 
 ## Permissions
@@ -132,7 +125,7 @@ Todas as ações que mudam estado (`add`/`update`/`remove` de item, salvar condi
 
 ## Templates
 
-`templates/crm/`: `opportunity_list.html` (Kanban + drawer de criação rápida + toolbar de filtros), `_opportunity_kanban_card.html` (fonte única do card, reusada via `render_to_string` na resposta JSON), `_opportunity_quick_create_fields.html` (parcial reenviado como fragmento AJAX em erro), `opportunity_form.html`, `opportunity_detail.html` (abas Visão geral/Atividades/**Produtos e Serviços**/Equipamentos/Histórico/**Anexos** — as duas últimas abas novas de 14/09/2026), `_proposal_composition.html` (parcial incluído na aba Produtos e Serviços — cabeçalho de status/versão, bloco de geração de documentos, formulário de condições comerciais, tabela de itens + formulário de adicionar item, resumo financeiro, bloco de aceite), `opportunity_hard_delete_confirm.html`, e os CRUDs simples de configuração. `templates/crm/pdf/proposal.html` e `templates/crm/pdf/contract.html` — templates A4 renderizados por WeasyPrint (não servidos como HTML normal), mesmo padrão de `apps.qrcodes` (`render_to_string()` + `HTML(string=...).write_pdf()`); o `contract.html` exibe um aviso visível de texto placeholder enquanto `Contract.legal_text_is_placeholder=True`.
+`templates/crm/`: `opportunity_list.html` (Kanban + drawer de criação rápida + toolbar de filtros), `_opportunity_kanban_card.html` (fonte única do card, reusada via `render_to_string` na resposta JSON), `_opportunity_quick_create_fields.html` (parcial reenviado como fragmento AJAX em erro), `opportunity_form.html`, `opportunity_detail.html` (abas Visão geral/Atividades/**Produtos e Serviços**/Equipamentos/Histórico/**Anexos** — as duas últimas abas novas de 14/09/2026), `_proposal_composition.html` (parcial incluído na aba Produtos e Serviços — desde o REFINAMENTO VISUAL de 14/09/2026, rodada 2, organizado em 6 blocos com espaçamento/divisor sutil entre eles, `.proposal-block`: 1. Documento; 2. Condições comerciais [só "Forma de pagamento"]; 3. Período/Logística [grid 3×2, `.proposal-period-grid`]; 4. Produtos/Serviços [itens como cartão `.proposal-item-card`, nunca mais linha de tabela — "Adicionar produto/serviço" visualmente separado em `.proposal-add-item-panel`]; 5. Resumo financeiro; 6. Informações complementares), `opportunity_hard_delete_confirm.html`, e os CRUDs simples de configuração. `templates/crm/pdf/proposal.html` e `templates/crm/pdf/contract.html` — templates A4 renderizados por WeasyPrint (não servidos como HTML normal), mesmo padrão de `apps.qrcodes` (`render_to_string()` + `HTML(string=...).write_pdf()`); o `contract.html` exibe um aviso visível de texto placeholder enquanto `Contract.legal_text_is_placeholder=True`.
 
 A aba "Histórico" passou a iterar `TimelineEntry` (via `build_opportunity_timeline()`) em vez de `OpportunityStageChange` diretamente, para incluir também eventos de proposta/versão/contrato na mesma linha do tempo.
 
@@ -167,44 +160,4 @@ A aba "Histórico" passou a iterar `TimelineEntry` (via `build_opportunity_timel
 - **"Criar/salvar" ≠ "emitir" ≠ "aceitar"** — três verbos, três funções de `services.py` distintas (`create_proposal`/`update_draft_conditions`, `issue_proposal`, `accept_proposal_version`), nunca fundidos numa única ação. Emitir não implica aceitar; gerar contrato não implica aceitar.
 - **`Proposal` não guarda `status` próprio** — sempre derivado de `latest_version.status` (`display_status`), para nunca ter duas fontes de verdade divergentes.
 - **Limitação conhecida de UI**: `update_proposal_item()`/`ProposalItemUpdateView` existem e têm cobertura de teste, mas `_proposal_composition.html` só oferece botões de adicionar/remover item — não há um controle de "editar" inline na tela; para mudar quantidade/preço de um item já adicionado, hoje é preciso remover e adicionar de novo. Disclosed no relatório final.
-=======
-`app_name="crm"`, montado como `path("crm/", ...)`. 17 rotas: `oportunidades/` (+ CRUD, autocomplete, etapa, hard delete, atividades) e `configuracoes/` (origens, etapas, motivos de perda).
-
-## Permissions
-
-7 `PermissionSpec` com `app_label="crm"` — **as únicas do catálogo sem equivalente legado** (`legacy_constant=None`): `view_opportunities`, `add_opportunities`, `change_opportunities`, `change_opportunity_stage`, `view_commercial_activities`, `add_commercial_activities`, `manage_commercial_settings`. `OpportunityHardDeleteView` fica fora do catálogo (`SuperuserRequiredMixin`/`is_superuser` puro — "Nível C").
-
-## Templates
-
-`templates/crm/`: `opportunity_list.html` (Kanban + drawer de criação rápida + toolbar de filtros), `_opportunity_kanban_card.html` (fonte única do card, reusada via `render_to_string` na resposta JSON), `_opportunity_quick_create_fields.html` (parcial reenviado como fragmento AJAX em erro), `opportunity_form.html`, `opportunity_detail.html` (abas Visão geral/Atividades/Equipamentos/Histórico), `opportunity_hard_delete_confirm.html`, e os CRUDs simples de configuração.
-
-## JavaScript
-
-`static/crm/*.js`: **`client_autocomplete.js`** (debounce 275ms, `AbortController` para descartar respostas obsoletas), **`kanban.js`** (drag-and-drop nativo HTML5, POST via `fetch`, move o card no DOM só após confirmação do backend — nunca otimista), **`opportunity_detail.js`** (roteia submits de mudança de etapa para o modal de perda/ganho conforme `data-is-lost`/`data-is-won` na `<option>`), **`opportunity_quick_create.js`** (drawer com focus trap, estado "sujo" com confirmação de descarte).
-
-## Dependências
-
-`apps.clients.models.Client`; `apps.core` (SoftDeleteModel, TimeStampedModel, hard_delete, `HardDeleteConfirmForm`, `format_brl`); `apps.accounts` (User, `SuperuserRequiredMixin`); `django.contrib.postgres.search.TrigramWordSimilarity`; `simple_history`.
-
-## Quem chama apps.crm
-
-`config/urls.py`/`settings.py` (registro padrão); `templates/base.html` (menu condicionado a `perms.crm.*`). Nenhum outro app importa `apps.crm.views`/`forms` diretamente — o acoplamento externo é só leitura unidirecional de `Client`.
-
-## Testes
-
-9 arquivos em `apps/crm/tests/`: `test_client_autocomplete.py` (23 testes), `test_kanban_view.py`, `test_opportunity_detail_redesign.py`, `test_opportunity_hard_delete.py`, `test_permission_matrix.py`, `test_quick_create_drawer.py`, `test_security.py` (IDOR, CSRF, integridade won/lost a nível de banco), `test_services.py`, `test_stage_change_concurrency.py` (`TransactionTestCase`).
-
-## Migrations
-
-Apenas `0001_initial.py` (10/09/2026). A extensão `pg_trgm` está em `apps.clients` (`0006_pg_trgm_extension.py`), **não** em `apps.crm`.
-
-## Pontos importantes
-
-- **Único app nascido 100% na arquitetura de Cargo** — as 7 permissions `crm.*` são as únicas do catálogo sem `legacy_constant`. CRM foi construído depois da aprovação da nova arquitetura, então nunca passou pelo sistema legado.
-- **Botão escondido ≠ bloqueio no backend** — a autorização real é sempre `PermissionRequiredMixin`; POST manual de campos de perda/ganho sem permissão é bloqueado mesmo que o botão nunca tivesse aparecido (testado explicitamente).
-- **`get_object_or_404` sem filtro por usuário/dono é deliberado** — a proteção contra IDOR é a permissão (`view_opportunities`), não esconder o PK.
-- **Dupla camada de validação**: toda regra crítica (ganho/perda mutuamente exclusivos, valores não-negativos) tem `CheckConstraint` no banco E validação explícita em `clean()`/services.
-- **`TrigramWordSimilarity` vs `TrigramSimilarity`**: escolha documentada por medição manual — `word_similarity` mede o melhor trecho contínuo do nome, mais adequado para buscas curtas contra nomes longos.
-- **Aba "Equipamentos" na ficha é estado vazio estático** — não existe vínculo Oportunidade↔Equipamento implementado. Aba "Arquivos" omitida (app `attachments` vazio).
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 - Sem TODOs/FIXMEs literais — decisões pendentes são documentadas em prosa nas docstrings.

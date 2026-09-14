@@ -2,7 +2,6 @@
 
 ## Objetivo
 
-<<<<<<< HEAD
 Armazenamento genérico de arquivos anexados a qualquer objeto do sistema — implementado em 14/09/2026 como pré-requisito da aba "Anexos" do Hub da Oportunidade (`apps.crm`), que precisa de um lugar real para guardar os PDFs de Proposta Comercial/Contrato. Até então o app era um esqueleto vazio (registrado em `INSTALLED_APPS` mas sem nenhum model/migration real) — ver git history para o estado anterior.
 
 Desenho deliberadamente pequeno: só o suficiente para o consumidor real de hoje (CRM) funcionar, sem inventar recursos não pedidos (galeria, versionamento de arquivo, aprovação, tela de upload manual).
@@ -49,37 +48,6 @@ Não existe `urls.py` próprio — a rota de download vive em `apps.crm.urls` (`
 ## Templates
 
 Nenhum próprio — a listagem/download de anexos é renderizada dentro de `templates/crm/opportunity_detail.html` (aba "Anexos").
-=======
-`apps.attachments` está registrado em `INSTALLED_APPS` (`config/settings/base.py`) mas é hoje um **esqueleto vazio** — reservado para uma futura funcionalidade de fotos/anexos de equipamento (prevista na tela de cadastro, mas não é critério de aceite explícito da especificação original). Não é código morto no sentido de "sobrou de algo que existiu": nunca foi implementado.
-
-## Models
-
-`apps/attachments/models.py` contém só o boilerplate do `startapp` (`from django.db import models` + comentário). **Nenhum model, nenhuma migration real** (`migrations/` só tem `__init__.py`).
-
-## Services
-
-Não existe `services.py`.
-
-## Forms
-
-Não existe `forms.py`.
-
-## Views
-
-`apps/attachments/views.py` é boilerplate vazio (`from django.shortcuts import render`).
-
-## URLs
-
-Não existe `urls.py`. Não há rota nenhuma para este app.
-
-## Permissions
-
-Não aplicável — sem views, sem models.
-
-## Templates
-
-Nenhum.
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7
 
 ## JavaScript
 
@@ -87,7 +55,6 @@ Nenhum.
 
 ## Dependências
 
-<<<<<<< HEAD
 `django.contrib.contenttypes` (`GenericForeignKey`), `apps.accounts.models.User`.
 
 ## Quem chama apps.attachments
@@ -111,27 +78,3 @@ Nenhum.
 - **`GenericForeignKey`, não uma FK fixa** — decisão deliberada para não precisar de uma segunda tabela quando o próximo consumidor aparecer (fotos de equipamento, anexos de cliente, etc.).
 - **Sem storage paralelo**: a especificação de Produtos e Serviços exigia explicitamente "não criar storage paralelo" — como não havia NENHUM módulo de anexos real antes desta rodada (apesar do nome sugerir o contrário), implementar aqui é a única forma de cumprir essa regra sem inventar uma segunda arquitetura dentro de `apps.crm`.
 - **Download sempre autenticado** (`crm:attachment_download`), nunca um link `/media/` direto — os PDFs contêm dados comerciais sensíveis (endereço/documento do cliente, valores), e o Nginx/WhiteNoise que serve `/media/` em produção não aplica nenhuma checagem de permissão do Django.
-=======
-Nenhuma — o app não importa nada além do boilerplate padrão do Django.
-
-## Quem chama apps.attachments
-
-Nenhum outro app importa ou referencia `apps.attachments` — confirmado por busca textual em todo o projeto. Em particular, **não** tem FK para `Equipment` apesar do nome sugerir "anexos de equipamento" — a expectativa de que `apps.equipment`/`apps.crm` dependessem deste app não se confirma no código atual (a aba "Arquivos" da ficha de oportunidade do CRM, por exemplo, foi deliberadamente omitida por causa disso).
-
-## O que apps.attachments chama
-
-Nada.
-
-## Testes
-
-`apps/attachments/tests.py` é o stub padrão do `startapp` (`# Create your tests here.`), sem nenhum teste real.
-
-## Migrations
-
-Nenhuma.
-
-## Pontos importantes
-
-- **Mantido no repositório propositalmente**, não removido durante a limpeza desta rodada: é um placeholder para uma feature futura já prevista no roadmap ("fotos/anexos de equipamento"), não um resíduo de algo que existiu e foi abandonado. Removê-lo exigiria voltar a criá-lo do zero (registro em `INSTALLED_APPS`, `AppConfig`, etc.) no dia em que a feature for priorizada.
-- Se/quando esta funcionalidade for implementada, o padrão esperado pelo resto do projeto é: um `services.py` como único caminho de escrita, permissões via o catálogo aditivo (`apps.accounts.permission_catalog`, seguindo o padrão de `apps.crm`, já que é um app novo) ou via `RoleRequiredMixin`/`CAN_*` (seguindo o padrão legado da maioria dos apps) — a escolha entre os dois sistemas deve ser deliberada, não incidental (ver `docs/permissions.md`).
->>>>>>> 91fdd0e616b042df380c39e660beb2c204e822b7

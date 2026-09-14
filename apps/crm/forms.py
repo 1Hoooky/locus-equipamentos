@@ -17,6 +17,7 @@ em `Meta.permissions`/`clean()` do próprio modelo.
 """
 
 from django import forms
+from django.db.models import Count, Q
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -31,6 +32,7 @@ from apps.crm.models import (
     PaymentMethod,
 )
 from apps.crm.services import DocumentType, eligible_owner_queryset
+from apps.operations.forms import location_display_label
 from apps.operations.models import Location
 
 TEXT_INPUT_CLASS = "field-input"
@@ -350,24 +352,65 @@ class ProposalConditionsForm(forms.Form):
     """
     Condições comerciais/período/logística/financeiro/textos de uma
     `ProposalVersion` em rascunho — "Salvar rascunho" (seção 5/56/57).
+
+    REFINAMENTO VISUAL "PRODUTOS E SERVIÇOS" (14/09/2026) — correção da
+    especificação original: `price_table_label` (Tabela de preço),
+    `payment_method_other` (Outra forma) e `payment_condition` (Condição)
+    SAEM deste form — nenhum dos três tinha um catálogo/opções reais por
+    trás (auditoria confirmou: são só `CharField` livre em
+    `ProposalVersion`, sem entidade correspondente em lugar nenhum do
+    projeto), e a especificação corrigida pede para não inventar um
+    catálogo/estado temporário agora. Os TRÊS CAMPOS CONTINUAM EXISTINDO
+    no model (`apps.crm.models.ProposalVersion`) — não é seguro nem
+    pedido remover persistência só por uma mudança visual; só deixam de
+    ser expostos aqui. `services.ProposalConditionsData` recebe valores
+    vazios (`""`) para os três — seus próprios defaults já cobrem isso
+    (ver `ProposalConditionsSaveView.post()`).
+
+    `payment_method` continua existindo e agora é o ÚNICO campo do bloco
+    "Condições comerciais" — condições específicas de pagamento (ex.:
+    "50% de entrada via PIX e 50% em boleto para 28 dias") passam a ser
+    registradas no já existente `payment_info_notes` ("Informações de
+    valor e pagamento", abaixo), que já cobria esse propósito. A opção
+    "Outro" é removida das escolhas oferecidas aqui (`_PAYMENT_METHOD_CHOICES`)
+    porque, sem `payment_method_other`/lógica condicional (explicitamente
+    proibida pela correção), selecionar "Outro" não teria como ser
+    detalhado — ficaria um beco sem saída de validação. O valor
+    `PaymentMethod.OUTRO` continua existindo no enum do model (nenhuma
+    migration): só não é mais OFERECIDO nesta tela. Uma versão antiga
+    que já tenha `payment_method=OUTRO` salvo continua sendo aceita
+    normalmente por este form (não é um dos `choices`, mas o campo não é
+    `ModelChoiceField` restrito — é `ChoiceField` só para o WIDGET; o
+    valor gravado no banco não muda por reabrir o formulário).
     """
 
-    price_table_label = forms.CharField(label="Tabela de preço", required=False, max_length=100)
     payment_method = forms.ChoiceField(
-        label="Forma de pagamento", choices=(("", "—"),) + tuple(PaymentMethod.choices), required=False
+        label="Forma de pagamento",
+        choices=(("", "—"),) + tuple((value, label) for value, label in PaymentMethod.choices if value != PaymentMethod.OUTRO),
+        required=False,
     )
-    payment_method_other = forms.CharField(label="Outra forma (especifique)", required=False, max_length=100)
-    payment_condition = forms.CharField(label="Condição", required=False, max_length=150)
 
-    contracted_start_date = forms.DateField(label="Início contratado", required=False, widget=forms.DateInput(attrs={"type": "date"}))
-    contracted_end_date = forms.DateField(label="Final contratado", required=False, widget=forms.DateInput(attrs={"type": "date"}))
-    expected_delivery_date = forms.DateField(label="Entrega prevista (data)", required=False, widget=forms.DateInput(attrs={"type": "date"}))
-    expected_delivery_time = forms.TimeField(label="Entrega prevista (horário)", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
-    expected_pickup_date = forms.DateField(label="Retirada prevista (data)", required=False, widget=forms.DateInput(attrs={"type": "date"}))
-    expected_pickup_time = forms.TimeField(label="Retirada prevista (horário)", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
+    contracted_start_date = forms.DateField(label="Início do contrato", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    contracted_end_date = forms.DateField(label="Fim do contrato", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    expected_delivery_date = forms.DateField(label="Entrega prevista", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    expected_delivery_time = forms.TimeField(label="Horário de entrega", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
+    expected_pickup_date = forms.DateField(label="Retirada prevista", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    expected_pickup_time = forms.TimeField(label="Horário de retirada", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
     delivery_location = forms.ModelChoiceField(
         label="Local de entrega/operação",
-        queryset=Location.objects.filter(is_active=True).order_by("name"),
+        # `active_sibling_count` alimenta `location_display_label` (mesma
+        # annotation de `apps.operations.forms._destination_queryset`,
+        # sem cópia divergente da lógica) — evita 1 query extra por
+        # opção do select ao decidir "só o cliente" vs "Cliente —
+        # Unidade".
+        queryset=Location.objects.filter(is_active=True)
+        .select_related("client")
+        .annotate(
+            active_sibling_count=Count(
+                "client__locations", filter=Q(client__locations__is_active=True), distinct=True
+            )
+        )
+        .order_by("type", "name"),
         required=False,
         help_text="Reaproveita Location real (seção 41) — nunca sobrescreve o endereço fiscal do cliente.",
     )
@@ -378,18 +421,25 @@ class ProposalConditionsForm(forms.Form):
 
     special_clauses = forms.CharField(label="Cláusulas especiais", required=False, widget=forms.Textarea(attrs={"rows": 3}))
     payment_info_notes = forms.CharField(
-        label="Informações de valor e pagamento", required=False, widget=forms.Textarea(attrs={"rows": 3})
+        label="Informações de valor e pagamento",
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "rows": 3,
+                "placeholder": "Ex.: 50% de entrada via PIX e 50% em boleto para 28 dias.",
+            }
+        ),
+        help_text="Condições específicas de pagamento/parcelamento entram aqui (texto livre) — complementa 'Forma de pagamento' acima.",
     )
     general_notes = forms.CharField(label="Observações", required=False, widget=forms.Textarea(attrs={"rows": 3}))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _apply_input_class(self.fields)
+        self.fields["delivery_location"].label_from_instance = location_display_label
 
     def clean(self):
         cleaned = super().clean()
-        if cleaned.get("payment_method") == PaymentMethod.OUTRO and not cleaned.get("payment_method_other"):
-            self.add_error("payment_method_other", "Especifique a forma de pagamento quando escolher 'Outro'.")
         start = cleaned.get("contracted_start_date")
         end = cleaned.get("contracted_end_date")
         if start and end and end < start:

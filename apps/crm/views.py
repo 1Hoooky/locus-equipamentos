@@ -363,10 +363,13 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
         conditions_form = (
             ProposalConditionsForm(
                 initial={
-                    "price_table_label": current_version.price_table_label,
+                    # "Tabela de preço"/"Outra forma"/"Condição" não são
+                    # mais campos deste form (REFINAMENTO VISUAL,
+                    # 14/09/2026) — omitidos aqui de propósito; os valores
+                    # persistidos continuam intactos no banco (ver
+                    # `ProposalConditionsSaveView.post()`), só não fazem
+                    # mais parte do `initial` de exibição.
                     "payment_method": current_version.payment_method,
-                    "payment_method_other": current_version.payment_method_other,
-                    "payment_condition": current_version.payment_condition,
                     "contracted_start_date": current_version.contracted_start_date,
                     "contracted_end_date": current_version.contracted_end_date,
                     "expected_delivery_date": current_version.expected_delivery_date,
@@ -1141,10 +1144,23 @@ class ProposalConditionsSaveView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             update_draft_conditions(
                 proposal_version=version,
                 data=ProposalConditionsData(
-                    price_table_label=cleaned["price_table_label"],
+                    # "Tabela de preço"/"Outra forma"/"Condição" saíram da
+                    # UI (REFINAMENTO VISUAL, 14/09/2026 — correção da
+                    # especificação original), mas os 3 campos continuam
+                    # existindo em `ProposalVersion` (nenhuma migration
+                    # destrutiva). `update_draft_conditions()` GRAVA O
+                    # OBJETO INTEIRO a cada "Salvar rascunho" — se
+                    # passássemos "" aqui (o default do dataclass), um
+                    # valor já persistido (ex.: gravado antes desta
+                    # mudança, ou via admin) seria silenciosamente
+                    # apagado só porque o campo não está mais neste
+                    # formulário. Para preservar compatibilidade sem
+                    # reexpor os campos, repassamos o valor JÁ GRAVADO na
+                    # própria versão (sem alteração nenhuma).
+                    price_table_label=version.price_table_label,
                     payment_method=cleaned["payment_method"],
-                    payment_method_other=cleaned["payment_method_other"],
-                    payment_condition=cleaned["payment_condition"],
+                    payment_method_other=version.payment_method_other,
+                    payment_condition=version.payment_condition,
                     contracted_start_date=cleaned["contracted_start_date"],
                     contracted_end_date=cleaned["contracted_end_date"],
                     expected_delivery_date=cleaned["expected_delivery_date"],
