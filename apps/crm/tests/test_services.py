@@ -410,15 +410,27 @@ class CreateActivityTest(OpportunityServiceTestBase):
         )
 
     def test_creates_activity(self):
+        # RODADA 3 (14/09/2026): `ActivityType` não é mais `TextChoices` —
+        # o tipo "Ligação" semeado pela migration de dados é localizado
+        # por `code`, igual `get_observation_activity_type()` faz para
+        # "Observação".
+        ligacao = ActivityType.objects.get(code="LIGACAO")
         activity = create_activity(
-            NewActivityData(
-                opportunity=self.opportunity, activity_type=ActivityType.LIGACAO, created_by=self.owner, description="ligou"
-            )
+            NewActivityData(opportunity=self.opportunity, activity_type=ligacao, created_by=self.owner, description="ligou")
         )
         self.assertEqual(activity.opportunity, self.opportunity)
+        self.assertEqual(activity.activity_type, ligacao)
 
     def test_invalid_activity_type_is_rejected(self):
         with self.assertRaises(ValueError):
             create_activity(
                 NewActivityData(opportunity=self.opportunity, activity_type="INVALIDO", created_by=self.owner)
+            )
+
+    def test_unsaved_activity_type_is_rejected(self):
+        with self.assertRaises(ValueError):
+            create_activity(
+                NewActivityData(
+                    opportunity=self.opportunity, activity_type=ActivityType(name="Novo, não salvo"), created_by=self.owner
+                )
             )

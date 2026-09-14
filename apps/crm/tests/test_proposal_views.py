@@ -77,7 +77,7 @@ class ItemAddViewPermissionTest(ProposalViewsTestBase):
         client = self._login(self.owner)
         resp = client.post(
             reverse(self.url_name, args=[self.opportunity.pk]),
-            {"equipment_model": self.model.pk, "quantity": "2", "unit_price": "150.00", "item_discount_percent": "0"},
+            {"equipment_model": self.model.pk, "quantity": "2", "unit_price": "150.00", "item_discount_amount": "0"},
         )
         self.assertEqual(resp.status_code, 302)
         proposal = get_or_create_active_proposal(opportunity=self.opportunity, created_by=self.owner)
@@ -91,6 +91,47 @@ class ItemAddViewPermissionTest(ProposalViewsTestBase):
             {"equipment_model": self.model.pk, "quantity": "1", "unit_price": "10"},
         )
         self.assertEqual(resp.status_code, 403)
+
+
+class ItemDiscountAmountValidationTest(ProposalViewsTestBase):
+    """
+    RODADA 3 DE REFINAMENTOS (14/09/2026), seção 51-60: desconto do item
+    é R$ — a validação (nunca negativo, nunca maior que o bruto) acontece
+    tanto no form (erro amigável, sem round-trip até o banco) quanto no
+    service (defesa em profundidade), nunca só num dos dois.
+    """
+
+    url_name = "crm:proposal_item_add"
+
+    def test_discount_greater_than_gross_is_rejected_with_friendly_error(self):
+        client = self._login(self.owner)
+        resp = client.post(
+            reverse(self.url_name, args=[self.opportunity.pk]),
+            {"equipment_model": self.model.pk, "quantity": "1", "unit_price": "100.00", "item_discount_amount": "150.00"},
+        )
+        self.assertEqual(resp.status_code, 302)  # redireciona de volta com mensagem de erro, nada é criado
+        proposal = get_or_create_active_proposal(opportunity=self.opportunity, created_by=self.owner)
+        self.assertEqual(proposal.latest_version.items.count(), 0)
+
+    def test_discount_equal_to_gross_is_allowed(self):
+        """Item 100% "de graça" é um caso legítimo (desconto integral) — só MAIOR que o bruto é rejeitado."""
+        client = self._login(self.owner)
+        resp = client.post(
+            reverse(self.url_name, args=[self.opportunity.pk]),
+            {"equipment_model": self.model.pk, "quantity": "1", "unit_price": "100.00", "item_discount_amount": "100.00"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        proposal = get_or_create_active_proposal(opportunity=self.opportunity, created_by=self.owner)
+        item = proposal.latest_version.items.get()
+        self.assertEqual(item.item_discount_amount, Decimal("100.00"))
+        self.assertEqual(item.line_total, Decimal("0.00"))
+
+    def test_no_percent_symbol_anywhere_in_the_add_item_form(self):
+        client = self._login(self.owner)
+        resp = client.get(f"/crm/oportunidades/{self.opportunity.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Desconto do item (R$)")
+        self.assertNotContains(resp, "Desconto do item (%)")
 
 
 class GenerateDocumentViewPermissionTest(ProposalViewsTestBase):

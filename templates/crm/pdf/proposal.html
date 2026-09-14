@@ -36,7 +36,7 @@
 <div class="header">
   <div>
     <h1>Proposta Comercial de Locação</h1>
-    <div class="field-line"><span class="field-label">Número:</span> {{ proposal.number }} — Versão {{ version.version_number }}</div>
+    <div class="field-line"><span class="field-label">Número:</span> {{ version.display_label }}</div>
   </div>
   <div class="meta">
     <div>Emissão: {{ version.issued_at|date:"d/m/Y H:i" }}</div>
@@ -88,7 +88,7 @@
       <td>{{ item.description_snapshot }}</td>
       <td class="num">{{ item.quantity }}</td>
       <td class="num">{{ item.unit_price|brl }}</td>
-      <td class="num">{{ item.item_discount_percent }}%</td>
+      <td class="num">{{ item.item_discount_amount|brl }}</td>
       <td class="num">{{ item.line_total|brl }}</td>
       <td>{{ item.notes }}</td>
     </tr>

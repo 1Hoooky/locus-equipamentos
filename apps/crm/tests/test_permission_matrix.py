@@ -21,7 +21,7 @@ from django.contrib.auth.models import Group, Permission
 from django.test import TestCase
 
 from apps.clients.models import Client
-from apps.crm.models import BusinessType, CommercialSource, LossReason, Opportunity, OpportunityStage
+from apps.crm.models import ActivityType, BusinessType, CommercialSource, LossReason, Opportunity, OpportunityStage
 from apps.crm.services import NewOpportunityData, create_opportunity
 
 User = get_user_model()
@@ -212,7 +212,10 @@ class PermissionMatrixTest(TestCase):
 
     def test_register_activity(self):
         url = f"/crm/oportunidades/{self.opportunity.pk}/atividades/nova/"
-        payload = {"activity_type": "LIGACAO", "description": "ligação de teste"}
+        # RODADA 3 (14/09/2026): `activity_type` agora é um `ModelChoiceField`
+        # — o POST espera o `pk` do `ActivityType`, não mais a string do
+        # antigo enum.
+        payload = {"activity_type": ActivityType.objects.get(code="LIGACAO").pk, "description": "ligação de teste"}
 
         self.client.force_login(self.user_a)
         self._assert_denied(self.client.post(url, payload))
@@ -234,7 +237,11 @@ class PermissionMatrixTest(TestCase):
         `view_opportunities` não é suficiente para ver o conteúdo das
         atividades na página de detalhe (mesmo alcançando a página).
         """
-        self.opportunity.activities.create(activity_type="LIGACAO", description="conteudo-sensivel-atividade", created_by=self.creator)
+        self.opportunity.activities.create(
+            activity_type=ActivityType.objects.get(code="LIGACAO"),
+            description="conteudo-sensivel-atividade",
+            created_by=self.creator,
+        )
         url = f"/crm/oportunidades/{self.opportunity.pk}/"
 
         self.client.force_login(self.user_b)  # só view_opportunities

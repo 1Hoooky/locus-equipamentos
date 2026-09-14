@@ -119,6 +119,10 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
                class="sidebar-link {% if 'crm:loss_reason' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
               {% icon "x-circle" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Motivos de perda</span>
             </a>
+            <a href="{% url 'crm:activity_type_list' %}" title="Tipos de atividade" aria-label="Tipos de atividade"
+               class="sidebar-link {% if 'crm:activity_type' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
+              {% icon "chat-bubble-left-right" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Tipos de atividade</span>
+            </a>
             {% endif %}
           </div>
         </div>
@@ -276,6 +280,9 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
           </a>
           <a href="{% url 'crm:loss_reason_list' %}" class="mobile-menu-link {% if 'crm:loss_reason' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
             {% icon "x-circle" size="compact" %} Motivos de perda
+          </a>
+          <a href="{% url 'crm:activity_type_list' %}" class="mobile-menu-link {% if 'crm:activity_type' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
+            {% icon "chat-bubble-left-right" size="compact" %} Tipos de atividade
           </a>
           {% endif %}
         </div>

@@ -109,7 +109,7 @@ Sem `.js` dedicado — inline em `list.html` (grupos colapsáveis + carregamento
 
 ## Quem chama apps.equipment
 
-`apps.catalog` (reverse FK `equipment_set`), `apps.operations` (`Movement.equipment`, regras sobre `Equipment.status`), `apps.maintenance` (`Maintenance.equipment`/`Cleaning.equipment`, grava status/condition só via `apps.equipment.services`), `apps.qrcodes` (toda geração de QR/etiqueta), `apps.dashboard` (contadores). `apps.attachments` **não** referencia `apps.equipment` apesar do nome sugerir anexos de equipamento (app vazio).
+`apps.catalog` (reverse FK `equipment_set`), `apps.operations` (`Movement.equipment`, regras sobre `Equipment.status`), `apps.maintenance` (`Maintenance.equipment`/`Cleaning.equipment`, grava status/condition só via `apps.equipment.services`), `apps.qrcodes` (toda geração de QR/etiqueta), `apps.dashboard` (contadores). `apps.attachments` **não** referencia `apps.equipment` apesar do nome sugerir anexos de equipamento (app vazio). Desde a RODADA 3 do CRM (14/09/2026), `apps.crm.models.OpportunityEquipment` também referencia `Equipment` (via string reference, `on_delete=PROTECT` — nunca apagado por lá) e `apps.crm.views.OpportunityEquipmentSearchView` reaproveita `apps.equipment.filters.filter_equipment_queryset()` para a busca de patrimônio disponível; nenhum dos dois grava `Equipment.status`/`current_location` diretamente — isso continua sendo 100% `apps.operations.services.create_movement()`.
 
 ## Testes
 

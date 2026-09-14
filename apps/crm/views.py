@@ -39,6 +39,7 @@ from django.db.models.functions import Greatest
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.views import View
 from django.views.generic import ListView
 
@@ -52,9 +53,12 @@ from apps.core.hard_delete import HardDeleteBlocked
 from apps.core.templatetags.currency import format_brl
 from apps.crm.forms import (
     AcceptProposalVersionForm,
+    ActivityTypeForm,
     CommercialActivityForm,
     CommercialSourceForm,
     DocumentGenerationForm,
+    EquipmentLinkForm,
+    EquipmentUnlinkForm,
     LossReasonForm,
     OpportunityCreateForm,
     OpportunityStageChangeForm,
@@ -63,32 +67,50 @@ from apps.crm.forms import (
     ProposalConditionsForm,
     ProposalItemForm,
 )
-from apps.crm.models import CommercialSource, LossReason, Opportunity, OpportunityStage, ProposalItem
+from apps.crm.models import (
+    ActivityType,
+    CommercialSource,
+    LossReason,
+    Opportunity,
+    OpportunityEquipment,
+    OpportunityStage,
+    ProposalItem,
+)
 from apps.crm.services import (
     DocumentType,
+    LinkEquipmentData,
     NewActivityData,
     NewOpportunityData,
     OpportunityUpdateData,
     ProposalConditionsData,
     ProposalItemData,
+    UnlinkEquipmentData,
     acceptable_proposal_versions,
     accept_proposal_version,
     add_proposal_item,
     build_opportunity_timeline,
     change_opportunity_stage,
     check_availability,
+    OBSERVATION_ACTIVITY_TYPE_CODE,
     create_activity,
     create_new_version,
     create_opportunity,
     generate_documents,
+    get_observation_activity_type,
     get_or_create_active_proposal,
     hard_delete_opportunity,
+    link_equipment_to_opportunity,
+    linked_equipment_for,
     preview_opportunity_hard_delete,
     remove_proposal_item,
+    unlink_equipment_from_opportunity,
     update_draft_conditions,
     update_opportunity,
     update_proposal_item,
 )
+from apps.equipment.filters import filter_equipment_queryset
+from apps.equipment.models import Equipment, Status as EquipmentStatus
+from apps.operations.models import Location, LocationType
 
 # ---------------------------------------------------------------------------
 # Oportunidades
@@ -298,7 +320,12 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
         # comercial por qualquer variável de contexto acessível.
         can_view_activities = request.user.has_perm("crm.view_commercial_activities")
         activities = (
-            opportunity.activities.select_related("created_by").order_by("-created_at")
+            # `select_related("activity_type")` desde a RODADA 3
+            # (14/09/2026): `activity_type` virou FK (antes era um
+            # `TextChoices` sem join nenhum) — sem isso, `{{
+            # activity.activity_type.name }}` no template dispararia uma
+            # query por linha (N+1).
+            opportunity.activities.select_related("created_by", "activity_type").order_by("-created_at")
             if can_view_activities
             else opportunity.activities.none()
         )
@@ -308,6 +335,21 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
         # `view_commercial_activities`, para o template distinguir
         # "sem atividade" de "sem permissão para ver".
         last_activity = activities.first() if can_view_activities else None
+
+        # Observações (Visão Geral) — RODADA 3 DE REFINAMENTOS (14/09/2026).
+        # REAPROVEITA `CommercialActivity` (nenhum model novo de notas):
+        # é o mesmo `activities` já filtrado por permissão acima, só
+        # restrito ao tipo "Observação". `observation_activity_type` pode
+        # ser `None` se a migration de seed (`0004_seed_activitytype`)
+        # ainda não rodou no ambiente — nesse caso o botão "+" fica
+        # oculto em vez de quebrar a página (`can_add_observation` exige
+        # o tipo existir).
+        try:
+            observation_activity_type = get_observation_activity_type()
+        except ActivityType.DoesNotExist:
+            observation_activity_type = None
+        observations = activities.filter(activity_type=observation_activity_type) if observation_activity_type else activities.none()
+        can_add_observation = bool(observation_activity_type) and request.user.has_perm("crm.add_commercial_activities")
 
         can_change_stage = request.user.has_perm("crm.change_opportunity_stage")
 
@@ -336,6 +378,18 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
         # `change_opportunity_stage()` (semântica de "reabertura").
         can_show_registrar_perda = can_change_stage and bool(lost_stages) and not opportunity.stage.is_lost
         can_show_orcamento_aceito = can_change_stage and bool(won_stages) and not opportunity.stage.is_won
+
+        # "Retomar negociação" (seção 52-59, RODADA 3, 14/09/2026) — nova
+        # ação visível SOMENTE quando a oportunidade já está ganha. Etapa
+        # de destino: NUNCA hardcoda um nome — usa `open_stages` (ativas,
+        # nem ganho nem perda), calculado no view do MESMO jeito que
+        # `won_stages`/`lost_stages` (zero/uma/várias candidatas — mesma
+        # lógica de exibição do `<select>` vs. campo único). Reabrir usa o
+        # MESMO `change_opportunity_stage()`/endpoint de sempre — já limpa
+        # won_at/lost_at/loss_reason/loss_notes/closed_value ao mover para
+        # uma etapa intermediária, então nenhum serviço novo é necessário.
+        open_stages = [s for s in all_active_stages if not s.is_won and not s.is_lost]
+        can_show_retomar_negociacao = can_change_stage and bool(open_stages) and opportunity.stage.is_won
 
         # ------------------------------------------------------------
         # Produtos e Serviços (14/09/2026) — a composição comercial é
@@ -405,6 +459,39 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 initial={"stage": won_stages[0].pk if len(won_stages) == 1 else None}
             )
 
+        # ------------------------------------------------------------
+        # Equipamentos (RODADA 3, 14/09/2026, seção 60-68) — vincular
+        # patrimônio real via `create_movement()` (ver `apps.crm.services.
+        # link_equipment_to_opportunity()`/`unlink_equipment_from_
+        # opportunity()`). "CRM/comercial pode VER, Operação pode
+        # vincular/devolver": ver (esta aba) já está coberto por
+        # `crm.view_opportunities` (exigido para alcançar esta view
+        # inteira); a ESCRITA (vincular/desvincular) reaproveita
+        # `operations.register_operations` — a MESMA Permission que já
+        # existe desde a Fase 1 (mirror de `CAN_REGISTER_OPERATIONS`) para
+        # "manutenção/higienização/movimentação" — nenhuma Permission nova
+        # criada para esta aba.
+        #
+        # O botão "+ Vincular equipamento" só aparece quando existe pelo
+        # menos uma Location do tipo Cliente cadastrada para O CLIENTE
+        # desta Oportunidade (senão não haveria nenhum destino válido para
+        # a instalação) — mesmo raciocínio "zero/uma/várias candidatas" já
+        # usado para won_stages/lost_stages/open_stages acima.
+        can_link_equipment = request.user.has_perm("operations.register_operations")
+        equipment_links = list(linked_equipment_for(opportunity))
+        client_install_locations = (
+            list(
+                Location.objects.filter(is_active=True, type=LocationType.CLIENTE, client_id=opportunity.client_id).order_by(
+                    "name"
+                )
+            )
+            if can_link_equipment
+            else []
+        )
+        can_show_link_equipment = can_link_equipment and bool(client_install_locations)
+        link_equipment_form = EquipmentLinkForm(opportunity=opportunity) if can_show_link_equipment else None
+        unlink_equipment_form = EquipmentUnlinkForm() if can_link_equipment else None
+
         # `OpportunityDetailView.permission_required` já exige
         # `crm.view_opportunities` para chegar até aqui — nenhuma
         # checagem extra necessária para listar os anexos (Anexos ainda
@@ -413,12 +500,33 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
         attachments = list(attachments_for(opportunity))
         timeline = build_opportunity_timeline(opportunity)
 
+        # Download automático do PDF logo após "Gerar orçamento"/"Gerar
+        # contrato" (seção 30-51, RODADA 3, 14/09/2026):
+        # `ProposalGenerateDocumentView` redireciona para cá com
+        # `?baixar_pdf=<attachment_pk>` — nunca um id "confiado" cru: só
+        # vira `auto_download_url` se o Anexo existir E pertencer a ESTA
+        # Opportunity (mesma checagem de posse de `AttachmentDownloadView`).
+        # O disparo em si é só JS de conveniência no template (um
+        # download real via `Content-Disposition: attachment`, nunca
+        # `fetch`/AJAX) — a AUTORIDADE de acesso continua 100% em
+        # `AttachmentDownloadView`.
+        auto_download_url = None
+        download_attachment_id = request.GET.get("baixar_pdf")
+        if download_attachment_id:
+            candidate = next((a for a in attachments if str(a.pk) == download_attachment_id), None)
+            if candidate is not None:
+                auto_download_url = reverse("crm:attachment_download", args=[opportunity.pk, candidate.pk])
+
         context = {
             "opportunity": opportunity,
             "stage_changes": stage_changes,
             "timeline": timeline,
+            "auto_download_url": auto_download_url,
             "activities": activities,
             "last_activity": last_activity,
+            "observations": observations,
+            "can_add_observation": can_add_observation,
+            "observation_activity_type": observation_activity_type,
             "can_view_activities": can_view_activities,
             "can_change_opportunity": can_change_opportunity,
             "can_change_stage": can_change_stage,
@@ -430,6 +538,8 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
             "all_active_stages": all_active_stages,
             "can_show_registrar_perda": can_show_registrar_perda,
             "can_show_orcamento_aceito": can_show_orcamento_aceito,
+            "open_stages": open_stages,
+            "can_show_retomar_negociacao": can_show_retomar_negociacao,
             # Produtos e Serviços
             "proposal": proposal,
             "current_version": current_version,
@@ -441,6 +551,12 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
             "candidate_versions": candidate_versions,
             "can_issue_proposal": can_issue_proposal,
             "can_generate_contract": can_generate_contract,
+            # Equipamentos
+            "equipment_links": equipment_links,
+            "can_link_equipment": can_link_equipment,
+            "can_show_link_equipment": can_show_link_equipment,
+            "link_equipment_form": link_equipment_form,
+            "unlink_equipment_form": unlink_equipment_form,
             # Anexos
             "attachments": attachments,
         }
@@ -852,7 +968,8 @@ class CommercialActivityCreateView(LoginRequiredMixin, PermissionRequiredMixin, 
             messages.error(request, str(exc))
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
-        messages.success(request, "Atividade registrada.")
+        is_observation = cleaned["activity_type"].code == OBSERVATION_ACTIVITY_TYPE_CODE
+        messages.success(request, "Observação registrada." if is_observation else "Atividade registrada.")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
 
@@ -1001,6 +1118,59 @@ class LossReasonUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
         return render(request, "crm/loss_reason_form.html", {"form": form, "is_new": False, "reason": reason})
 
 
+# RODADA 3 DE REFINAMENTOS (14/09/2026): `ActivityType` migrou de
+# `TextChoices` fixo para entidade configurável — mesmo padrão exato das
+# 3 views acima, "excluir" nunca existe aqui também (só editar
+# `is_active`), mesma permissão `crm.manage_commercial_settings`
+# (nenhuma permissão nova criada).
+class ActivityTypeListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+    permission_required = "crm.manage_commercial_settings"
+    model = ActivityType
+    template_name = "crm/activity_type_list.html"
+    context_object_name = "activity_types"
+
+    def get_queryset(self):
+        return ActivityType.objects.all().order_by("order", "name")
+
+
+class ActivityTypeCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "crm.manage_commercial_settings"
+
+    def get(self, request):
+        return render(request, "crm/activity_type_form.html", {"form": ActivityTypeForm(), "is_new": True})
+
+    def post(self, request):
+        form = ActivityTypeForm(request.POST)
+        if form.is_valid():
+            activity_type = form.save()
+            messages.success(request, f"Tipo de atividade \"{activity_type.name}\" criado.")
+            return redirect("crm:activity_type_list")
+        return render(request, "crm/activity_type_form.html", {"form": form, "is_new": True})
+
+
+class ActivityTypeUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "crm.manage_commercial_settings"
+
+    def get(self, request, pk):
+        activity_type = get_object_or_404(ActivityType, pk=pk)
+        return render(
+            request,
+            "crm/activity_type_form.html",
+            {"form": ActivityTypeForm(instance=activity_type), "is_new": False, "activity_type": activity_type},
+        )
+
+    def post(self, request, pk):
+        activity_type = get_object_or_404(ActivityType, pk=pk)
+        form = ActivityTypeForm(request.POST, instance=activity_type)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"Tipo de atividade \"{activity_type.name}\" atualizado.")
+            return redirect("crm:activity_type_list")
+        return render(
+            request, "crm/activity_type_form.html", {"form": form, "is_new": False, "activity_type": activity_type}
+        )
+
+
 # ---------------------------------------------------------------------------
 # Produtos e Serviços / Proposta Comercial + Contrato (14/09/2026).
 #
@@ -1055,7 +1225,7 @@ class ProposalItemAddView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     equipment_model=cleaned["equipment_model"],
                     quantity=cleaned["quantity"],
                     unit_price=cleaned["unit_price"],
-                    item_discount_percent=cleaned["item_discount_percent"] or Decimal("0"),
+                    item_discount_amount=cleaned["item_discount_amount"] or Decimal("0"),
                     notes=cleaned["notes"],
                 ),
             )
@@ -1092,7 +1262,7 @@ class ProposalItemUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     equipment_model=cleaned["equipment_model"],
                     quantity=cleaned["quantity"],
                     unit_price=cleaned["unit_price"],
-                    item_discount_percent=cleaned["item_discount_percent"] or Decimal("0"),
+                    item_discount_amount=cleaned["item_discount_amount"] or Decimal("0"),
                     notes=cleaned["notes"],
                 ),
             )
@@ -1242,13 +1412,24 @@ class ProposalGenerateDocumentView(LoginRequiredMixin, PermissionRequiredMixin, 
             raise PermissionDenied("Você não tem permissão para gerar Contrato.")
 
         try:
-            generate_documents(proposal_version=version, document_type=document_type, actor=request.user)
+            result = generate_documents(proposal_version=version, document_type=document_type, actor=request.user)
         except ValueError as exc:
             messages.error(request, str(exc))
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
-        messages.success(request, "Documento(s) gerado(s) — ver aba Anexos.")
-        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+        # RODADA 3 DE REFINAMENTOS (14/09/2026), seção 30-51: gerar NUNCA
+        # é aceitar — a mensagem/o download automático não têm nenhum
+        # efeito sobre `Opportunity.stage`/`won_at` (isso continua
+        # exclusivo de `ProposalAcceptVersionView`/"ORÇAMENTO ACEITO").
+        # O PDF gerado já está em Anexos (repositório permanente); o
+        # download automático abaixo é só conveniência — nunca cria um
+        # segundo arquivo.
+        messages.success(request, "Orçamento gerado e salvo em Anexos — o download do PDF começou automaticamente.")
+        redirect_url = reverse("crm:opportunity_detail", args=[opportunity.pk])
+        download_attachment = result.get("download_attachment")
+        if download_attachment is not None:
+            redirect_url = f"{redirect_url}?baixar_pdf={download_attachment.pk}"
+        return redirect(redirect_url)
 
 
 class ProposalAcceptVersionView(LoginRequiredMixin, PermissionRequiredMixin, View):
@@ -1279,7 +1460,122 @@ class ProposalAcceptVersionView(LoginRequiredMixin, PermissionRequiredMixin, Vie
             messages.error(request, str(exc))
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
-        messages.success(request, f"Proposta {version.proposal.number} v{version.version_number} aceita — negócio ganho.")
+        messages.success(request, f"Proposta {version.display_label} aceita — negócio ganho.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+# ---------------------------------------------------------------------------
+# Equipamentos — vínculo Oportunidade↔patrimônio real (RODADA 3 DE
+# REFINAMENTOS, 14/09/2026, seção 60-68).
+# ---------------------------------------------------------------------------
+
+
+class OpportunityEquipmentSearchView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Busca de patrimônio DISPONÍVEL para vincular — SÓ LEITURA, AJAX, GET
+    (mesmo padrão de `OpportunityClientAutocompleteView`/
+    `AvailabilityCheckView`). Restrito a quem pode efetivamente vincular
+    (`operations.register_operations`, a MESMA Permission reaproveitada
+    pelas duas views de escrita abaixo) — não faz sentido expor a busca
+    de patrimônio a quem não pode usá-la.
+
+    Reaproveita `apps.equipment.filters.filter_equipment_queryset()`
+    (busca por patrimônio/número de série via `q`) — nunca uma cópia
+    divergente da lógica de busca já usada pela listagem de Equipamentos.
+    A queryset em si não depende de QUAL Oportunidade (`pk` na URL só
+    mantém a mesma estrutura aninhada do resto do CRM e serve de âncora
+    de permissão) — qualquer patrimônio `DISPONÍVEL` pode ser vinculado a
+    qualquer Oportunidade; não existe reserva de estoque por cliente
+    neste projeto.
+    """
+
+    permission_required = ("crm.view_opportunities", "operations.register_operations")
+    RESULT_LIMIT = 20
+
+    def get(self, request, pk):
+        get_object_or_404(Opportunity, pk=pk)
+        queryset = Equipment.objects.filter(is_active=True, status=EquipmentStatus.DISPONIVEL).select_related(
+            "model", "current_location"
+        )
+        queryset = filter_equipment_queryset(queryset, request.GET)
+        equipment_list = queryset.order_by("patrimonio")[: self.RESULT_LIMIT]
+        results = [
+            {
+                "id": equipment.pk,
+                "patrimonio": equipment.patrimonio,
+                "model": equipment.model.name,
+                "location": equipment.current_location.name if equipment.current_location else "—",
+            }
+            for equipment in equipment_list
+        ]
+        return JsonResponse({"results": results})
+
+
+class OpportunityEquipmentLinkView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """"Vincular equipamento" — único caminho de POST, sempre via `link_equipment_to_opportunity()`."""
+
+    permission_required = ("crm.view_opportunities", "operations.register_operations")
+
+    def post(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        form = EquipmentLinkForm(request.POST, opportunity=opportunity)
+        if not form.is_valid():
+            messages.error(request, "Não foi possível vincular o equipamento — corrija os erros abaixo.")
+            for field_errors in form.errors.values():
+                for error in field_errors:
+                    messages.error(request, error)
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        cleaned = form.cleaned_data
+        try:
+            link_equipment_to_opportunity(
+                LinkEquipmentData(
+                    opportunity=opportunity,
+                    equipment=cleaned["equipment"],
+                    destination_location=cleaned["destination_location"],
+                    actor=request.user,
+                    reason=cleaned["reason"],
+                )
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, f'Equipamento {cleaned["equipment"].patrimonio} vinculado.')
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class OpportunityEquipmentUnlinkView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """"Desvincular" — único caminho de POST, sempre via `unlink_equipment_from_opportunity()` (nunca DELETE)."""
+
+    permission_required = ("crm.view_opportunities", "operations.register_operations")
+
+    def post(self, request, pk, link_pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        link = get_object_or_404(OpportunityEquipment, pk=link_pk, opportunity=opportunity)
+        form = EquipmentUnlinkForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Não foi possível desvincular o equipamento — corrija os erros abaixo.")
+            for field_errors in form.errors.values():
+                for error in field_errors:
+                    messages.error(request, error)
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        cleaned = form.cleaned_data
+        try:
+            unlink_equipment_from_opportunity(
+                UnlinkEquipmentData(
+                    link=link,
+                    destination_location=cleaned["destination_location"],
+                    actor=request.user,
+                    reason=cleaned["reason"],
+                )
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, f"Equipamento {link.equipment.patrimonio} desvinculado.")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
 

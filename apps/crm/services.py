@@ -21,7 +21,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.attachments.models import AttachmentCategory, AttachmentSource
-from apps.attachments.services import NewAttachmentData, create_attachment
+from apps.attachments.services import NewAttachmentData, attachments_for, create_attachment
 from apps.catalog.models import EquipmentModel
 from apps.clients.models import Client
 from apps.core.hard_delete import (
@@ -39,6 +39,7 @@ from apps.crm.models import (
     LossReason,
     NumberingCounter,
     Opportunity,
+    OpportunityEquipment,
     OpportunityStage,
     OpportunityStageChange,
     Proposal,
@@ -46,6 +47,9 @@ from apps.crm.models import (
     ProposalVersion,
     ProposalVersionStatus,
 )
+from apps.equipment.models import Equipment
+from apps.operations.models import Location, LocationType, MovementType
+from apps.operations.services import NewMovementData, create_movement
 
 # ---------------------------------------------------------------------------
 # Elegibilidade de responsável comercial (owner)
@@ -305,13 +309,34 @@ def change_opportunity_stage(
 
 # ---------------------------------------------------------------------------
 # Atividades comerciais — só registro (criar/ver), sem edição nesta etapa.
+#
+# RODADA 3 DE REFINAMENTOS (14/09/2026): `ActivityType` deixou de ser
+# `TextChoices` e virou entidade configurável (ver docstring do model) —
+# `NewActivityData.activity_type` agora é a INSTÂNCIA de `ActivityType`
+# (não mais a string do enum antigo). `OBSERVATION_ACTIVITY_TYPE_CODE` é
+# o valor estável de `ActivityType.code` semeado pela migration de dados
+# para o tipo "Observação" — usado pelo botão "+" da Visão Geral para
+# localizar esse tipo sem depender do `pk`/nome (que o Administrador pode
+# reordenar/renomear) nem duplicar o mecanismo de registro de atividade.
 # ---------------------------------------------------------------------------
+
+OBSERVATION_ACTIVITY_TYPE_CODE = "OBSERVACAO"
+
+
+def get_observation_activity_type() -> ActivityType:
+    """
+    Localiza o tipo "Observação" reaproveitado pelo botão "+" da Visão
+    Geral. Levanta `ActivityType.DoesNotExist` se a migration de seed
+    ainda não rodou ou se o tipo foi inativado — quem chama decide como
+    tratar (nunca silenciosamente cria um tipo novo aqui).
+    """
+    return ActivityType.objects.get(code=OBSERVATION_ACTIVITY_TYPE_CODE)
 
 
 @dataclass
 class NewActivityData:
     opportunity: Opportunity
-    activity_type: str
+    activity_type: ActivityType
     created_by: User
     description: str = ""
     occurred_at: datetime | None = None
@@ -320,7 +345,7 @@ class NewActivityData:
 
 
 def create_activity(data: NewActivityData) -> CommercialActivity:
-    if data.activity_type not in ActivityType.values:
+    if not isinstance(data.activity_type, ActivityType) or data.activity_type.pk is None:
         raise ValueError(f"Tipo de atividade inválido: {data.activity_type!r}.")
 
     return CommercialActivity.objects.create(
@@ -352,6 +377,13 @@ def create_activity(data: NewActivityData) -> CommercialActivity:
 #       etapa desta oportunidade, sem sentido órfão.
 #     - `CommercialActivity.opportunity` (`CASCADE`) — atividades
 #       comerciais desta oportunidade, mesmo raciocínio.
+#     - `OpportunityEquipment.opportunity` (`CASCADE`, RODADA 3,
+#       14/09/2026) — o PONTEIRO Oportunidade↔Equipamento em si (quem
+#       vinculou, quando). Excluir a Opportunity NUNCA cascateia para o
+#       `Equipment`/`Movement` referenciados por essas linhas (a FK
+#       aponta PARA FORA, `PROTECT` — ver docstring do model): o
+#       patrimônio físico e seu histórico operacional continuam intactos
+#       mesmo que a Oportunidade que originou a instalação seja excluída.
 #   REGISTROS COMPARTILHADOS (NUNCA excluídos/alterados por aqui — todas
 #   as outras FKs de `Opportunity` apontam PARA fora, então excluir a
 #   Opportunity nunca dispara o `on_delete` do lado deles):
@@ -383,12 +415,15 @@ def preview_opportunity_hard_delete(opportunity: Opportunity) -> HardDeleteImpac
     stage_changes = opportunity.stage_changes.count()
     activities = opportunity.activities.count()
     proposals = opportunity.proposals.count()
+    equipment_links = opportunity.equipment_links.count()
     if stage_changes:
         dependents["histórico de etapas"] = stage_changes
     if activities:
         dependents["atividades comerciais"] = activities
     if proposals:
         dependents["propostas (com versões e itens)"] = proposals
+    if equipment_links:
+        dependents["vínculos de equipamento (o patrimônio em si NUNCA é excluído)"] = equipment_links
     return HardDeleteImpact(target_label=f'a oportunidade "{opportunity.title}"', dependents=dependents)
 
 
@@ -473,7 +508,9 @@ def calculate_proposal_version(version: ProposalVersion) -> ProposalVersion:
     persistir/emissão"). Ordem exata da seção 24:
 
       1. bruto de cada item = unit_price × quantity;
-      2. aplica desconto do item (percentual);
+      2. aplica desconto do item — RODADA 3 (14/09/2026): MONETÁRIO em
+         R$ (`item_discount_amount`), não mais percentual — mesma unidade
+         do desconto geral (seção 51-60);
       3. soma os totais líquidos dos itens = subtotal;
       4. total = subtotal − desconto geral (monetário) + juros + frete.
 
@@ -486,8 +523,7 @@ def calculate_proposal_version(version: ProposalVersion) -> ProposalVersion:
     subtotal = Decimal("0.00")
     for item in version.items.all():
         gross = (item.unit_price * item.quantity).quantize(Decimal("0.01"))
-        discount_fraction = item.item_discount_percent / Decimal("100")
-        line_total = (gross * (Decimal("1") - discount_fraction)).quantize(Decimal("0.01"))
+        line_total = (gross - item.item_discount_amount).quantize(Decimal("0.01"))
         if line_total != item.line_total:
             item.line_total = line_total
             item.save(update_fields=["line_total"])
@@ -548,7 +584,9 @@ class ProposalItemData:
     equipment_model: EquipmentModel
     quantity: int
     unit_price: Decimal
-    item_discount_percent: Decimal = Decimal("0.00")
+    # RODADA 3 DE REFINAMENTOS (14/09/2026): valor MONETÁRIO em R$ (era
+    # percentual) — ver docstring de `ProposalItem.item_discount_amount`.
+    item_discount_amount: Decimal = Decimal("0.00")
     notes: str = ""
 
 
@@ -560,8 +598,11 @@ def _validate_item_fields(data: ProposalItemData) -> None:
         raise ValueError("Quantidade deve ser um número inteiro positivo.")
     if data.unit_price < 0:
         raise ValueError("Valor unitário não pode ser negativo.")
-    if not (Decimal("0") <= data.item_discount_percent <= Decimal("100")):
-        raise ValueError("Desconto do item deve estar entre 0% e 100%.")
+    if data.item_discount_amount < 0:
+        raise ValueError("Desconto do item não pode ser negativo.")
+    gross = data.unit_price * data.quantity
+    if data.item_discount_amount > gross:
+        raise ValueError("Desconto do item não pode ser maior que o valor bruto do item (quantidade × valor unitário).")
 
 
 @transaction.atomic
@@ -576,7 +617,7 @@ def add_proposal_item(*, proposal_version: ProposalVersion, data: ProposalItemDa
         description_snapshot=f"{data.equipment_model.name} ({data.equipment_model.code})",
         quantity=data.quantity,
         unit_price=data.unit_price,
-        item_discount_percent=data.item_discount_percent,
+        item_discount_amount=data.item_discount_amount,
         notes=data.notes,
         order=next_order,
     )
@@ -593,7 +634,7 @@ def update_proposal_item(*, item: ProposalItem, data: ProposalItemData) -> Propo
     item.description_snapshot = f"{data.equipment_model.name} ({data.equipment_model.code})"
     item.quantity = data.quantity
     item.unit_price = data.unit_price
-    item.item_discount_percent = data.item_discount_percent
+    item.item_discount_amount = data.item_discount_amount
     item.notes = data.notes
     item.save()
     calculate_proposal_version(item.proposal_version)
@@ -776,9 +817,18 @@ def issue_proposal(*, proposal_version: ProposalVersion, issued_by: User) -> Pro
             category=AttachmentCategory.ORCAMENTO_PROPOSTA,
             created_by=issued_by,
             file_content=pdf_bytes,
-            filename=f"{proposal_version.proposal.number}-v{proposal_version.version_number}.pdf",
+            # RODADA 3 (14/09/2026): nome de arquivo/descrição seguem a
+            # MESMA nomenclatura de exibição — "PROPOSTA-000001.pdf"
+            # (versão única) ou "PROPOSTA-000001-V2.pdf" (2ª versão em
+            # diante), nunca "PROP-000001-v1.pdf". Nunca renomeia/apaga
+            # PDFs antigos já em Anexos — só o nome do PRÓXIMO arquivo
+            # gerado muda.
+            filename=(
+                f"{proposal_version.proposal.display_number}"
+                f"{f'-V{proposal_version.version_number}' if proposal_version.version_number > 1 else ''}.pdf"
+            ),
             source=AttachmentSource.SYSTEM,
-            description=f"Proposta Comercial — {proposal_version.proposal.number} v{proposal_version.version_number}",
+            description=f"Proposta Comercial — {proposal_version.display_label}",
         )
     )
     return proposal_version
@@ -829,7 +879,7 @@ def create_new_version(*, proposal: Proposal, created_by: User) -> ProposalVersi
             description_snapshot=item.description_snapshot,
             quantity=item.quantity,
             unit_price=item.unit_price,
-            item_discount_percent=item.item_discount_percent,
+            item_discount_amount=item.item_discount_amount,
             notes=item.notes,
             order=item.order,
         )
@@ -864,10 +914,7 @@ def generate_contract(*, proposal_version: ProposalVersion, created_by: User) ->
             file_content=pdf_bytes,
             filename=f"{number}.pdf",
             source=AttachmentSource.SYSTEM,
-            description=(
-                f"Contrato — {number} (a partir de {proposal_version.proposal.number} "
-                f"v{proposal_version.version_number})"
-            ),
+            description=f"Contrato — {number} (a partir de {proposal_version.display_label})",
         )
     )
     return contract
@@ -909,6 +956,22 @@ def generate_documents(*, proposal_version: ProposalVersion, document_type: str,
             issue_proposal(proposal_version=proposal_version, issued_by=actor)
         result["contract"] = generate_contract(proposal_version=proposal_version, created_by=actor)
 
+    # RODADA 3 DE REFINAMENTOS (14/09/2026), seção 30-51: "download
+    # automático do PDF" — o Anexo PRIMÁRIO a baixar depende do tipo
+    # escolhido: "Proposta Comercial"/"Proposta + Contrato" → PDF da
+    # Proposta (o que o usuário pediu primeiro); "Contrato" sozinho →
+    # PDF do Contrato. Sempre o mais recente da categoria certa — já
+    # existente (versão reaproveitada, nenhum PDF novo gerado à toa) OU
+    # recém-criado nesta chamada, nunca uma segunda geração só para achar
+    # o anexo a baixar.
+    opportunity = proposal_version.proposal.opportunity
+    if "proposal_version" in result:
+        result["download_attachment"] = (
+            attachments_for(opportunity).filter(category=AttachmentCategory.ORCAMENTO_PROPOSTA).first()
+        )
+    elif "contract" in result:
+        result["download_attachment"] = attachments_for(opportunity).filter(category=AttachmentCategory.CONTRATO).first()
+
     return result
 
 
@@ -944,7 +1007,7 @@ def accept_proposal_version(*, proposal_version: ProposalVersion, accepted_by: U
         opportunity_id=proposal_version.proposal.opportunity_id,
         new_stage=won_stage,
         changed_by=accepted_by,
-        reason=f"Proposta {proposal_version.proposal.number} v{proposal_version.version_number} aceita.",
+        reason=f"Proposta {proposal_version.display_label} aceita.",
         closed_value=proposal_version.total,
     )
     return proposal_version
@@ -977,13 +1040,18 @@ def build_opportunity_timeline(opportunity: Opportunity) -> list[TimelineEntry]:
 
     proposals = opportunity.proposals.prefetch_related("versions", "versions__contracts").order_by("created_at")
     for proposal in proposals:
-        entries.append(TimelineEntry(when=proposal.created_at, label=f"Proposta {proposal.number} criada.", actor=str(proposal.created_by)))
+        entries.append(
+            TimelineEntry(when=proposal.created_at, label=f"Proposta {proposal.display_number} criada.", actor=str(proposal.created_by))
+        )
         for version in proposal.versions.all():
+            # Histórico é sempre PRECISO sobre qual versão — ao contrário
+            # de `display_label` (que omite "— Versão 1" quando só existe
+            # uma), aqui nomeamos a versão sempre, mesmo a primeira.
             if version.issued_at:
                 entries.append(
                     TimelineEntry(
                         when=version.issued_at,
-                        label=f"Proposta {proposal.number} — Versão {version.version_number} emitida.",
+                        label=f"Proposta {proposal.display_number} — Versão {version.version_number} emitida.",
                         actor=str(version.issued_by) if version.issued_by else "",
                     )
                 )
@@ -991,7 +1059,7 @@ def build_opportunity_timeline(opportunity: Opportunity) -> list[TimelineEntry]:
                 entries.append(
                     TimelineEntry(
                         when=version.accepted_at,
-                        label=f"Proposta {proposal.number} — Versão {version.version_number} aceita.",
+                        label=f"Proposta {proposal.display_number} — Versão {version.version_number} aceita.",
                         actor=str(version.accepted_by) if version.accepted_by else "",
                     )
                 )
@@ -1000,5 +1068,149 @@ def build_opportunity_timeline(opportunity: Opportunity) -> list[TimelineEntry]:
                     TimelineEntry(when=contract.created_at, label=f"Contrato {contract.number} gerado.", actor=str(contract.created_by))
                 )
 
+    for link in opportunity.equipment_links.select_related("equipment", "linked_by", "unlinked_by"):
+        entries.append(
+            TimelineEntry(
+                when=link.linked_at, label=f"Equipamento {link.equipment.patrimonio} vinculado.", actor=str(link.linked_by)
+            )
+        )
+        if link.unlinked_at:
+            entries.append(
+                TimelineEntry(
+                    when=link.unlinked_at,
+                    label=f"Equipamento {link.equipment.patrimonio} desvinculado.",
+                    actor=str(link.unlinked_by) if link.unlinked_by else "",
+                )
+            )
+
     entries.sort(key=lambda entry: entry.when, reverse=True)
     return entries
+
+
+# ---------------------------------------------------------------------------
+# Equipamentos — vínculo Oportunidade↔patrimônio real (RODADA 3 DE
+# REFINAMENTOS, 14/09/2026, seção 60-68). Ver docstring de
+# `apps.crm.models.OpportunityEquipment` para o raciocínio completo do
+# model; aqui mora o ÚNICO caminho suportado para criar/encerrar um
+# vínculo — nunca `OpportunityEquipment.objects.create()`/edição direta
+# em view/form, mesma convenção de todo o resto deste arquivo.
+# ---------------------------------------------------------------------------
+
+
+def linked_equipment_for(opportunity: Opportunity) -> QuerySet[OpportunityEquipment]:
+    """
+    Todos os vínculos desta Oportunidade — ativos e já encerrados,
+    vínculo mais recente primeiro (`Meta.ordering` do model). Usado pela
+    aba "Equipamentos" do Hub; mesmo raciocínio de `attachments_for()`
+    (uma função pequena e óbvia em vez de repetir o `select_related` em
+    cada view que precisa da lista).
+    """
+    return opportunity.equipment_links.select_related(
+        "equipment", "equipment__model", "equipment__category", "equipment__current_location", "linked_by", "unlinked_by"
+    )
+
+
+@dataclass
+class LinkEquipmentData:
+    opportunity: Opportunity
+    equipment: Equipment
+    destination_location: Location
+    actor: User
+    reason: str = ""
+
+
+@transaction.atomic
+def link_equipment_to_opportunity(data: LinkEquipmentData) -> OpportunityEquipment:
+    """
+    "Vincular equipamento" — instala um patrimônio físico REAL (já em
+    estoque, `status=DISPONIVEL`) por conta desta Oportunidade.
+
+    Reaproveita 100% `apps.operations.services.create_movement()`
+    (`MovementType.INSTALACAO`) — o MESMO caminho já usado pela ficha do
+    equipamento: `create_movement()` já valida a transição de status
+    (equipamento precisa estar `DISPONIVEL`, sob `select_for_update()` —
+    a mesma trava que serializa duas tentativas concorrentes de vincular
+    o MESMO patrimônio, uma delas vê o status já mudado e falha com
+    mensagem clara), já muda `Equipment.status`/`current_location`/
+    `current_client` e já grava o `Movement`. Nada disso é repetido ou
+    reimplementado aqui — `apps.equipment.services.change_status()`
+    NUNCA é chamado diretamente por este service (violaria "único
+    caminho de escrita" de `create_movement()`).
+
+    `destination_location` precisa ser uma `Location` do tipo CLIENTE
+    pertencente ao `Client` desta Oportunidade — nunca qualquer unidade
+    "solta" (o form/view já restringe as opções oferecidas a isso; esta
+    checagem é a segunda camada, igual ao resto do projeto).
+    """
+    if data.destination_location.type != LocationType.CLIENTE:
+        raise ValueError("O local de instalação precisa ser uma unidade do tipo Cliente.")
+    if data.destination_location.client_id != data.opportunity.client_id:
+        raise ValueError("O local de instalação precisa pertencer ao cliente desta oportunidade.")
+
+    movement = create_movement(
+        NewMovementData(
+            equipment_id=data.equipment.pk,
+            movement_type=MovementType.INSTALACAO,
+            created_by=data.actor,
+            destination_location=data.destination_location,
+            reason=data.reason.strip() or f'Vinculado à oportunidade "{data.opportunity.title}".',
+        )
+    )
+
+    return OpportunityEquipment.objects.create(
+        opportunity=data.opportunity,
+        equipment=data.equipment,
+        linked_by=data.actor,
+        linked_movement=movement,
+    )
+
+
+@dataclass
+class UnlinkEquipmentData:
+    link: OpportunityEquipment
+    destination_location: Location
+    actor: User
+    reason: str = ""
+
+
+@transaction.atomic
+def unlink_equipment_from_opportunity(data: UnlinkEquipmentData) -> OpportunityEquipment:
+    """
+    "Desvincular" — NUNCA um DELETE da linha nem uma troca solta de
+    status: reaproveita `create_movement()` (`MovementType.RETIRADA`, o
+    MESMO evento operacional que a ficha do equipamento já usa para
+    "retirar do cliente/voltar ao estoque" — exige `status=EM_OPERACAO`
+    e destino do tipo Estoque, validado por `create_movement()`) e só
+    então fecha o vínculo (`unlinked_at`/`unlinked_by`/
+    `unlinked_movement`) — a linha em si nunca é apagada, preservando
+    para sempre quem vinculou/desvinculou, quando, e os dois `Movement`s
+    envolvidos.
+
+    Relê `link` sob `select_for_update()` — não confia no objeto já
+    carregado pelo chamador: serializa duas tentativas concorrentes de
+    desvincular o MESMO vínculo (a segunda vê `unlinked_at` já
+    preenchido e falha com mensagem clara, nunca duas Movements de
+    retirada para o mesmo patrimônio).
+    """
+    link = OpportunityEquipment.objects.select_for_update().select_related("opportunity", "equipment").get(pk=data.link.pk)
+    if link.unlinked_at is not None:
+        raise ValueError("Este vínculo já foi encerrado.")
+
+    if data.destination_location.type != LocationType.ESTOQUE:
+        raise ValueError("O destino da devolução precisa ser uma unidade do tipo Estoque.")
+
+    movement = create_movement(
+        NewMovementData(
+            equipment_id=link.equipment_id,
+            movement_type=MovementType.RETIRADA,
+            created_by=data.actor,
+            destination_location=data.destination_location,
+            reason=data.reason.strip() or f'Desvinculado da oportunidade "{link.opportunity.title}".',
+        )
+    )
+
+    link.unlinked_at = timezone.now()
+    link.unlinked_by = data.actor
+    link.unlinked_movement = movement
+    link.save(update_fields=["unlinked_at", "unlinked_by", "unlinked_movement"])
+    return link

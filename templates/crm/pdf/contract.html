@@ -31,7 +31,7 @@
 
 <div class="header">
   <h1>Contrato de Locação de Equipamentos</h1>
-  <div class="field-line">Contrato {{ contract.number }} — referente à {{ proposal.number }} v{{ version.version_number }}</div>
+  <div class="field-line">Contrato {{ contract.number }} — referente à {{ version.display_label }}</div>
   <div class="field-line">Emitido em {{ contract.created_at|date:"d/m/Y H:i" }}</div>
 </div>
 
@@ -87,7 +87,7 @@
 <div class="text-block">
   [TEXTO JURÍDICO A SER FORNECIDO PELA LOCUS — este contrato reflete fielmente cliente, local,
   período, produtos, quantidades, preços, descontos, frete, total e condições da Proposta
-  Comercial {{ proposal.number }} v{{ version.version_number }}, mas não contém cláusulas
+  Comercial {{ version.display_label }}, mas não contém cláusulas
   jurídicas definitivas.]
 </div>
 

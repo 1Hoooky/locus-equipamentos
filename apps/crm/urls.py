@@ -71,6 +71,23 @@ urlpatterns = [
         views.AttachmentDownloadView.as_view(),
         name="attachment_download",
     ),
+    # Equipamentos — vínculo Oportunidade↔patrimônio real (RODADA 3 DE
+    # REFINAMENTOS, 14/09/2026, seção 60-68).
+    path(
+        "oportunidades/<int:pk>/equipamentos/buscar/",
+        views.OpportunityEquipmentSearchView.as_view(),
+        name="opportunity_equipment_search",
+    ),
+    path(
+        "oportunidades/<int:pk>/equipamentos/vincular/",
+        views.OpportunityEquipmentLinkView.as_view(),
+        name="opportunity_equipment_link",
+    ),
+    path(
+        "oportunidades/<int:pk>/equipamentos/<int:link_pk>/desvincular/",
+        views.OpportunityEquipmentUnlinkView.as_view(),
+        name="opportunity_equipment_unlink",
+    ),
     path("configuracoes/origens/", views.CommercialSourceListView.as_view(), name="commercial_source_list"),
     path("configuracoes/origens/nova/", views.CommercialSourceCreateView.as_view(), name="commercial_source_create"),
     path(
@@ -91,5 +108,14 @@ urlpatterns = [
         "configuracoes/motivos-perda/<int:pk>/editar/",
         views.LossReasonUpdateView.as_view(),
         name="loss_reason_update",
+    ),
+    # Tipos de atividade — RODADA 3 DE REFINAMENTOS (14/09/2026): mesmo
+    # padrão de Origens/Etapas/Motivos de perda acima.
+    path("configuracoes/tipos-atividade/", views.ActivityTypeListView.as_view(), name="activity_type_list"),
+    path("configuracoes/tipos-atividade/novo/", views.ActivityTypeCreateView.as_view(), name="activity_type_create"),
+    path(
+        "configuracoes/tipos-atividade/<int:pk>/editar/",
+        views.ActivityTypeUpdateView.as_view(),
+        name="activity_type_update",
     ),
 ]

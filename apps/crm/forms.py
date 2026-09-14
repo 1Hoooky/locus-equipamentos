@@ -16,6 +16,8 @@ comum é suficiente e correto: não há regra de negócio além do que já está
 em `Meta.permissions`/`clean()` do próprio modelo.
 """
 
+from decimal import Decimal
+
 from django import forms
 from django.db.models import Count, Q
 from django.urls import reverse
@@ -32,8 +34,9 @@ from apps.crm.models import (
     PaymentMethod,
 )
 from apps.crm.services import DocumentType, eligible_owner_queryset
+from apps.equipment.models import Equipment, Status as EquipmentStatus
 from apps.operations.forms import location_display_label
-from apps.operations.models import Location
+from apps.operations.models import Location, LocationType
 
 TEXT_INPUT_CLASS = "field-input"
 
@@ -125,6 +128,65 @@ class ClientAutocompleteWidget(forms.Widget):
             display_name,
             name,
             client_pk,
+        )
+
+
+class EquipmentAutocompleteWidget(forms.Widget):
+    """
+    Widget do campo "Equipamento" de `EquipmentLinkForm` — Aba
+    "Equipamentos", RODADA 3 DE REFINAMENTOS (14/09/2026, seção 60-68).
+    MESMO raciocínio/contrato de `ClientAutocompleteWidget` acima
+    (reaproveita, de propósito, o CSS genérico `.client-autocomplete-*`
+    de `templates/_design_tokens.html` — já documentado lá como
+    "reaproveitamento futuro em outro campo de busca-e-seleção"; só os
+    atributos `data-*` são próprios, para não colidir com o widget de
+    Cliente se algum dia aparecerem na mesma página): dois `<input>` (um
+    texto visível de busca, sem `name`; um oculto com o `name` real do
+    campo), busca real no backend (`apps.crm.views.
+    OpportunityEquipmentSearchView`, via `static/crm/
+    equipment_link_autocomplete.js`), campo continua sendo um
+    `ModelChoiceField` de verdade — o POST só pode conter um PK de
+    `Equipment` já dentro do queryset restrito do form (`status=
+    DISPONIVEL`), nunca um valor "confiado" de texto digitado.
+
+    A busca precisa saber PARA QUAL Oportunidade é (`opportunity_id`,
+    passado pelo form) só para montar a URL — a queryset de busca em si
+    não depende da Oportunidade (qualquer patrimônio disponível pode ser
+    vinculado a qualquer Oportunidade; não existe reserva de estoque por
+    cliente neste projeto).
+    """
+
+    def __init__(self, *args, opportunity_id=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.opportunity_id = opportunity_id
+
+    def render(self, name, value, attrs=None, renderer=None):
+        display_name = ""
+        equipment_pk = ""
+        if value not in (None, ""):
+            try:
+                equipment = Equipment.objects.filter(pk=value).select_related("model").first()
+            except (ValueError, TypeError):
+                equipment = None
+            if equipment is not None:
+                equipment_pk = equipment.pk
+                display_name = f"{equipment.patrimonio} — {equipment.model.name}"
+
+        widget_id = (attrs or {}).get("id") or f"id_{name}"
+        search_url = reverse("crm:opportunity_equipment_search", args=[self.opportunity_id]) if self.opportunity_id else ""
+        return format_html(
+            '<div class="client-autocomplete" data-equipment-autocomplete data-equipment-autocomplete-url="{}">'
+            '<input type="text" id="{}" class="field-input" autocomplete="off" '
+            'placeholder="Buscar por patrimônio ou número de série..." value="{}" data-equipment-autocomplete-input '
+            'role="combobox" aria-expanded="false" aria-autocomplete="list">'
+            '<input type="hidden" name="{}" value="{}" data-equipment-autocomplete-hidden>'
+            '<div class="client-autocomplete-dropdown" data-equipment-autocomplete-dropdown role="listbox" hidden></div>'
+            "</div>",
+            search_url,
+            widget_id,
+            display_name,
+            name,
+            equipment_pk,
         )
 
 
@@ -252,7 +314,13 @@ class OpportunityStageChangeForm(forms.Form):
 
 
 class CommercialActivityForm(forms.Form):
-    activity_type = forms.ChoiceField(label="Tipo", choices=ActivityType.choices)
+    # RODADA 3 (14/09/2026): `ActivityType` deixou de ser `TextChoices` e
+    # virou entidade configurável (mesmo padrão de CommercialSource/
+    # OpportunityStage/LossReason) — o campo agora lista só os tipos
+    # ATIVOS, na mesma ordem de exibição usada nos demais seletores.
+    activity_type = forms.ModelChoiceField(
+        label="Tipo", queryset=ActivityType.objects.filter(is_active=True).order_by("order", "name")
+    )
     description = forms.CharField(label="Descrição", required=False, widget=forms.Textarea(attrs={"rows": 3}))
     occurred_at = forms.DateTimeField(
         label="Quando aconteceu", required=False, widget=forms.DateTimeInput(attrs={"type": "datetime-local"})
@@ -319,6 +387,24 @@ class LossReasonForm(forms.ModelForm):
         _apply_input_class(self.fields, skip=("is_active",))
 
 
+class ActivityTypeForm(forms.ModelForm):
+    """
+    RODADA 3 DE REFINAMENTOS (14/09/2026) — mesmo padrão exato de
+    `CommercialSourceForm`/`LossReasonForm` acima; `code` nunca aparece
+    aqui (não está em `fields`) — é um detalhe técnico interno, não algo
+    que o Administrador edita.
+    """
+
+    class Meta:
+        model = ActivityType
+        fields = ("name", "order", "is_active")
+        labels = {"name": "Nome", "order": "Ordem", "is_active": "Ativo"}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_input_class(self.fields, skip=("is_active",))
+
+
 # ---------------------------------------------------------------------------
 # Produtos e Serviços / Proposta Comercial (14/09/2026) — todos `forms.Form`
 # (não `ModelForm`), mesmo raciocínio de `OpportunityCreateForm`/
@@ -338,14 +424,35 @@ class ProposalItemForm(forms.Form):
     )
     quantity = forms.IntegerField(label="Quantidade", min_value=1)
     unit_price = forms.DecimalField(label="Valor unitário", max_digits=10, decimal_places=2, min_value=0)
-    item_discount_percent = forms.DecimalField(
-        label="Desconto do item (%)", max_digits=5, decimal_places=2, min_value=0, max_value=100, required=False
+    # RODADA 3 DE REFINAMENTOS (14/09/2026): desconto do item deixou de
+    # ser PERCENTUAL e virou um valor MONETÁRIO em R$ (mesma unidade do
+    # desconto geral, que já era R$ — experiência consistente, seção
+    # 51-60). `max_value` fixo não existe mais (o teto é dinâmico: nunca
+    # maior que o bruto quantidade × valor unitário — validado em
+    # `clean()` abaixo E de novo em `apps.crm.services._validate_item_fields()`,
+    # mesma defesa em profundidade já usada noutros forms do projeto).
+    item_discount_amount = forms.DecimalField(
+        label="Desconto do item (R$)", max_digits=10, decimal_places=2, min_value=0, required=False
     )
     notes = forms.CharField(label="Observação", required=False, widget=forms.Textarea(attrs={"rows": 2}))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _apply_input_class(self.fields)
+
+    def clean(self):
+        cleaned = super().clean()
+        quantity = cleaned.get("quantity")
+        unit_price = cleaned.get("unit_price")
+        discount = cleaned.get("item_discount_amount") or Decimal("0.00")
+        if quantity is not None and unit_price is not None:
+            gross = Decimal(quantity) * unit_price
+            if discount > gross:
+                self.add_error(
+                    "item_discount_amount",
+                    "Desconto não pode ser maior que o valor bruto do item (quantidade × valor unitário).",
+                )
+        return cleaned
 
 
 class ProposalConditionsForm(forms.Form):
@@ -472,3 +579,70 @@ class AcceptProposalVersionForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _apply_input_class(self.fields, skip=("proposal_version",))
+
+
+# ---------------------------------------------------------------------------
+# Equipamentos — vínculo Oportunidade↔patrimônio real (RODADA 3 DE
+# REFINAMENTOS, 14/09/2026, seção 60-68).
+# ---------------------------------------------------------------------------
+
+
+class EquipmentLinkForm(forms.Form):
+    """
+    "Vincular equipamento" — `equipment` é restrito a patrimônio REAL,
+    ativo e `status=DISPONIVEL` (a mesma exigência que `apps.operations.
+    services.create_movement()`/`MovementType.INSTALACAO` já impõe; o
+    form só evita que um patrimônio indisponível sequer apareça como
+    opção válida — a validação de verdade continua no service, dupla
+    camada de sempre). `destination_location` é restrito às unidades
+    ATIVAS do tipo Cliente do PRÓPRIO cliente desta Oportunidade —
+    nunca uma unidade "solta" de outro cliente.
+    """
+
+    equipment = forms.ModelChoiceField(
+        label="Equipamento (patrimônio)",
+        queryset=Equipment.objects.filter(is_active=True, status=EquipmentStatus.DISPONIVEL).select_related("model"),
+    )
+    destination_location = forms.ModelChoiceField(label="Local de instalação", queryset=Location.objects.none())
+    reason = forms.CharField(label="Observação (opcional)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(self, *args, opportunity=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.opportunity = opportunity
+        opportunity_id = opportunity.pk if opportunity is not None else None
+        self.fields["equipment"].widget = EquipmentAutocompleteWidget(opportunity_id=opportunity_id)
+
+        client_locations = Location.objects.none()
+        if opportunity is not None:
+            client_locations = (
+                Location.objects.filter(is_active=True, type=LocationType.CLIENTE, client_id=opportunity.client_id)
+                .select_related("client")
+                .annotate(
+                    active_sibling_count=Count(
+                        "client__locations", filter=Q(client__locations__is_active=True), distinct=True
+                    )
+                )
+                .order_by("name")
+            )
+        self.fields["destination_location"].queryset = client_locations
+        self.fields["destination_location"].label_from_instance = location_display_label
+
+        _apply_input_class(self.fields, skip=("equipment",))
+
+
+class EquipmentUnlinkForm(forms.Form):
+    """
+    "Desvincular" — `destination_location` restrito às unidades ATIVAS
+    do tipo Estoque (o mesmo destino que `MovementType.RETIRADA` exige
+    em `apps.operations.services.create_movement()`).
+    """
+
+    destination_location = forms.ModelChoiceField(label="Devolver para", queryset=Location.objects.none())
+    reason = forms.CharField(label="Observação (opcional)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["destination_location"].queryset = Location.objects.filter(
+            is_active=True, type=LocationType.ESTOQUE
+        ).order_by("name")
+        _apply_input_class(self.fields)

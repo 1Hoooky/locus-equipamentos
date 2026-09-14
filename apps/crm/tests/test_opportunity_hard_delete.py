@@ -19,6 +19,7 @@ from django.test import TestCase
 
 from apps.clients.models import Client, ClientType
 from apps.crm.models import (
+    ActivityType,
     BusinessType,
     CommercialActivity,
     CommercialSource,
@@ -99,7 +100,10 @@ class OpportunityHardDeleteServiceTest(TestCase):
         )
         create_activity(
             NewActivityData(
-                opportunity=self.opportunity, activity_type="LIGACAO", created_by=self.manager, description="Ligação teste"
+                opportunity=self.opportunity,
+                activity_type=ActivityType.objects.get(code="LIGACAO"),
+                created_by=self.manager,
+                description="Ligação teste",
             )
         )
         opportunity_id = self.opportunity.pk

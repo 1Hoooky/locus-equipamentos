@@ -54,6 +54,11 @@ só que já preenchendo `closed_value` a partir do total da versão aceita.
         {% icon "check-circle" size="compact" %} Orçamento aceito
       </button>
       {% endif %}
+      {% if can_show_retomar_negociacao %}
+      <button type="button" class="btn-neutral" data-open-modal="opp-retomar-negociacao-modal">
+        {% icon "arrow-uturn-left" size="compact" %} Retomar negociação
+      </button>
+      {% endif %}
       {% if can_change_opportunity or user.is_superuser %}
       <div class="action-menu" data-action-menu>
         <button type="button" class="icon-btn-neutral" data-action-menu-trigger aria-haspopup="true" aria-expanded="false">
@@ -114,14 +119,17 @@ só que já preenchendo `closed_value` a partir do total da versão aceita.
   <div class="mt-4 flex flex-wrap items-center gap-3">
     <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Etapa atual</span>
     {% if can_change_stage %}
-    <form method="post" action="{% url 'crm:opportunity_change_stage' opportunity.pk %}" class="flex flex-wrap items-center gap-2" id="opp-quick-stage-form">
+    {# Select + Aplicar sempre lado a lado a partir de `sm:` (nunca      #}
+    {# empilhado em desktop/notebook, por mais larga que a etapa mais    #}
+    {# longa deixe o select) — só empilha abaixo de `sm:`, se precisar.  #}
+    <form method="post" action="{% url 'crm:opportunity_change_stage' opportunity.pk %}" class="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto" id="opp-quick-stage-form">
       {% csrf_token %}
-      <select name="stage" id="opp-quick-stage-select" class="field-input w-auto">
+      <select name="stage" id="opp-quick-stage-select" class="field-input w-full sm:w-auto">
         {% for stage in all_active_stages %}
         <option value="{{ stage.pk }}" data-is-won="{{ stage.is_won|yesno:"true,false" }}" data-is-lost="{{ stage.is_lost|yesno:"true,false" }}" {% if stage.pk == opportunity.stage.pk %}selected{% endif %}>{{ stage.name }}</option>
         {% endfor %}
       </select>
-      <button type="submit" class="btn-neutral btn-sm">Aplicar</button>
+      <button type="submit" class="btn-neutral shrink-0">Aplicar</button>
     </form>
     {% else %}
       {% if opportunity.stage.is_won %}<span class="badge-success">{{ opportunity.stage.name }}</span>
@@ -163,7 +171,7 @@ só que já preenchendo `closed_value` a partir do total da versão aceita.
     <div class="stat-strip-item">
       <span class="stat-strip-label">Última atividade</span>
       <span class="stat-strip-value">
-        {% if last_activity %}{{ last_activity.get_activity_type_display }} · {{ last_activity.created_at|date:"d/m/Y" }}{% else %}—{% endif %}
+        {% if last_activity %}{{ last_activity.activity_type.name }} · {{ last_activity.created_at|date:"d/m/Y" }}{% else %}—{% endif %}
       </span>
     </div>
     {% endif %}
@@ -213,9 +221,41 @@ só que já preenchendo `closed_value` a partir do total da versão aceita.
   {# ---------------- Visão geral ---------------- #}
   <div class="tab-panel" id="panel-visao-geral" role="tabpanel" aria-labelledby="tab-visao-geral" data-tab-panel="visao-geral">
     <div>
-      <h3 class="section-subheading">Observações</h3>
-      {% if opportunity.notes %}
-      <p class="text-sm text-gray-700 whitespace-pre-line">{{ opportunity.notes }}</p>
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="section-subheading">Observações</h3>
+        {% if can_add_observation %}
+        <button type="button" class="icon-btn-neutral" data-open-modal="opp-observation-modal"
+                aria-label="Adicionar observação" title="Adicionar observação">
+          {% icon "plus" size="compact" %}
+        </button>
+        {% endif %}
+      </div>
+      {% comment %}
+      RODADA 3 DE REFINAMENTOS (14/09/2026): `opportunity.notes` (texto
+      livre único, preenchido na criação/edição da oportunidade — ver
+      `OpportunityCreateForm`/`OpportunityUpdateForm`) CONTINUA exibido
+      aqui exatamente como antes — nada removido. As novas observações
+      registradas pelo botão "+" são uma coisa DIFERENTE (uma LISTA
+      datada/com autor) e aparecem logo abaixo — REAPROVEITANDO
+      `CommercialActivity` (nenhum model novo de "notas"; ver
+      `apps.crm.services.get_observation_activity_type()`), com o mesmo
+      tipo "Observação" que já existe na aba Atividades (ambas as telas
+      mostram o mesmo registro, nenhuma duplicação).
+      {% endcomment %}
+      {% if opportunity.notes or observations %}
+        {% if opportunity.notes %}
+        <p class="text-sm text-gray-700 whitespace-pre-line">{{ opportunity.notes }}</p>
+        {% endif %}
+        {% if observations %}
+        <ul class="space-y-2 {% if opportunity.notes %}mt-3 pt-3 border-t border-gray-100{% endif %}">
+          {% for obs in observations %}
+          <li class="text-sm timeline-item py-1">
+            <span class="text-gray-500">{{ obs.created_at|date:"d/m/Y H:i" }} — {{ obs.created_by }}</span>
+            <p class="text-gray-700 whitespace-pre-line">{{ obs.description }}</p>
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
       {% else %}
       <p class="text-sm text-gray-500">Nenhuma observação cadastrada.</p>
       {% endif %}
@@ -240,7 +280,7 @@ só que já preenchendo `closed_value` a partir do total da versão aceita.
     <ul class="space-y-2 mb-4">
       {% for activity in activities %}
       <li class="text-sm timeline-item py-1">
-        <span class="font-medium">{{ activity.get_activity_type_display }}</span>
+        <span class="font-medium">{{ activity.activity_type.name }}</span>
         <span class="text-gray-500"> · {{ activity.created_by }} · {{ activity.created_at|date:"d/m/Y H:i" }}</span>
         {% if activity.description %}<p class="text-gray-600">{{ activity.description }}</p>{% endif %}
         {% if activity.scheduled_for %}<p class="text-gray-500">Próximo passo agendado: {{ activity.scheduled_for|date:"d/m/Y H:i" }}</p>{% endif %}
@@ -278,13 +318,62 @@ só que já preenchendo `closed_value` a partir do total da versão aceita.
   {# ---------------- Equipamentos ---------------- #}
   <div class="tab-panel" id="panel-equipamentos" role="tabpanel" aria-labelledby="tab-equipamentos" data-tab-panel="equipamentos" hidden>
     {% comment %}
-      Não existe nenhum vínculo Oportunidade↔Equipamento no projeto hoje
-      (auditoria desta rodada) — estado vazio estático, sem nenhuma
-      consulta nova, sem novo model, sem alterar estoque/patrimônio. O
-      desenho real deste vínculo fica para uma etapa futura (ver
-      relatório).
+      RODADA 3 DE REFINAMENTOS (14/09/2026, seção 60-68): vínculo real
+      Oportunidade↔Equipamento, via `apps.crm.services.
+      link_equipment_to_opportunity()`/`unlink_equipment_from_
+      opportunity()` — que só fazem a movimentação operacional de verdade
+      através de `apps.operations.services.create_movement()` (o MESMO
+      caminho já usado pela ficha do equipamento). "CRM/comercial pode
+      VER" já está coberto por `crm.view_opportunities` (exige-se para
+      alcançar esta página inteira); "Operação pode vincular/devolver" é
+      `can_link_equipment` (reaproveita `operations.register_operations`,
+      nenhuma Permission nova).
     {% endcomment %}
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="section-subheading">Equipamentos vinculados</h3>
+      {% if can_show_link_equipment %}
+      <button type="button" class="icon-btn-neutral" data-open-modal="opp-equipment-link-modal"
+              aria-label="Vincular equipamento" title="Vincular equipamento">
+        {% icon "plus" size="compact" %}
+      </button>
+      {% endif %}
+    </div>
+    {% if can_link_equipment and not can_show_link_equipment %}
+    <p class="text-xs text-gray-500 mt-1">
+      Nenhuma unidade cadastrada para este cliente — cadastre uma unidade (Localização do tipo Cliente) antes de vincular um equipamento.
+    </p>
+    {% endif %}
+
+    {% if equipment_links %}
+    <ul class="space-y-2 mt-3">
+      {% for link in equipment_links %}
+      <li class="text-sm timeline-item py-1">
+        <div class="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <span class="font-medium">{{ link.equipment.patrimonio }}</span>
+            <span class="text-gray-500"> — {{ link.equipment.model.name }} ({{ link.equipment.category.name }})</span>
+            <span class="badge-info ml-1">{{ link.equipment.get_status_display }}</span>
+            {% if link.unlinked_at %}<span class="badge-neutral ml-1">Desvinculado</span>{% endif %}
+            <p class="text-gray-500">
+              Localização atual: {{ link.equipment.current_location|default:"—" }}
+            </p>
+            <p class="text-gray-500">
+              Vinculado em {{ link.linked_at|date:"d/m/Y H:i" }} por {{ link.linked_by }}
+              {% if link.unlinked_at %} · Desvinculado em {{ link.unlinked_at|date:"d/m/Y H:i" }} por {{ link.unlinked_by }}{% endif %}
+            </p>
+          </div>
+          {% if can_link_equipment and not link.unlinked_at %}
+          <button type="button" class="btn-neutral" data-open-modal="opp-equipment-unlink-modal-{{ link.pk }}">
+            {% icon "arrow-uturn-left" size="compact" %} Desvincular
+          </button>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
     <p class="empty-state">Nenhum equipamento vinculado.</p>
+    {% endif %}
   </div>
 
   {# ---------------- Histórico ---------------- #}
@@ -436,10 +525,241 @@ só que já preenchendo `closed_value` a partir do total da versão aceita.
 </div>
 {% endif %}
 
-{% if can_change_stage %}
-<script src="{% static 'crm/opportunity_detail.js' %}"></script>
+{# -------------------------------------------------------------------- #}
+{# Modal "Retomar negociação" — RODADA 3 DE REFINAMENTOS (14/09/2026),   #}
+{# seção 38-45. MESMO backend das demais trocas de etapa                 #}
+{# (`crm:opportunity_change_stage` → `change_opportunity_stage()`):      #}
+{# mover para uma etapa intermediária (nem ganho, nem perda) já limpa,   #}
+{# por conta própria, `won_at`/`closed_value`/`loss_reason`/`loss_notes` #}
+{# da Opportunity (ver docstring do service) — NUNCA apaga a           #}
+{# `ProposalVersion` aceita, `accepted_at`/`accepted_by`, o PDF, o       #}
+{# `Contract` ou qualquer `Movement`/histórico (nada disso vive em       #}
+{# `Opportunity`, nada disso é tocado por este POST). Nenhum service     #}
+{# novo — reaproveita 100% o mesmo caminho de "Registrar perda"/         #}
+{# "Orçamento aceito" acima, só com etapa de destino/mensagem            #}
+{# diferentes. Etapa de destino: NUNCA hardcoda um nome — usa            #}
+{# `open_stages` (ativas, nem ganho nem perda), calculado no view do     #}
+{# MESMO jeito que `won_stages`/`lost_stages` (ver                       #}
+{# `OpportunityDetailView.get`): esconde o botão se zero, pré-seleciona  #}
+{# via campo oculto se só uma, mostra `<select>` se houver mais de uma   #}
+{# — "não assumir silenciosamente" (seção 45).                          #}
+{# -------------------------------------------------------------------- #}
+{% if can_show_retomar_negociacao %}
+<div id="opp-retomar-negociacao-modal" class="kanban-modal-backdrop" hidden aria-hidden="true">
+  <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="opp-retomar-negociacao-modal-title">
+    <div class="kanban-modal-header">
+      <h2 class="kanban-modal-title icon-inline" id="opp-retomar-negociacao-modal-title">
+        {% icon "arrow-uturn-left" size="compact" %} Retomar negociação
+      </h2>
+      <button type="button" class="icon-btn-neutral" data-close-modal="opp-retomar-negociacao-modal" aria-label="Fechar">
+        {% icon "x-mark" size="compact" %}
+      </button>
+    </div>
+    <form method="post" action="{% url 'crm:opportunity_change_stage' opportunity.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="reason" value="Negociação retomada.">
+      <div class="kanban-modal-body">
+        <p class="text-sm text-gray-700">
+          Esta oportunidade já foi marcada como ganha. Ao retomar: ela voltará ao fluxo comercial; o aceite
+          anterior continuará registrado no histórico; propostas/documentos antigos serão preservados.
+        </p>
+        {% if open_stages|length > 1 %}
+        <div>
+          <label class="field-label" for="opp-retomar-negociacao-modal-stage">Nova etapa</label>
+          <select name="stage" id="opp-retomar-negociacao-modal-stage" class="field-input">
+            {% for stage in open_stages %}<option value="{{ stage.pk }}">{{ stage.name }}</option>{% endfor %}
+          </select>
+        </div>
+        {% else %}
+        <input type="hidden" name="stage" value="{{ open_stages.0.pk }}">
+        {% endif %}
+      </div>
+      <div class="kanban-modal-footer">
+        <button type="button" class="btn-neutral" data-close-modal="opp-retomar-negociacao-modal">Cancelar</button>
+        <button type="submit" class="btn-primary">Retomar negociação</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endif %}
+
+{# -------------------------------------------------------------------- #}
+{# Modal "Adicionar observação" — Visão Geral, RODADA 3 DE REFINAMENTOS  #}
+{# (14/09/2026). MESMO backend/validação da aba Atividades               #}
+{# (`crm:activity_create` → `CommercialActivityForm` →                   #}
+{# `create_activity()`), nunca um segundo mecanismo de notas: o form     #}
+{# aqui só pede o texto — o tipo "Observação" vai num campo oculto,      #}
+{# resolvido no backend por `get_observation_activity_type()` (nunca um  #}
+{# id hardcoded no HTML). MESMA família `.kanban-modal-*` dos modais     #}
+{# acima — nenhum componente novo, nenhum `prompt()` nativo.             #}
+{# -------------------------------------------------------------------- #}
+{% if can_add_observation %}
+<div id="opp-observation-modal" class="kanban-modal-backdrop" hidden aria-hidden="true">
+  <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="opp-observation-modal-title">
+    <div class="kanban-modal-header">
+      <h2 class="kanban-modal-title icon-inline" id="opp-observation-modal-title">
+        {% icon "chat-bubble-left-right" size="compact" %} Adicionar observação
+      </h2>
+      <button type="button" class="icon-btn-neutral" data-close-modal="opp-observation-modal" aria-label="Fechar">
+        {% icon "x-mark" size="compact" %}
+      </button>
+    </div>
+    <form method="post" action="{% url 'crm:activity_create' opportunity.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="activity_type" value="{{ observation_activity_type.pk }}">
+      <div class="kanban-modal-body">
+        <div>
+          <label class="field-label" for="opp-observation-modal-description">Observação</label>
+          <textarea name="description" id="opp-observation-modal-description" class="field-input" rows="4" required></textarea>
+        </div>
+      </div>
+      <div class="kanban-modal-footer">
+        <button type="button" class="btn-neutral" data-close-modal="opp-observation-modal">Cancelar</button>
+        <button type="submit" class="btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# -------------------------------------------------------------------- #}
+{# Modal "Vincular equipamento" — aba Equipamentos, RODADA 3 DE          #}
+{# REFINAMENTOS (14/09/2026, seção 60-68). Busca de patrimônio via       #}
+{# `static/crm/equipment_link_autocomplete.js` (MESMO padrão do widget   #}
+{# de Cliente, ver `apps.crm.forms.EquipmentAutocompleteWidget`) — o     #}
+{# POST só é aceito com um `Equipment` de verdade, disponível, dentro do #}
+{# queryset restrito do form; o backend (`link_equipment_to_opportunity`)#}
+{# nunca confia em texto digitado.                                       #}
+{# -------------------------------------------------------------------- #}
+{% if can_show_link_equipment %}
+<div id="opp-equipment-link-modal" class="kanban-modal-backdrop" hidden aria-hidden="true">
+  <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="opp-equipment-link-modal-title">
+    <div class="kanban-modal-header">
+      <h2 class="kanban-modal-title icon-inline" id="opp-equipment-link-modal-title">
+        {% icon "tag" size="compact" %} Vincular equipamento
+      </h2>
+      <button type="button" class="icon-btn-neutral" data-close-modal="opp-equipment-link-modal" aria-label="Fechar">
+        {% icon "x-mark" size="compact" %}
+      </button>
+    </div>
+    <form method="post" action="{% url 'crm:opportunity_equipment_link' opportunity.pk %}">
+      {% csrf_token %}
+      <div class="kanban-modal-body space-y-3">
+        <div>
+          <label class="field-label" for="id_equipment">{{ link_equipment_form.equipment.label }}</label>
+          {{ link_equipment_form.equipment }}
+          {% for error in link_equipment_form.equipment.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        </div>
+        <div>
+          <label class="field-label" for="{{ link_equipment_form.destination_location.id_for_label }}">{{ link_equipment_form.destination_location.label }}</label>
+          {{ link_equipment_form.destination_location }}
+          {% for error in link_equipment_form.destination_location.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        </div>
+        <div>
+          <label class="field-label" for="{{ link_equipment_form.reason.id_for_label }}">{{ link_equipment_form.reason.label }}</label>
+          {{ link_equipment_form.reason }}
+        </div>
+      </div>
+      <div class="kanban-modal-footer">
+        <button type="button" class="btn-neutral" data-close-modal="opp-equipment-link-modal">Cancelar</button>
+        <button type="submit" class="btn-primary">Vincular</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# -------------------------------------------------------------------- #}
+{# Modais "Desvincular" — um por vínculo ATIVO (a URL de POST carrega o  #}
+{# `link.pk`, então cada linha precisa do seu próprio modal/form; a      #}
+{# MESMA `EquipmentUnlinkForm` é reaproveitada para todas as instâncias, #}
+{# só a `action` do `<form>` muda).                                     #}
+{# -------------------------------------------------------------------- #}
+{% if can_link_equipment %}
+{% for link in equipment_links %}
+{% if not link.unlinked_at %}
+<div id="opp-equipment-unlink-modal-{{ link.pk }}" class="kanban-modal-backdrop" hidden aria-hidden="true">
+  <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="opp-equipment-unlink-modal-{{ link.pk }}-title">
+    <div class="kanban-modal-header">
+      <h2 class="kanban-modal-title icon-inline" id="opp-equipment-unlink-modal-{{ link.pk }}-title">
+        {% icon "arrow-uturn-left" size="compact" %} Desvincular {{ link.equipment.patrimonio }}
+      </h2>
+      <button type="button" class="icon-btn-neutral" data-close-modal="opp-equipment-unlink-modal-{{ link.pk }}" aria-label="Fechar">
+        {% icon "x-mark" size="compact" %}
+      </button>
+    </div>
+    <form method="post" action="{% url 'crm:opportunity_equipment_unlink' opportunity.pk link.pk %}">
+      {% csrf_token %}
+      <div class="kanban-modal-body space-y-3">
+        <p class="text-sm text-gray-700">
+          Registra a retirada real deste patrimônio do cliente e devolve ao estoque — o vínculo com esta oportunidade
+          continua no histórico, nunca é apagado.
+        </p>
+        <div>
+          <label class="field-label" for="opp-equipment-unlink-modal-{{ link.pk }}-destination">{{ unlink_equipment_form.destination_location.label }}</label>
+          <select name="destination_location" id="opp-equipment-unlink-modal-{{ link.pk }}-destination" class="field-input">
+            {% for choice in unlink_equipment_form.fields.destination_location.queryset %}
+            <option value="{{ choice.pk }}">{{ choice }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="opp-equipment-unlink-modal-{{ link.pk }}-reason">{{ unlink_equipment_form.reason.label }}</label>
+          <textarea name="reason" id="opp-equipment-unlink-modal-{{ link.pk }}-reason" class="field-input" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="kanban-modal-footer">
+        <button type="button" class="btn-neutral" data-close-modal="opp-equipment-unlink-modal-{{ link.pk }}">Cancelar</button>
+        <button type="submit" class="btn-primary">Desvincular</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{# RODADA 3 (14/09/2026): deixou de ser condicional a `can_change_stage` —   #}
+{# o JS é 100% genérico/defensivo (só faz `querySelector`/liga listener em  #}
+{# elementos que existirem, ver docstring do próprio arquivo), e agora      #}
+{# também abre/fecha o modal "Adicionar observação" (visível para quem só  #}
+{# tem `crm.add_commercial_activities`, sem `change_opportunity_stage`).   #}
+{# Carregar sempre evita ter que lembrar de atualizar esta condição a       #}
+{# cada novo modal (equipamento/retomar negociação, próximas seções).       #}
+<script src="{% static 'crm/opportunity_detail.js' %}"></script>
 {% if item_form %}
 <script src="{% static 'crm/proposal_composition.js' %}"></script>
+{% endif %}
+{% if can_show_link_equipment %}
+<script src="{% static 'crm/equipment_link_autocomplete.js' %}"></script>
+{% endif %}
+
+{% if auto_download_url %}
+{# --------------------------------------------------------------------#}
+{# Download automático do PDF após "Gerar orçamento"/"Gerar contrato"   #}
+{# (seção 30-51, RODADA 3, 14/09/2026) — NUNCA condicionado a           #}
+{# `item_form` (logo após gerar, a versão vira ISSUED e `item_form`     #}
+{# some, mas o download precisa acontecer JUSTO neste redirect).        #}
+{# `auto_download_url` já foi resolvido/validado 100% no backend        #}
+{# (`OpportunityDetailView.get`, contra o Anexo pertencer a ESTA        #}
+{# Opportunity) — aqui é só um clique simulado num link real            #}
+{# (`Content-Disposition: attachment`, nunca fetch/blob), a mesma       #}
+{# rota autenticada `AttachmentDownloadView` de sempre. Depois do       #}
+{# clique, remove `?baixar_pdf=` da URL (History API) para um F5 não    #}
+{# baixar de novo.                                                      #}
+{# --------------------------------------------------------------------#}
+<a id="opp-auto-download-link" href="{{ auto_download_url }}" hidden aria-hidden="true" rel="noopener"></a>
+<script>
+  (function () {
+    var link = document.getElementById("opp-auto-download-link");
+    if (!link) return;
+    link.click();
+    if (window.history && window.history.replaceState) {
+      var url = new URL(window.location.href);
+      url.searchParams.delete("baixar_pdf");
+      window.history.replaceState({}, document.title, url.toString());
+    }
+  })();
+</script>
 {% endif %}
 {% endblock %}

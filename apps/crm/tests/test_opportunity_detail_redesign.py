@@ -28,6 +28,7 @@ from django.test import TestCase
 
 from apps.clients.models import Client
 from apps.crm.models import (
+    ActivityType,
     BusinessType,
     CommercialSource,
     LossReason,
@@ -358,7 +359,9 @@ class NormalStageChangeStillWorksTest(OpportunityDetailRedesignTestBase):
 class ActivitiesAndHistoryStillDisplayTest(OpportunityDetailRedesignTestBase):
     def test_commercial_activity_still_displays_in_the_activities_tab(self):
         self.opportunity.activities.create(
-            activity_type="LIGACAO", description="ligação de acompanhamento redesign", created_by=self.creator
+            activity_type=ActivityType.objects.get(code="LIGACAO"),
+            description="ligação de acompanhamento redesign",
+            created_by=self.creator,
         )
         actor = self._viewer("activities_display_redesign", "view_commercial_activities")
         self.client.force_login(actor)

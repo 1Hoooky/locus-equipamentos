@@ -110,14 +110,15 @@ class ProposalItemCompositionTest(ProposalServiceTestBase):
         self.assertEqual(version.subtotal, Decimal("23400.00"))
         self.assertEqual(version.total, Decimal("23400.00"))
 
-    def test_item_discount_percent_applied_before_subtotal(self):
+    def test_item_discount_amount_applied_before_subtotal(self):
+        # RODADA 3 (14/09/2026): desconto do item é R$ (era %).
         _, version = self._proposal_and_version()
         add_proposal_item(
             proposal_version=version,
-            data=ProposalItemData(equipment_model=self.model, quantity=4, unit_price=Decimal("1000.00"), item_discount_percent=Decimal("10")),
+            data=ProposalItemData(equipment_model=self.model, quantity=4, unit_price=Decimal("1000.00"), item_discount_amount=Decimal("400.00")),
         )
         version.refresh_from_db()
-        # 4 * 1000 = 4000 bruto; 10% desconto = 3600 líquido (seção 22).
+        # 4 * 1000 = 4000 bruto; desconto R$400 = 3600 líquido.
         self.assertEqual(version.subtotal, Decimal("3600.00"))
 
     def test_multiple_items_sum_into_subtotal(self):
@@ -154,10 +155,36 @@ class ProposalItemCompositionTest(ProposalServiceTestBase):
         with self.assertRaises(ValueError):
             add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("-1")))
 
-    def test_discount_out_of_range_rejected(self):
+    def test_discount_greater_than_gross_rejected(self):
         _, version = self._proposal_and_version()
         with self.assertRaises(ValueError):
-            add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("10"), item_discount_percent=Decimal("101")))
+            add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("10"), item_discount_amount=Decimal("10.01")))
+
+    def test_negative_discount_rejected(self):
+        _, version = self._proposal_and_version()
+        with self.assertRaises(ValueError):
+            add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("10"), item_discount_amount=Decimal("-1")))
+
+    def test_database_check_constraint_blocks_discount_above_gross_even_bypassing_the_service(self):
+        """
+        Defesa em profundidade real (seção 51-60): mesmo escrevendo
+        direto no model — pulando `add_proposal_item()`/`_validate_item_fields()`
+        de propósito — o banco (`CheckConstraint`) ainda rejeita.
+        """
+        from django.db import IntegrityError, transaction
+
+        from apps.crm.models import ProposalItem
+
+        _, version = self._proposal_and_version()
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ProposalItem.objects.create(
+                    proposal_version=version,
+                    equipment_model=self.model,
+                    quantity=1,
+                    unit_price=Decimal("10.00"),
+                    item_discount_amount=Decimal("10.01"),
+                )
 
     def test_line_total_is_decimal(self):
         _, version = self._proposal_and_version()

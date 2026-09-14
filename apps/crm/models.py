@@ -350,15 +350,45 @@ class OpportunityStageChange(models.Model):
 # ---------------------------------------------------------------------------
 
 
-class ActivityType(models.TextChoices):
-    LIGACAO = "LIGACAO", "Ligação"
-    WHATSAPP = "WHATSAPP", "WhatsApp"
-    EMAIL = "EMAIL", "E-mail"
-    REUNIAO = "REUNIAO", "Reunião"
-    VISITA = "VISITA", "Visita"
-    OBSERVACAO = "OBSERVACAO", "Observação"
-    FOLLOW_UP = "FOLLOW_UP", "Follow-up"
-    OUTRO = "OUTRO", "Outro"
+class ActivityType(TimeStampedModel, SoftDeleteModel):
+    """
+    Tipo de atividade comercial (ex.: Ligação, WhatsApp, E-mail...) —
+    RODADA 3 DE REFINAMENTOS (14/09/2026): migrado do antigo
+    `TextChoices` fixo para o MESMO padrão já usado por
+    `CommercialSource`/`OpportunityStage`/`LossReason` acima (entidade
+    configurável, `name`/`order`/`is_active` herdado de
+    `SoftDeleteModel`, nunca exclusão física — só editar `is_active`,
+    mesma tela/convenção). Auditoria confirmou que os 8 tipos existentes
+    eram um enum hardcoded sem nenhuma administração possível; como o
+    pedido era "coerente com o padrão já utilizado por CommercialSource/
+    OpportunityStage/LossReason", a migração segue esse padrão à risca
+    em vez de inventar um desenho paralelo.
+
+    `code` preserva o valor TÉCNICO original do antigo enum (ex.
+    "LIGACAO", "OBSERVACAO") — nunca exposto/editável na tela (só
+    `name` aparece lá), usado internamente só para localizar de forma
+    estável o tipo "Observação" reaproveitado pelo botão "+" da Visão
+    Geral (ver `apps.crm.services.OBSERVATION_ACTIVITY_TYPE_CODE`).
+    Tipos novos criados pelo Administrador depois desta migração ficam
+    com `code=""` (só os 8 originais, semeados pela migration de dados,
+    têm `code` preenchido) — únicos entre não-vazios, mesmo padrão já
+    usado em `Client.document`/`Client.auvo_code`.
+    """
+
+    name = models.CharField(max_length=50, unique=True)
+    order = models.PositiveIntegerField(default=0, help_text="Ordem de exibição nos seletores.")
+    code = models.CharField(max_length=20, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "tipo de atividade"
+        verbose_name_plural = "tipos de atividade"
+        ordering = ["order", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["code"], condition=~models.Q(code=""), name="uniq_activitytype_code_when_present"),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
 
 
 class CommercialActivity(models.Model):
@@ -378,10 +408,24 @@ class CommercialActivity(models.Model):
     Se um fluxo de edição for pedido numa etapa futura, adiciona-se
     `HistoricalRecords()` então (mesmo raciocínio já usado no projeto
     para não criar infraestrutura sem uso real).
+
+    `activity_type` — desde a RODADA 3 (14/09/2026), FK PROTECT para
+    `ActivityType` (não mais `CharField(choices=...)`): mesmo motivo de
+    `Opportunity.source`/`stage`/`loss_reason` — um tipo em uso nunca
+    pode ser apagado por engano (aqui nem exclusão física existe, então
+    PROTECT é redundante com a UI, mas mantém a MESMA garantia em
+    qualquer caminho de escrita, inclusive admin/shell).
+
+    O bloco "Observações" da Visão Geral (RODADA 3) REUTILIZA este
+    MESMO model — nunca um segundo mecanismo de notas — criando uma
+    `CommercialActivity` com `activity_type` = o tipo "Observação"
+    (localizado por `code="OBSERVACAO"`, ver `apps.crm.services`), só
+    com o campo `description`. Continua contando para a mesma lista da
+    aba "Atividades" (nenhuma tabela nova, nenhuma duplicação).
     """
 
     opportunity = models.ForeignKey(Opportunity, on_delete=models.CASCADE, related_name="activities")
-    activity_type = models.CharField(max_length=20, choices=ActivityType.choices)
+    activity_type = models.ForeignKey(ActivityType, on_delete=models.PROTECT, related_name="activities")
     description = models.TextField(blank=True)
     occurred_at = models.DateTimeField(null=True, blank=True, help_text="Quando a interação de fato aconteceu.")
     scheduled_for = models.DateTimeField(
@@ -404,7 +448,7 @@ class CommercialActivity(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.opportunity_id}: {self.get_activity_type_display()}"
+        return f"{self.opportunity_id}: {self.activity_type.name}"
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +542,17 @@ class Proposal(TimeStampedModel):
     """
 
     opportunity = models.ForeignKey(Opportunity, on_delete=models.CASCADE, related_name="proposals")
+    # `number` é gravado UMA VEZ, com o prefixo "PROP-" já embutido na
+    # string (`apps.crm.services._next_document_number(prefix="PROP")`,
+    # ex. "PROP-000002") — a IDENTIDADE numérica persistida NUNCA muda.
+    # RODADA 3 DE REFINAMENTOS (14/09/2026): o pedido era mudar só a
+    # APRESENTAÇÃO para "PROPOSTA-000002" (seção 11-15: "alterar apenas
+    # display quando possível, nunca redefinir destrutivamente números já
+    # existentes") — por isso a mudança vive inteira em `display_number`
+    # abaixo (uma transformação pura de string, nunca uma migration de
+    # dado), nunca aqui no campo armazenado. Toda tela/PDF/nome de
+    # arquivo deve usar `display_number` (ou `ProposalVersion.
+    # display_label`, que já inclui a versão) — nunca `number` cru.
     number = models.CharField(max_length=20, unique=True, editable=False)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="proposals_created")
 
@@ -519,8 +574,23 @@ class Proposal(TimeStampedModel):
         latest = self.latest_version
         return latest.get_status_display() if latest else "Sem versão"
 
-    def __str__(self) -> str:
+    @property
+    def display_number(self) -> str:
+        """
+        Nome de apresentação (RODADA 3, 14/09/2026): "PROP-000002"
+        (armazenado, ver docstring do campo `number`) vira
+        "PROPOSTA-000002" em qualquer tela/PDF/anexo. Só troca o prefixo
+        histórico "PROP-" — se por algum motivo `number` não seguir esse
+        formato (dado legado fora do padrão), devolve o valor original
+        sem inventar nada.
+        """
+        prefix = "PROP-"
+        if self.number.startswith(prefix):
+            return "PROPOSTA-" + self.number[len(prefix):]
         return self.number
+
+    def __str__(self) -> str:
+        return self.display_number
 
 
 class ProposalVersion(TimeStampedModel):
@@ -636,8 +706,25 @@ class ProposalVersion(TimeStampedModel):
         """Só DRAFT pode ser editada — ver docstring da classe. Checagem real fica em `apps.crm.services`, isto é só conveniência de leitura (templates)."""
         return self.status == ProposalVersionStatus.DRAFT
 
+    @property
+    def display_label(self) -> str:
+        """
+        RODADA 3 DE REFINAMENTOS (14/09/2026): rótulo de apresentação —
+        "PROPOSTA-000001" quando é a única versão, "PROPOSTA-000001 —
+        Versão 2" quando já existe mais de uma (seção 11-15: "se existirem
+        múltiplas versões, não perder informação"; nunca "PROP-000001 v2").
+        `version_number > 1` já implica mais de uma versão existir (não
+        são apagadas — ver `create_new_version()` — então a única forma
+        de `version_number` ser 2+ é já existir a 1), evitando uma query
+        extra só para contar versões.
+        """
+        base = self.proposal.display_number
+        if self.version_number > 1:
+            return f"{base} — Versão {self.version_number}"
+        return base
+
     def __str__(self) -> str:
-        return f"{self.proposal.number} v{self.version_number}"
+        return self.display_label
 
 
 class ProposalItem(models.Model):
@@ -664,7 +751,16 @@ class ProposalItem(models.Model):
     description_snapshot = models.CharField(max_length=200, blank=True)
     quantity = models.PositiveIntegerField()
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
-    item_discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    # RODADA 3 DE REFINAMENTOS (14/09/2026): desconto do item deixou de
+    # ser PERCENTUAL (`item_discount_percent`, 0-100) e virou um valor
+    # MONETÁRIO em R$ — mesma unidade do desconto geral da
+    # `ProposalVersion` (`general_discount`), que já era R$ (seção
+    # 51-60: "experiência consistente, os dois em R$"). `max_digits=10`
+    # (mesmo teto de `unit_price`, nunca menor que o bruto que ele
+    # desconta). O teto (nunca maior que `quantity × unit_price`) é a
+    # `CheckConstraint` abaixo — banco de dados como última linha de
+    # defesa, além do form/service.
+    item_discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     line_total = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     notes = models.TextField(blank=True)
     order = models.PositiveIntegerField(default=0)
@@ -676,9 +772,10 @@ class ProposalItem(models.Model):
         constraints = [
             models.CheckConstraint(check=models.Q(quantity__gt=0), name="proposal_item_quantity_positive"),
             models.CheckConstraint(check=models.Q(unit_price__gte=0), name="proposal_item_unit_price_not_negative"),
+            models.CheckConstraint(check=models.Q(item_discount_amount__gte=0), name="proposal_item_discount_amount_not_negative"),
             models.CheckConstraint(
-                check=models.Q(item_discount_percent__gte=0) & models.Q(item_discount_percent__lte=100),
-                name="proposal_item_discount_percent_in_range",
+                check=models.Q(item_discount_amount__lte=models.F("quantity") * models.F("unit_price")),
+                name="proposal_item_discount_amount_not_greater_than_gross",
             ),
             models.CheckConstraint(check=models.Q(line_total__gte=0), name="proposal_item_line_total_not_negative"),
         ]
@@ -718,3 +815,95 @@ class Contract(models.Model):
 
     def __str__(self) -> str:
         return self.number
+
+
+# ---------------------------------------------------------------------------
+# Equipamentos — vínculo Oportunidade↔patrimônio real (RODADA 3 DE
+# REFINAMENTOS, 14/09/2026, seção 60-68).
+# ---------------------------------------------------------------------------
+
+
+class OpportunityEquipment(TimeStampedModel):
+    """
+    Vínculo entre uma `Opportunity` e um patrimônio físico REAL
+    (`apps.equipment.models.Equipment`) — auditoria desta rodada confirmou
+    que esse vínculo não existia em lugar nenhum do projeto (a aba
+    "Equipamentos" do Hub mostrava um estado vazio estático). Este model
+    só guarda o PONTEIRO Oportunidade↔Equipamento em si; a movimentação
+    física real (mudança de `Equipment.status`/`current_location`,
+    registro em `Movement`) continua sendo 100% de responsabilidade de
+    `apps.operations.services.create_movement()` — o MESMO caminho já
+    usado pela ficha do equipamento, nunca um "estoque paralelo" nem uma
+    segunda gravação de status (ver `apps.crm.services.
+    link_equipment_to_opportunity()`/`unlink_equipment_from_opportunity()`,
+    que chamam `create_movement()` e só então criam/fecham a linha aqui).
+
+    Direção de dependência deliberada: `apps.crm` conhece
+    `apps.equipment`/`apps.operations` (via string reference abaixo,
+    mesmo padrão já usado em `ProposalVersion.delivery_location`), nunca
+    o inverso — `Equipment`/`Movement` continuam sem qualquer
+    conhecimento de `Opportunity`/CRM.
+
+    Uma linha "ATIVA" (`unlinked_at IS NULL`) representa o vínculo atual
+    — o patrimônio está fisicamente instalado por conta desta
+    Oportunidade. "Desvincular" NUNCA apaga a linha (perderia rastreio de
+    qual negociação levou àquela instalação): fecha o vínculo
+    (`unlinked_at`/`unlinked_by`/`unlinked_movement` preenchidos),
+    preservado para sempre no histórico da aba — mesmo raciocínio de
+    soft-close já usado por `Maintenance`/`Cleaning` (nunca DELETE de
+    registro operacional).
+
+    `equipment` é `on_delete=PROTECT`: nenhum fluxo deste projeto excluiu
+    `Equipment` de verdade até hoje (é `SoftDeleteModel`), mas a proteção
+    aqui documenta a intenção explícita do pedido desta rodada ("NUNCA
+    excluir equipamento") — mesmo que um hard delete de `Equipment` venha
+    a existir numa etapa futura, ele nunca pode apagar silenciosamente o
+    rastro de que aquele patrimônio já esteve vinculado a uma negociação
+    comercial.
+    """
+
+    opportunity = models.ForeignKey(Opportunity, on_delete=models.CASCADE, related_name="equipment_links")
+    equipment = models.ForeignKey("equipment.Equipment", on_delete=models.PROTECT, related_name="opportunity_links")
+
+    linked_at = models.DateTimeField(auto_now_add=True)
+    linked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="crm_equipment_links_made"
+    )
+    # Movement de INSTALACAO que efetivou este vínculo (rastreabilidade —
+    # nunca usado para reescrever/duplicar o que já está no próprio
+    # Movement). `PROTECT`: histórico operacional nunca é apagado por
+    # aqui.
+    linked_movement = models.ForeignKey(
+        "operations.Movement", on_delete=models.PROTECT, related_name="+", null=True, blank=True
+    )
+
+    unlinked_at = models.DateTimeField(null=True, blank=True)
+    unlinked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="crm_equipment_links_ended",
+        null=True,
+        blank=True,
+    )
+    unlinked_movement = models.ForeignKey(
+        "operations.Movement", on_delete=models.PROTECT, related_name="+", null=True, blank=True
+    )
+
+    class Meta:
+        verbose_name = "vínculo de equipamento"
+        verbose_name_plural = "vínculos de equipamento"
+        ordering = ["-linked_at"]
+        constraints = [
+            # O MESMO patrimônio físico não pode estar "ativamente
+            # vinculado" a duas Oportunidades ao mesmo tempo — ele só
+            # existe fisicamente em um lugar. Índice parcial (só sobre
+            # linhas ainda ATIVAS) — o mesmo Equipment pode, claro, ter
+            # várias linhas HISTÓRICAS (já desvinculadas) ao longo do
+            # tempo, uma por negociação em que já esteve envolvido.
+            models.UniqueConstraint(
+                fields=["equipment"], condition=models.Q(unlinked_at__isnull=True), name="one_active_link_per_equipment"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.opportunity_id}: {self.equipment_id}"

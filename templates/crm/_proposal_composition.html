@@ -8,12 +8,19 @@ NÃO mudou nesta rodada — só a apresentação. Aparência 100% do design
 system atual do LocusHub (nunca copiada do sistema antigo).
 
 Hierarquia de 6 blocos (substitui o antigo "tudo com o mesmo peso
-visual"): 1. Documento; 2. Condições comerciais; 3. Período/Logística;
-4. Produtos/Serviços; 5. Resumo financeiro; 6. Informações
-complementares. `.proposal-block` (ver templates/_design_tokens.html)
-só acrescenta espaçamento/divisor sutil entre eles — nunca vira caixa
-própria (isso é reservado ao cartão de item comercial,
-`.proposal-item-card`, o único lugar desta tela que usa cartão).
+visual") — RODADA 3 DE REFINAMENTOS (14/09/2026), seção 30-51: "Documento"
+saiu do TOPO e passou a ser o ÚLTIMO bloco de preenchimento, seguindo o
+fluxo natural (preencher condições → período → produtos → conferir
+valores → complementar → só então gerar o documento): 1. Condições
+comerciais; 2. Período/Logística; 3. Produtos/Serviços; 4. Resumo
+financeiro; 5. Informações complementares; 6. Documento (botão primário
+alinhado à direita, ao final da página — "Aceite", quando visível, vem
+depois: é uma ação de ciclo de vida DIFERENTE — aceitar uma versão já
+emitida — nunca confundida com "gerar"). `.proposal-block` (ver
+templates/_design_tokens.html) só acrescenta espaçamento/divisor sutil
+entre eles — nunca vira caixa própria (isso é reservado ao cartão de
+item comercial, `.proposal-item-card`, o único lugar desta tela que usa
+cartão).
 
 `current_version` pode ser `None` (nenhuma proposta criada ainda e o
 usuário não tem `crm.change_opportunities`) — nesse caso só um estado
@@ -31,7 +38,9 @@ financeiro continuam visíveis em modo leitura.
 <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
   <div>
     <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Proposta</span>
-    <span class="text-sm font-medium">{{ proposal.number }} — Versão {{ current_version.version_number }}</span>
+    {# RODADA 3 (14/09/2026): "PROPOSTA-000001" (versão única) ou       #}
+    {# "PROPOSTA-000001 — Versão 2" (2ª+ versão) — nunca "PROP-... v1". #}
+    <span class="text-sm font-medium">{{ current_version.display_label }}</span>
     {% if current_version.status == "DRAFT" %}<span class="badge-info">Rascunho</span>
     {% elif current_version.status == "ISSUED" %}<span class="badge-warning">Emitida</span>
     {% elif current_version.status == "ACCEPTED" %}<span class="badge-success">Aceita</span>{% endif %}
@@ -43,22 +52,6 @@ financeiro continuam visíveis em modo leitura.
   </form>
   {% endif %}
 </div>
-
-{# ---------------- BLOCO 1 · DOCUMENTO ---------------- #}
-{% if document_form %}
-<div class="proposal-block">
-  <h3 class="section-heading">{% icon "document-text" size="compact" %} Documento</h3>
-  <form method="post" action="{% url 'crm:proposal_generate_document' opportunity.pk %}" class="flex flex-wrap items-end gap-2">
-    {% csrf_token %}
-    <div>
-      <label class="field-label" for="{{ document_form.document_type.id_for_label }}">{{ document_form.document_type.label }}</label>
-      {{ document_form.document_type }}
-    </div>
-    <button type="submit" class="btn-primary icon-inline">{% icon "document-text" size="compact" %} Gerar documento</button>
-  </form>
-  <p class="text-xs text-gray-500 mt-2">Gerar um documento NÃO significa negócio ganho — o aceite é uma ação separada.</p>
-</div>
-{% endif %}
 
 {% if current_version.is_editable and conditions_form %}
 <form method="post" action="{% url 'crm:proposal_conditions_save' opportunity.pk %}">
@@ -113,7 +106,7 @@ financeiro continuam visíveis em modo leitura.
       <div class="proposal-item-card-meta">
         <span class="proposal-item-card-qty">{{ item.quantity }} unidade{{ item.quantity|pluralize }}</span>
         <span>{{ item.unit_price|brl }}/un</span>
-        {% if item.item_discount_percent > 0 %}<span>{{ item.item_discount_percent }}% de desconto</span>{% endif %}
+        {% if item.item_discount_amount > 0 %}<span>{{ item.item_discount_amount|brl }} de desconto</span>{% endif %}
         {% if current_version.is_editable and can_change_opportunity %}
         <div class="action-menu ml-auto" data-action-menu>
           <button type="button" class="icon-btn-neutral" data-action-menu-trigger aria-haspopup="true" aria-expanded="false">
@@ -208,6 +201,54 @@ financeiro continuam visíveis em modo leitura.
   {% endif %}
 </div>
 
+{# ---------------- BLOCO 6 · DOCUMENTO (RODADA 3: movido para o final da #}
+{# página, depois de condições/período/produtos/resumo financeiro/       #}
+{# informações complementares — nunca no topo). Botão primário, sempre   #}
+{# alinhado à direita (`ml-auto`), com nome ESPECÍFICO ao tipo escolhido #}
+{# (nunca genérico "Gerar documento"): "Gerar orçamento" (Proposta       #}
+{# Comercial, valor padrão do select) / "Gerar contrato" / "Gerar        #}
+{# proposta + contrato" — atualizado ao vivo pelo pequeno script abaixo  #}
+{# quando o usuário troca o tipo, sem nenhum reload. GERAR NUNCA é       #}
+{# ACEITAR (seção 7/34/66) — nem muda etapa, nem marca ganho; essa       #}
+{# mensagem também aparece por escrito logo abaixo do botão. #}
+{% if document_form %}
+<div class="proposal-block">
+  <h3 class="section-heading">{% icon "document-text" size="compact" %} Documento</h3>
+  <form method="post" action="{% url 'crm:proposal_generate_document' opportunity.pk %}" class="flex flex-wrap items-end gap-3">
+    {% csrf_token %}
+    <div>
+      <label class="field-label" for="{{ document_form.document_type.id_for_label }}">{{ document_form.document_type.label }}</label>
+      {{ document_form.document_type }}
+    </div>
+    <button type="submit" class="btn-primary icon-inline ml-auto" data-document-generation-submit>
+      {% icon "document-text" size="compact" %}
+      <span data-document-generation-label>Gerar orçamento</span>
+    </button>
+  </form>
+  <p class="text-xs text-gray-500 mt-2 text-right">
+    Gerar um documento NÃO significa negócio ganho — o aceite é uma ação separada, feita pelo botão
+    "Orçamento aceito" no topo da página.
+  </p>
+</div>
+<script>
+  (function () {
+    var select = document.getElementById("{{ document_form.document_type.id_for_label }}");
+    var label = document.querySelector("[data-document-generation-label]");
+    if (!select || !label) return;
+    var LABELS = {
+      PROPOSTA: "Gerar orçamento",
+      CONTRATO: "Gerar contrato",
+      PROPOSTA_E_CONTRATO: "Gerar proposta + contrato"
+    };
+    function updateLabel() {
+      label.textContent = LABELS[select.value] || LABELS.PROPOSTA;
+    }
+    select.addEventListener("change", updateLabel);
+    updateLabel();
+  })();
+</script>
+{% endif %}
+
 {# ---------------- ACEITE DE VERSÃO ---------------- #}
 {% if accept_form and candidate_versions %}
 <div class="proposal-block">
@@ -218,12 +259,12 @@ financeiro continuam visíveis em modo leitura.
     <div>
       <label class="field-label" for="accept-version-select">Versão a aceitar</label>
       <select name="proposal_version" id="accept-version-select" class="field-input">
-        {% for v in candidate_versions %}<option value="{{ v.pk }}">{{ v.proposal.number }} v{{ v.version_number }} — {{ v.total|brl }}</option>{% endfor %}
+        {% for v in candidate_versions %}<option value="{{ v.pk }}">{{ v.display_label }} — {{ v.total|brl }}</option>{% endfor %}
       </select>
     </div>
     {% else %}
     <input type="hidden" name="proposal_version" value="{{ candidate_versions.0.pk }}">
-    <p class="text-sm text-gray-700">Aceitar {{ candidate_versions.0.proposal.number }} v{{ candidate_versions.0.version_number }} — {{ candidate_versions.0.total|brl }}?</p>
+    <p class="text-sm text-gray-700">Aceitar {{ candidate_versions.0.display_label }} — {{ candidate_versions.0.total|brl }}?</p>
     {% endif %}
     {% if won_stages|length > 1 %}
     <div>

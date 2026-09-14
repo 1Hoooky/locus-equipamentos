@@ -79,7 +79,7 @@ Embutido em `movement_form.html`: reflete `_REQUIRED_DESTINATION_TYPE` no client
 
 ## Quem chama apps.operations
 
-`apps.equipment.movement_panel` (lê `_TRANSITION_RULES`/`_BLOCKED_BY_OPEN_MAINTENANCE`/`MOVEMENT_TYPE_CHOICES` via import local, só apresentação), `apps.equipment.services` (timeline, hard delete), `apps.clients.services.create_client()` (Location principal, import local), `apps.maintenance` (importa `Movement`/`MovementType` no topo — direção oposta, "de cima para baixo"), `apps.dashboard.services` (estatísticas), `apps.core.nav` (destaque de menu).
+`apps.equipment.movement_panel` (lê `_TRANSITION_RULES`/`_BLOCKED_BY_OPEN_MAINTENANCE`/`MOVEMENT_TYPE_CHOICES` via import local, só apresentação), `apps.equipment.services` (timeline, hard delete), `apps.clients.services.create_client()` (Location principal, import local), `apps.maintenance` (importa `Movement`/`MovementType` no topo — direção oposta, "de cima para baixo"), `apps.dashboard.services` (estatísticas), `apps.core.nav` (destaque de menu). Desde a RODADA 3 do CRM (14/09/2026), `apps.crm.services.link_equipment_to_opportunity()`/`unlink_equipment_from_opportunity()` também chamam `create_movement()` (`MovementType.INSTALACAO`/`RETIRADA`) para vincular/desvincular patrimônio a uma `Opportunity` — mesmo caminho de sempre, nenhuma lógica nova aqui; `apps.crm` também reaproveita a `Permission` `operations.register_operations` (ver `docs/apps/crm.md`, seção Equipamentos) em vez de criar uma permissão própria.
 
 ## Testes
 

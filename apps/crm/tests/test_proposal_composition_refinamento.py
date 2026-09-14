@@ -230,11 +230,12 @@ class IssuanceAndCalculationRegressionTest(ProposalViewsTestBase):
         self.proposal = get_or_create_active_proposal(opportunity=self.opportunity, created_by=self.owner)
         add_proposal_item(
             proposal_version=self.proposal.latest_version,
-            data=ProposalItemData(equipment_model=self.model, quantity=2, unit_price=Decimal("100.00"), item_discount_percent=Decimal("10")),
+            data=ProposalItemData(equipment_model=self.model, quantity=2, unit_price=Decimal("100.00"), item_discount_amount=Decimal("20.00")),
         )
 
     def test_calculation_matches_expected_order(self):
-        # 2 x R$100 = 200; 10% desconto de item = -20 => subtotal 180.
+        # RODADA 3 (14/09/2026): desconto do item agora é R$ (era %) —
+        # 2 x R$100 = 200; desconto de item R$20 => subtotal 180.
         # + desconto geral 50, + frete 20, sem juros => total 150.
         client = self._login(self.owner)
         resp = client.post(
