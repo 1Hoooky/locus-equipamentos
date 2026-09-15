@@ -39,6 +39,14 @@ register = template.Library()
 
 # name -> conteúdo interno do <svg> (um ou mais <path>), sem o <svg> em si.
 _ICONS = {
+    
+    "rede":(
+        '<path d="M3 18h3v3H3z" fill="currentColor" />'
+        '<path d="M8 14h3v7H8z" fill="currentColor" />'
+        '<path d="M13 10h3v11h-3z" fill="currentColor" />'
+        '<path d="M18 6h3v15h-3z" fill="currentColor" />'  
+    ),
+    
     "eye": (
         '<path stroke-linecap="round" stroke-linejoin="round" '
         'd="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 '
