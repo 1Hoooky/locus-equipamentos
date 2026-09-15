@@ -66,6 +66,7 @@ from apps.crm.forms import (
     OpportunityUpdateForm,
     ProposalConditionsForm,
     ProposalItemForm,
+    ServiceCatalogItemForm,
 )
 from apps.crm.models import (
     ActivityType,
@@ -75,6 +76,7 @@ from apps.crm.models import (
     OpportunityEquipment,
     OpportunityStage,
     ProposalItem,
+    ServiceCatalogItem,
 )
 from apps.crm.services import (
     DocumentType,
@@ -93,8 +95,9 @@ from apps.crm.services import (
     check_availability,
     OBSERVATION_ACTIVITY_TYPE_CODE,
     create_activity,
-    create_new_version,
     create_opportunity,
+    ensure_editable_item,
+    ensure_editable_version,
     generate_documents,
     get_observation_activity_type,
     get_or_create_active_proposal,
@@ -413,7 +416,18 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
         if proposal is not None:
             current_version = proposal.latest_version
 
-        item_form = ProposalItemForm() if (can_change_opportunity and current_version and current_version.is_editable) else None
+        # RODADA 4 (REFINAMENTO DA COMPOSIÇÃO COMERCIAL, 15/09/2026,
+        # seção 9-14): `item_form`/`conditions_form` deixaram de exigir
+        # `current_version.is_editable` — o usuário precisa conseguir
+        # continuar adicionando/removendo item e alterando condições
+        # mesmo quando a versão mais recente já foi emitida; a PRIMEIRA
+        # mutação de fato (POST) é quem decide clonar automaticamente uma
+        # nova versão DRAFT (`ensure_editable_version()`/
+        # `ensure_editable_item()`, ver services.py) — abrir/recarregar
+        # esta página (GET) nunca cria uma versão nova por si só (seção
+        # 11/12, "lazy": "não criar versão apenas porque o usuário abriu
+        # a tela").
+        item_form = ProposalItemForm() if (can_change_opportunity and current_version) else None
         conditions_form = (
             ProposalConditionsForm(
                 initial={
@@ -439,7 +453,7 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     "general_notes": current_version.general_notes,
                 }
             )
-            if (can_change_opportunity and current_version and current_version.is_editable)
+            if (can_change_opportunity and current_version)
             else None
         )
         # `document_form` aparece quando existe uma versão com pelo menos
@@ -452,12 +466,17 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
             else None
         )
 
-        candidate_versions = list(acceptable_proposal_versions(opportunity)) if can_change_stage else []
-        accept_form = None
-        if can_change_stage and candidate_versions:
-            accept_form = AcceptProposalVersionForm(
-                initial={"stage": won_stages[0].pk if len(won_stages) == 1 else None}
-            )
+        # RODADA 4 (15/09/2026, seção 1-4/34): o bloco "Aceite" (aceitar
+        # uma `ProposalVersion` específica) SAIU da interface — o único
+        # CTA de aceite comercial visível continua sendo "Orçamento
+        # aceito" no topo da página (`can_show_orcamento_aceito` acima,
+        # via `change_opportunity_stage()`). O backend de
+        # `accept_proposal_version()`/`ProposalAcceptVersionView`/
+        # `AcceptProposalVersionForm` NÃO foi removido (seção 2: "não
+        # remover o aceite real do sistema") — só não tem mais nenhum
+        # gatilho de UI nesta tela; por isso `candidate_versions`/
+        # `accept_form` deixaram de ser calculados aqui (nada mais os
+        # consome).
 
         # ------------------------------------------------------------
         # Equipamentos (RODADA 3, 14/09/2026, seção 60-68) — vincular
@@ -543,12 +562,12 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
             # Produtos e Serviços
             "proposal": proposal,
             "current_version": current_version,
-            "proposal_items": current_version.items.select_related("equipment_model") if current_version else [],
+            "proposal_items": (
+                current_version.items.select_related("equipment_model", "service") if current_version else []
+            ),
             "item_form": item_form,
             "conditions_form": conditions_form,
             "document_form": document_form,
-            "accept_form": accept_form,
-            "candidate_versions": candidate_versions,
             "can_issue_proposal": can_issue_proposal,
             "can_generate_contract": can_generate_contract,
             # Equipamentos
@@ -1171,6 +1190,59 @@ class ActivityTypeUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
         )
 
 
+# RODADA 4 (REFINAMENTO DA COMPOSIÇÃO COMERCIAL, 15/09/2026, seção 21):
+# catálogo de serviços comerciais — mesmo padrão exato das 4 telas de
+# configuração acima ("excluir" nunca existe aqui também, só editar
+# `is_active`), mesma permissão `crm.manage_commercial_settings`
+# (nenhuma permissão nova criada).
+class ServiceCatalogItemListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+    permission_required = "crm.manage_commercial_settings"
+    model = ServiceCatalogItem
+    template_name = "crm/service_catalog_item_list.html"
+    context_object_name = "service_catalog_items"
+
+    def get_queryset(self):
+        return ServiceCatalogItem.objects.all().order_by("order", "name")
+
+
+class ServiceCatalogItemCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "crm.manage_commercial_settings"
+
+    def get(self, request):
+        return render(request, "crm/service_catalog_item_form.html", {"form": ServiceCatalogItemForm(), "is_new": True})
+
+    def post(self, request):
+        form = ServiceCatalogItemForm(request.POST)
+        if form.is_valid():
+            item = form.save()
+            messages.success(request, f"Serviço \"{item.name}\" criado.")
+            return redirect("crm:service_catalog_item_list")
+        return render(request, "crm/service_catalog_item_form.html", {"form": form, "is_new": True})
+
+
+class ServiceCatalogItemUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "crm.manage_commercial_settings"
+
+    def get(self, request, pk):
+        item = get_object_or_404(ServiceCatalogItem, pk=pk)
+        return render(
+            request,
+            "crm/service_catalog_item_form.html",
+            {"form": ServiceCatalogItemForm(instance=item), "is_new": False, "service_catalog_item": item},
+        )
+
+    def post(self, request, pk):
+        item = get_object_or_404(ServiceCatalogItem, pk=pk)
+        form = ServiceCatalogItemForm(request.POST, instance=item)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"Serviço \"{item.name}\" atualizado.")
+            return redirect("crm:service_catalog_item_list")
+        return render(
+            request, "crm/service_catalog_item_form.html", {"form": form, "is_new": False, "service_catalog_item": item}
+        )
+
+
 # ---------------------------------------------------------------------------
 # Produtos e Serviços / Proposta Comercial + Contrato (14/09/2026).
 #
@@ -1184,23 +1256,25 @@ class ActivityTypeUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 
-def _get_editable_version_or_404(request, opportunity):
+def _get_or_create_editable_version(request, opportunity):
     """
-    A versão em edição é sempre a `latest_version` da proposta ATIVA da
-    Opportunity — mesma fonte única de verdade usada por
-    `OpportunityDetailView.get` (nunca aceita um `proposal_version` vindo
-    do POST/URL para "qual versão editar": eliminaria por construção
-    qualquer risco de um POST tentar editar a versão de OUTRA Opportunity
-    só adivinhando um pk). `get_or_create_active_proposal()` (mesma
-    função usada pelo GET do Hub) garante que um POST de "adicionar
+    Versão EDITÁVEL da proposta ATIVA da Opportunity — mesma fonte única
+    de verdade usada por `OpportunityDetailView.get` (nunca aceita um
+    `proposal_version` vindo do POST/URL para "qual versão editar":
+    eliminaria por construção qualquer risco de um POST tentar editar a
+    versão de OUTRA Opportunity só adivinhando um pk).
+    `get_or_create_active_proposal()` garante que um POST de "adicionar
     item"/"salvar rascunho" nunca depende de o usuário ter visitado a
     tela antes — cria a Proposal/v1 na hora se ainda não existir.
+
+    RODADA 4 (REFINAMENTO DA COMPOSIÇÃO COMERCIAL, 15/09/2026, seção
+    9-13): deixou de levantar 404 quando a versão mais recente já foi
+    emitida — em vez disso, `ensure_editable_version()` clona
+    automaticamente uma nova versão DRAFT na hora (auto-versionamento
+    preguiçoso). O usuário nunca mais vê "crie uma nova versão primeiro".
     """
     proposal = get_or_create_active_proposal(opportunity=opportunity, created_by=request.user)
-    version = proposal.latest_version
-    if version is None or not version.is_editable:
-        raise Http404("Não há nenhuma versão em rascunho para editar — crie uma nova versão primeiro.")
-    return version
+    return ensure_editable_version(proposal=proposal, created_by=request.user)
 
 
 class ProposalItemAddView(LoginRequiredMixin, PermissionRequiredMixin, View):
@@ -1208,10 +1282,10 @@ class ProposalItemAddView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
     def post(self, request, pk):
         opportunity = get_object_or_404(Opportunity, pk=pk)
-        version = _get_editable_version_or_404(request, opportunity)
+        version = _get_or_create_editable_version(request, opportunity)
         form = ProposalItemForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Não foi possível adicionar o produto — corrija os erros abaixo.")
+            messages.error(request, "Não foi possível adicionar o produto/serviço — corrija os erros abaixo.")
             for field_errors in form.errors.values():
                 for error in field_errors:
                     messages.error(request, error)
@@ -1222,7 +1296,9 @@ class ProposalItemAddView(LoginRequiredMixin, PermissionRequiredMixin, View):
             add_proposal_item(
                 proposal_version=version,
                 data=ProposalItemData(
+                    item_type=cleaned["item_type"],
                     equipment_model=cleaned["equipment_model"],
+                    service=cleaned["service"],
                     quantity=cleaned["quantity"],
                     unit_price=cleaned["unit_price"],
                     item_discount_amount=cleaned["item_discount_amount"] or Decimal("0"),
@@ -1233,7 +1309,7 @@ class ProposalItemAddView(LoginRequiredMixin, PermissionRequiredMixin, View):
             messages.error(request, str(exc))
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
-        messages.success(request, "Produto adicionado.")
+        messages.success(request, "Produto/serviço adicionado.")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
 
@@ -1248,18 +1324,28 @@ class ProposalItemUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
         form = ProposalItemForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Não foi possível atualizar o produto — corrija os erros abaixo.")
+            messages.error(request, "Não foi possível atualizar o produto/serviço — corrija os erros abaixo.")
             for field_errors in form.errors.values():
                 for error in field_errors:
                     messages.error(request, error)
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        # RODADA 4 (15/09/2026, seção 9-13): o item clicado pode pertencer
+        # a uma versão já emitida (é sempre a versão mais recente exibida
+        # na tela, emitida ou não) — `ensure_editable_item()` resolve o
+        # item CORRESPONDENTE numa versão editável, clonando
+        # automaticamente quando necessário, sem que o usuário precise
+        # saber disso.
+        item = ensure_editable_item(item=item, created_by=request.user)
 
         cleaned = form.cleaned_data
         try:
             update_proposal_item(
                 item=item,
                 data=ProposalItemData(
+                    item_type=cleaned["item_type"],
                     equipment_model=cleaned["equipment_model"],
+                    service=cleaned["service"],
                     quantity=cleaned["quantity"],
                     unit_price=cleaned["unit_price"],
                     item_discount_amount=cleaned["item_discount_amount"] or Decimal("0"),
@@ -1270,7 +1356,7 @@ class ProposalItemUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
             messages.error(request, str(exc))
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
-        messages.success(request, "Produto atualizado.")
+        messages.success(request, "Produto/serviço atualizado.")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
 
@@ -1283,24 +1369,35 @@ class ProposalItemRemoveView(LoginRequiredMixin, PermissionRequiredMixin, View):
         if item.proposal_version.proposal.opportunity_id != opportunity.pk:
             raise Http404("Item não pertence a esta oportunidade.")
 
+        # RODADA 4 (15/09/2026, seção 15): remover um item de uma versão
+        # já emitida nunca apaga da versão antiga — `ensure_editable_item()`
+        # clona automaticamente (se ainda não existir rascunho) e resolve
+        # a linha correspondente NA NOVA versão antes de remover.
+        item = ensure_editable_item(item=item, created_by=request.user)
+
         try:
             remove_proposal_item(item=item)
         except ValueError as exc:
             messages.error(request, str(exc))
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
-        messages.success(request, "Produto removido.")
+        messages.success(request, "Produto/serviço removido.")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
 
 class ProposalConditionsSaveView(LoginRequiredMixin, PermissionRequiredMixin, View):
-    """"Salvar rascunho" (seção 5/57) — condições/período/logística/financeiro/textos."""
+    """
+    "Salvar rascunho" (seção 5/57) — condições/período/logística/financeiro/textos.
+    RODADA 4 (15/09/2026, seção 9): alterar qualquer uma dessas condições
+    também conta como "primeira alteração após emissão" — `_get_or_create_editable_version()`
+    clona automaticamente quando a versão mais recente já não é DRAFT.
+    """
 
     permission_required = ("crm.view_opportunities", "crm.change_opportunities")
 
     def post(self, request, pk):
         opportunity = get_object_or_404(Opportunity, pk=pk)
-        version = _get_editable_version_or_404(request, opportunity)
+        version = _get_or_create_editable_version(request, opportunity)
         form = ProposalConditionsForm(request.POST)
         if not form.is_valid():
             messages.error(request, "Não foi possível salvar — corrija os erros abaixo.")
@@ -1354,24 +1451,6 @@ class ProposalConditionsSaveView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
 
-class ProposalNewVersionView(LoginRequiredMixin, PermissionRequiredMixin, View):
-    permission_required = ("crm.view_opportunities", "crm.change_opportunities")
-
-    def post(self, request, pk):
-        opportunity = get_object_or_404(Opportunity, pk=pk)
-        proposal = opportunity.proposals.order_by("-created_at").first()
-        if proposal is None:
-            raise Http404("Esta oportunidade ainda não tem nenhuma proposta.")
-        try:
-            create_new_version(proposal=proposal, created_by=request.user)
-        except ValueError as exc:
-            messages.error(request, str(exc))
-            return redirect("crm:opportunity_detail", pk=opportunity.pk)
-
-        messages.success(request, "Nova versão criada a partir da anterior.")
-        return redirect("crm:opportunity_detail", pk=opportunity.pk)
-
-
 class ProposalGenerateDocumentView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
     Dropdown "Gerar documento" (seção 6/64/65). Permissão varia por tipo
@@ -1388,8 +1467,10 @@ class ProposalGenerateDocumentView(LoginRequiredMixin, PermissionRequiredMixin, 
         opportunity = get_object_or_404(Opportunity, pk=pk)
         # A versão a documentar é a mais recente da proposta ativa,
         # emitida OU em rascunho (gerar documento pode emitir na hora) —
-        # por isso não reaproveita `_get_editable_version_or_404` (que
-        # exige DRAFT).
+        # por isso não reaproveita `_get_or_create_editable_version()`
+        # (que sempre devolve uma DRAFT, clonando se preciso — geração de
+        # documento é o único fluxo que precisa da versão como ela
+        # ESTÁ, não de uma editável).
         proposal = opportunity.proposals.order_by("-created_at").first()
         if proposal is None:
             raise Http404("Esta oportunidade ainda não tem nenhuma proposta.")

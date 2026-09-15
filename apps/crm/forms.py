@@ -32,6 +32,8 @@ from apps.crm.models import (
     LossReason,
     OpportunityStage,
     PaymentMethod,
+    ProposalItemType,
+    ServiceCatalogItem,
 )
 from apps.crm.services import DocumentType, eligible_owner_queryset
 from apps.equipment.models import Equipment, Status as EquipmentStatus
@@ -405,6 +407,24 @@ class ActivityTypeForm(forms.ModelForm):
         _apply_input_class(self.fields, skip=("is_active",))
 
 
+class ServiceCatalogItemForm(forms.ModelForm):
+    """
+    RODADA 4 (REFINAMENTO DA COMPOSIÇÃO COMERCIAL, 15/09/2026, seção 21)
+    — mesmo padrão exato de `ActivityTypeForm`/`CommercialSourceForm`
+    acima: entidade configurável, sem exclusão física (só `is_active`).
+    """
+
+    class Meta:
+        model = ServiceCatalogItem
+        fields = ("name", "order", "unit_label", "is_active")
+        labels = {"name": "Nome", "order": "Ordem", "unit_label": "Unidade comercial", "is_active": "Ativo"}
+        help_texts = {"unit_label": "Ex.: 'hora', 'diária', 'un' — usado como '3 horas', 'R$ 150,00/hora'."}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_input_class(self.fields, skip=("is_active",))
+
+
 # ---------------------------------------------------------------------------
 # Produtos e Serviços / Proposta Comercial (14/09/2026) — todos `forms.Form`
 # (não `ModelForm`), mesmo raciocínio de `OpportunityCreateForm`/
@@ -415,12 +435,50 @@ class ActivityTypeForm(forms.ModelForm):
 
 
 class ProposalItemForm(forms.Form):
-    """Adicionar/editar um item de `ProposalVersion` — seção 8/17/18/22."""
+    """
+    Adicionar/editar um item de `ProposalVersion` — seção 8/17/18/22.
 
+    RODADA 4 (REFINAMENTO DA COMPOSIÇÃO COMERCIAL, 15/09/2026, seção
+    18-25): passou a suportar dois tipos de item — `item_type` decide
+    qual dos dois campos de referência (`equipment_model`/`service`) é
+    obrigatório; os dois campos ficam sempre presentes no HTML (nenhum
+    fica de fora do form só por causa do tipo escolhido), mas o `clean()`
+    exige exatamente um preenchido, coerente com `item_type` — o
+    JavaScript (`static/crm/proposal_composition.js`) só alterna qual
+    grupo fica VISÍVEL, puramente de apresentação; a validação real é
+    100% aqui + `apps.crm.services._validate_item_fields()`.
+    """
+
+    # `required=False` DE PROPÓSITO (RODADA 4, 15/09/2026): o `<select>`
+    # sempre manda um valor vindo de um POST real do navegador (o campo é
+    # obrigatório NA TELA — `initial=EQUIPAMENTO` garante uma opção já
+    # selecionada), mas um POST que já existia ANTES desta rodada
+    # (integrações, scripts, os próprios testes automatizados de rodadas
+    # anteriores) nunca incluía `item_type` — exigi-lo aqui quebraria
+    # esses chamadores por uma mudança que, para eles, é 100% equivalente
+    # a "Equipamento" (o único tipo que existia). `clean()` abaixo aplica
+    # o mesmo default `EQUIPAMENTO` quando o campo vem ausente/vazio,
+    # preservando compatibilidade sem abrir mão da validação cruzada.
+    item_type = forms.ChoiceField(
+        label="Tipo",
+        choices=ProposalItemType.choices,
+        initial=ProposalItemType.EQUIPAMENTO,
+        required=False,
+        widget=forms.Select(attrs={"data-item-type-select": ""}),
+    )
     equipment_model = forms.ModelChoiceField(
         label="Produto/Modelo",
         queryset=EquipmentModel.objects.filter(is_active=True).select_related("category").order_by("category__name", "name"),
+        required=False,
         help_text="Reaproveita o catálogo real (seção 9) — nunca um LOC-* de patrimônio (seção 10).",
+        widget=forms.Select(attrs={"data-item-type-field": ProposalItemType.EQUIPAMENTO}),
+    )
+    service = forms.ModelChoiceField(
+        label="Serviço",
+        queryset=ServiceCatalogItem.objects.filter(is_active=True).order_by("order", "name"),
+        required=False,
+        help_text="Catálogo de serviços comerciais (RODADA 4) — nunca cria/altera Equipment ou Movement.",
+        widget=forms.Select(attrs={"data-item-type-field": ProposalItemType.SERVICO}),
     )
     quantity = forms.IntegerField(label="Quantidade", min_value=1)
     unit_price = forms.DecimalField(label="Valor unitário", max_digits=10, decimal_places=2, min_value=0)
@@ -442,6 +500,23 @@ class ProposalItemForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
+        # Default de compatibilidade (ver comentário do campo acima):
+        # ausente/vazio vira EQUIPAMENTO, nunca um erro de validação.
+        item_type = cleaned.get("item_type") or ProposalItemType.EQUIPAMENTO
+        cleaned["item_type"] = item_type
+        equipment_model = cleaned.get("equipment_model")
+        service = cleaned.get("service")
+        if item_type == ProposalItemType.SERVICO:
+            if service is None:
+                self.add_error("service", "Selecione um serviço do catálogo.")
+            if equipment_model is not None:
+                self.add_error("equipment_model", "Um item de Serviço não pode ter um Modelo selecionado.")
+        elif item_type == ProposalItemType.EQUIPAMENTO:
+            if equipment_model is None:
+                self.add_error("equipment_model", "Selecione um produto/modelo.")
+            if service is not None:
+                self.add_error("service", "Um item de Equipamento não pode ter um Serviço selecionado.")
+
         quantity = cleaned.get("quantity")
         unit_price = cleaned.get("unit_price")
         discount = cleaned.get("item_discount_amount") or Decimal("0.00")

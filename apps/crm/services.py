@@ -44,8 +44,10 @@ from apps.crm.models import (
     OpportunityStageChange,
     Proposal,
     ProposalItem,
+    ProposalItemType,
     ProposalVersion,
     ProposalVersionStatus,
+    ServiceCatalogItem,
 )
 from apps.equipment.models import Equipment
 from apps.operations.models import Location, LocationType, MovementType
@@ -472,7 +474,13 @@ def hard_delete_opportunity(*, opportunity_id: int, actor) -> HardDeleteImpact:
 # frete/total antes de persistir, nunca confia em valor calculado só no
 # frontend. Toda escrita numa `ProposalVersion` rejeita
 # `status != DRAFT` (seção 60, "versão emitida é imutável") — a única
-# forma de mudar uma versão emitida é `create_new_version()`.
+# forma de mudar uma versão emitida é `create_new_version()`. Desde a
+# RODADA 4 (15/09/2026), os endpoints de mutação nunca chamam
+# `create_new_version()` diretamente nem exigem que o usuário peça isso —
+# sempre passam primeiro por `ensure_editable_version()`/
+# `ensure_editable_item()` (auto-versionamento preguiçoso, ver essas
+# funções mais abaixo), que decidem clonar automaticamente só quando a
+# alteração é a PRIMEIRA depois de uma emissão.
 # ---------------------------------------------------------------------------
 
 
@@ -581,9 +589,16 @@ def get_or_create_active_proposal(*, opportunity: Opportunity, created_by: User)
 
 @dataclass
 class ProposalItemData:
-    equipment_model: EquipmentModel
-    quantity: int
-    unit_price: Decimal
+    # RODADA 4 (REFINAMENTO DA COMPOSIÇÃO COMERCIAL, 15/09/2026, seção
+    # 18-20): um item agora é EQUIPAMENTO ou SERVIÇO — exatamente um dos
+    # dois campos de referência é preenchido, conforme `item_type`
+    # (`_validate_item_fields()` abaixo é quem garante a coerência; o
+    # banco tem a mesma regra via `CheckConstraint`).
+    item_type: str = ProposalItemType.EQUIPAMENTO
+    equipment_model: EquipmentModel | None = None
+    service: ServiceCatalogItem | None = None
+    quantity: int = 1
+    unit_price: Decimal = Decimal("0.00")
     # RODADA 3 DE REFINAMENTOS (14/09/2026): valor MONETÁRIO em R$ (era
     # percentual) — ver docstring de `ProposalItem.item_discount_amount`.
     item_discount_amount: Decimal = Decimal("0.00")
@@ -604,17 +619,46 @@ def _validate_item_fields(data: ProposalItemData) -> None:
     if data.item_discount_amount > gross:
         raise ValueError("Desconto do item não pode ser maior que o valor bruto do item (quantidade × valor unitário).")
 
+    # RODADA 4, seção 18-20: exatamente uma referência, coerente com o
+    # tipo — mesma regra do `CheckConstraint`
+    # `proposal_item_type_matches_single_reference`, checada aqui também
+    # para uma mensagem de erro amigável em vez de um `IntegrityError` cru.
+    if data.item_type == ProposalItemType.EQUIPAMENTO:
+        if data.equipment_model is None or data.service is not None:
+            raise ValueError("Um item de Equipamento precisa de um Modelo, e nenhum Serviço selecionado.")
+    elif data.item_type == ProposalItemType.SERVICO:
+        if data.service is None or data.equipment_model is not None:
+            raise ValueError("Um item de Serviço precisa de um Serviço do catálogo, e nenhum Modelo selecionado.")
+    else:
+        raise ValueError(f"Tipo de item inválido: {data.item_type!r}.")
+
+
+def _describe_item(data: ProposalItemData) -> tuple[str, str]:
+    """
+    (description_snapshot, unit_label_snapshot) a partir da referência
+    congelada no momento da adição (seção 28 RODADA 4: "serviço emitido
+    precisa preservar snapshot", mesma garantia que já existia para
+    equipamento) — nunca resolvido de novo a partir do catálogo depois.
+    """
+    if data.item_type == ProposalItemType.SERVICO:
+        return data.service.name, data.service.unit_label
+    return f"{data.equipment_model.name} ({data.equipment_model.code})", ""
+
 
 @transaction.atomic
 def add_proposal_item(*, proposal_version: ProposalVersion, data: ProposalItemData) -> ProposalItem:
     _require_draft(proposal_version)
     _validate_item_fields(data)
+    description_snapshot, unit_label_snapshot = _describe_item(data)
 
     next_order = (proposal_version.items.aggregate(Max("order"))["order__max"] or 0) + 1
     item = ProposalItem.objects.create(
         proposal_version=proposal_version,
+        item_type=data.item_type,
         equipment_model=data.equipment_model,
-        description_snapshot=f"{data.equipment_model.name} ({data.equipment_model.code})",
+        service=data.service,
+        description_snapshot=description_snapshot,
+        unit_label_snapshot=unit_label_snapshot,
         quantity=data.quantity,
         unit_price=data.unit_price,
         item_discount_amount=data.item_discount_amount,
@@ -629,9 +673,13 @@ def add_proposal_item(*, proposal_version: ProposalVersion, data: ProposalItemDa
 def update_proposal_item(*, item: ProposalItem, data: ProposalItemData) -> ProposalItem:
     _require_draft(item.proposal_version)
     _validate_item_fields(data)
+    description_snapshot, unit_label_snapshot = _describe_item(data)
 
+    item.item_type = data.item_type
     item.equipment_model = data.equipment_model
-    item.description_snapshot = f"{data.equipment_model.name} ({data.equipment_model.code})"
+    item.service = data.service
+    item.description_snapshot = description_snapshot
+    item.unit_label_snapshot = unit_label_snapshot
     item.quantity = data.quantity
     item.unit_price = data.unit_price
     item.item_discount_amount = data.item_discount_amount
@@ -647,6 +695,61 @@ def remove_proposal_item(*, item: ProposalItem) -> None:
     version = item.proposal_version
     item.delete()
     calculate_proposal_version(version)
+
+
+# --- Auto-versionamento preguiçoso (lazy) -----------------------------------
+#
+# RODADA 4 (REFINAMENTO DA COMPOSIÇÃO COMERCIAL, 15/09/2026, seção 9-13):
+# o usuário não deve precisar clicar manualmente em "Criar nova versão"
+# para continuar editando a composição comercial depois de um documento
+# já ter sido emitido — mas uma versão EMITIDA continua IMUTÁVEL (seção
+# 10, REGRA CRÍTICA). A solução: a PRIMEIRA alteração após uma emissão
+# clona a versão automaticamente numa nova versão DRAFT (reaproveitando
+# 100% `create_new_version()`, que já clonava tudo corretamente — nenhuma
+# lógica de clonagem nova) e aplica a alteração NESSA nova versão; a
+# versão emitida/aceita original nunca é tocada. "Lazy" (seção 11): abrir
+# ou recarregar a página NUNCA cria uma versão nova por si só — só as
+# funções abaixo, chamadas exclusivamente pelos endpoints POST de
+# mutação (adicionar/remover/editar item, salvar condições), decidem
+# clonar, e só quando a versão mais recente já não é mais DRAFT.
+
+
+def ensure_editable_version(*, proposal: Proposal, created_by: User) -> ProposalVersion:
+    """
+    Devolve uma `ProposalVersion` EDITÁVEL (DRAFT) para receber a próxima
+    mutação: a `latest_version` já em DRAFT, sem nenhuma escrita nova
+    (idempotente — chamar de novo antes de outra alteração real
+    reaproveita o MESMO rascunho, seção 12: "evitar versões vazias");
+    ou, se a mais recente já foi emitida/aceita, uma nova versão DRAFT
+    clonada dela na hora, via `create_new_version()`.
+    """
+    latest = proposal.latest_version
+    if latest is None:
+        raise ValueError("Esta proposta ainda não tem nenhuma versão.")
+    if latest.status == ProposalVersionStatus.DRAFT:
+        return latest
+    return create_new_version(proposal=proposal, created_by=created_by)
+
+
+@transaction.atomic
+def ensure_editable_item(*, item: ProposalItem, created_by: User) -> ProposalItem:
+    """
+    Dado um `ProposalItem` que pode pertencer a uma versão já não mais
+    editável (o card exibido na tela é sempre da `latest_version`, emitida
+    ou não), devolve o item CORRESPONDENTE numa versão editável — clonando
+    via `ensure_editable_version()` quando necessário e localizando, na
+    nova versão, a linha clonada com o MESMO `order` (estável através da
+    clonagem — `create_new_version()` sempre copia `item.order` como veio,
+    e `order` é único dentro de cada versão por construção, ver
+    `add_proposal_item()`). Isso é o que permite "editar/remover um item
+    já exibido" funcionar mesmo quando esse item, no momento do clique,
+    pertencia a uma versão que acabou de ser emitida por outra aba/usuário.
+    """
+    version = item.proposal_version
+    if version.status == ProposalVersionStatus.DRAFT:
+        return item
+    new_version = ensure_editable_version(proposal=version.proposal, created_by=created_by)
+    return new_version.items.get(order=item.order)
 
 
 @dataclass
@@ -875,8 +978,15 @@ def create_new_version(*, proposal: Proposal, created_by: User) -> ProposalVersi
     for item in latest.items.all():
         ProposalItem.objects.create(
             proposal_version=new_version,
+            # RODADA 4 (15/09/2026, seção 13): clonar item_type/service/
+            # unit_label_snapshot também — um item de SERVIÇO precisa
+            # sobreviver à clonagem exatamente como um de equipamento
+            # sempre sobreviveu.
+            item_type=item.item_type,
             equipment_model=item.equipment_model,
+            service=item.service,
             description_snapshot=item.description_snapshot,
+            unit_label_snapshot=item.unit_label_snapshot,
             quantity=item.quantity,
             unit_price=item.unit_price,
             item_discount_amount=item.item_discount_amount,

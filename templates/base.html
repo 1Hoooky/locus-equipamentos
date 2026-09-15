@@ -96,7 +96,7 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
                   class="sidebar-group-toggle {% if current_group == "crm" %}sidebar-group-toggle-active{% endif %}"
                   aria-expanded="{% if current_group == "crm" %}true{% else %}false{% endif %}"
                   aria-controls="sidebar-group-body-crm">
-            {% icon "rede" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">CRM</span>{% icon "chevron-down" size="compact" extra_class="sidebar-group-chevron" %}
+            {% icon "funnel" size="compact" extra_class="sidebar-group-toggle-icon" %}<span class="sidebar-group-title-text">CRM</span>{% icon "chevron-down" size="compact" extra_class="sidebar-group-chevron" %}
           </button>
           <div class="sidebar-group-body" id="sidebar-group-body-crm">
             {% if perms.crm.view_opportunities %}
@@ -122,6 +122,10 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
             <a href="{% url 'crm:activity_type_list' %}" title="Tipos de atividade" aria-label="Tipos de atividade"
                class="sidebar-link {% if 'crm:activity_type' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
               {% icon "chat-bubble-left-right" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Tipos de atividade</span>
+            </a>
+            <a href="{% url 'crm:service_catalog_item_list' %}" title="Serviços comerciais" aria-label="Serviços comerciais"
+               class="sidebar-link {% if 'crm:service_catalog_item' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
+              {% icon "wrench-screwdriver" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Serviços comerciais</span>
             </a>
             {% endif %}
           </div>
@@ -283,6 +287,9 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
           </a>
           <a href="{% url 'crm:activity_type_list' %}" class="mobile-menu-link {% if 'crm:activity_type' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
             {% icon "chat-bubble-left-right" size="compact" %} Tipos de atividade
+          </a>
+          <a href="{% url 'crm:service_catalog_item_list' %}" class="mobile-menu-link {% if 'crm:service_catalog_item' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
+            {% icon "wrench-screwdriver" size="compact" %} Serviços comerciais
           </a>
           {% endif %}
         </div>

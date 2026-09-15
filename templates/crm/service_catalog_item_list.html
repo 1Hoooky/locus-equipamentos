@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% load icons %}
+{% block title %}Serviços comerciais — Locus{% endblock %}
+{% block content %}
+{% comment %}
+RODADA 4 DE REFINAMENTOS (15/09/2026, seção 21): tela nova — catálogo de
+serviços comerciais (ex. "Hora técnica"), mesmo padrão visual de Tipos de
+atividade/Origens/Etapas/Motivos de perda (mesma tela "irmã"). Nunca uma
+coluna/ação de exclusão física aqui — só editar `is_active`.
+{% endcomment %}
+<div class="page-header">
+  <h1 class="page-title">Serviços comerciais</h1>
+  <a href="{% url 'crm:service_catalog_item_create' %}" class="btn-primary">
+    {% icon "plus" size="compact" %} Novo serviço
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Unidade comercial</th>
+        <th>Ordem</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in service_catalog_items %}
+      <tr>
+        <td>{{ item.name }}</td>
+        <td>{{ item.unit_label }}</td>
+        <td>{{ item.order }}</td>
+        <td>
+          {% if item.is_active %}<span class="badge-success">Ativo</span>{% else %}<span class="badge-neutral">Inativo</span>{% endif %}
+        </td>
+        <td>
+          <a href="{% url 'crm:service_catalog_item_update' item.pk %}" class="icon-btn-neutral"
+             aria-label="Editar serviço {{ item.name }}" title="Editar serviço {{ item.name }}">
+            {% icon "pencil" size="compact" %}
+          </a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td class="empty-state" colspan="5">Nenhum serviço comercial cadastrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

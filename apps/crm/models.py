@@ -532,6 +532,21 @@ class ProposalVersionStatus(models.TextChoices):
     ACCEPTED = "ACCEPTED", "Aceita"
 
 
+class ProposalItemType(models.TextChoices):
+    """
+    RODADA 4 (REFINAMENTO DA COMPOSIÇÃO COMERCIAL, 15/09/2026, seção
+    18-20): auditoria confirmou que nenhum app do projeto tinha um
+    catálogo/model genérico de "serviço comercial" (maintenance/cleaning
+    são operacionais, tipados por `TextChoices` fixo, sem preço nem
+    ligação com `ProposalItem`) — por isso `ProposalItem` passa a
+    suportar dois tipos de referência em vez de assumir sempre
+    `EquipmentModel` (ver `ServiceCatalogItem` abaixo).
+    """
+
+    EQUIPAMENTO = "EQUIPAMENTO", "Equipamento"
+    SERVICO = "SERVICO", "Serviço"
+
+
 class Proposal(TimeStampedModel):
     """
     Identidade da proposta comercial dentro da Opportunity (seção 53) —
@@ -727,28 +742,94 @@ class ProposalVersion(TimeStampedModel):
         return self.display_label
 
 
+class ServiceCatalogItem(TimeStampedModel, SoftDeleteModel):
+    """
+    Catálogo de SERVIÇOS comerciais (ex.: "Hora técnica") — RODADA 4
+    (REFINAMENTO DA COMPOSIÇÃO COMERCIAL, 15/09/2026, seção 18-21).
+    Mesmo padrão já usado por `CommercialSource`/`OpportunityStage`/
+    `ActivityType` (entidade configurável, `name`/`order`/`is_active`
+    herdado de `SoftDeleteModel`, nunca exclusão física — só editar
+    `is_active`, mesma tela/convenção de configuração). Auditoria desta
+    rodada confirmou que não existe nenhuma estrutura equivalente em
+    `apps.maintenance`/`apps.cleaning`/`apps.catalog` (são operacionais,
+    tipados por `TextChoices` fixo, sem preço nem ligação com proposta) —
+    esta é a MENOR estrutura coerente para permitir itens comerciais de
+    serviço (seção 20: "não inventar catálogo paralelo... se não existir,
+    implementar a menor estrutura coerente").
+
+    Só o requisito CONFIRMADO nesta rodada é semeado (`"Hora técnica"`,
+    ver migration de dados) — nenhum outro serviço de exemplo (seção 21:
+    "não cadastrar automaticamente... criar somente dados realmente
+    necessários/aprovados").
+
+    `unit_label` (ex. "hora", "diária", "un") é só o rótulo de exibição
+    default ao adicionar um item novo — `ProposalItem.unit_label_snapshot`
+    congela o valor no momento da adição (mesmo raciocínio de
+    `description_snapshot`: editar o catálogo depois nunca muda uma
+    proposta já composta/emitida).
+    """
+
+    name = models.CharField(max_length=100, unique=True)
+    order = models.PositiveIntegerField(default=0, help_text="Ordem de exibição nos seletores.")
+    unit_label = models.CharField(
+        max_length=20, default="hora", help_text="Rótulo da unidade comercial, ex.: 'hora', 'diária', 'un'."
+    )
+
+    class Meta:
+        verbose_name = "serviço comercial"
+        verbose_name_plural = "catálogo de serviços comerciais"
+        ordering = ["order", "name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class ProposalItem(models.Model):
     """
-    Produto/modelo comercial de uma `ProposalVersion` (seção 55). Sempre
-    referencia `EquipmentModel` (o MODELO, ex. "NI23TC") — NUNCA um
-    `Equipment`/patrimônio físico individual (seção 10, REGRA CRÍTICA: a
-    seleção de patrimônio pertence exclusivamente à aba Equipamentos).
+    Produto/serviço comercial de uma `ProposalVersion` (seção 55; RODADA
+    4, seção 18-19: passou a suportar dois tipos). Quando
+    `item_type=EQUIPAMENTO`, referencia `EquipmentModel` (o MODELO, ex.
+    "NI23TC") — NUNCA um `Equipment`/patrimônio físico individual (seção
+    10, REGRA CRÍTICA: a seleção de patrimônio pertence exclusivamente à
+    aba Equipamentos). Quando `item_type=SERVICO`, referencia
+    `ServiceCatalogItem` (ex. "Hora técnica") — nunca cria/altera
+    `Equipment`/`Movement` (é um item puramente comercial, sem nenhum
+    efeito colateral operacional).
 
-    `description_snapshot` é preenchido uma única vez, na criação do item
-    (`apps.crm.services.add_proposal_item()`), a partir do nome/código do
-    `EquipmentModel` no momento — nunca resincronizado depois. Como cada
-    nova versão CLONA seus próprios itens (`create_new_version()`, nunca
-    reaproveita a linha da versão anterior), isso já garante que uma
-    versão emitida nunca muda de descrição por causa de uma edição
-    posterior do catálogo (seção 21/62), sem precisar de nenhuma lógica
-    extra de "congelamento" no momento da emissão.
+    `description_snapshot`/`unit_label_snapshot` são preenchidos uma
+    única vez, na criação do item (`apps.crm.services.add_proposal_item()`),
+    a partir do nome/código do `EquipmentModel` OU do nome/unidade do
+    `ServiceCatalogItem` no momento — nunca resincronizados depois. Como
+    cada nova versão CLONA seus próprios itens (`create_new_version()`,
+    nunca reaproveita a linha da versão anterior), isso já garante que
+    uma versão emitida nunca muda de descrição por causa de uma edição
+    posterior do catálogo (seção 21/62/28 RODADA 4), sem precisar de
+    nenhuma lógica extra de "congelamento" no momento da emissão.
     """
 
     proposal_version = models.ForeignKey(ProposalVersion, on_delete=models.CASCADE, related_name="items")
+    item_type = models.CharField(max_length=15, choices=ProposalItemType.choices, default=ProposalItemType.EQUIPAMENTO)
     equipment_model = models.ForeignKey(
-        "catalog.EquipmentModel", on_delete=models.PROTECT, related_name="proposal_items"
+        "catalog.EquipmentModel",
+        on_delete=models.PROTECT,
+        related_name="proposal_items",
+        null=True,
+        blank=True,
+        help_text="Preenchido quando item_type=EQUIPAMENTO — nunca junto com 'service'.",
+    )
+    service = models.ForeignKey(
+        ServiceCatalogItem,
+        on_delete=models.PROTECT,
+        related_name="proposal_items",
+        null=True,
+        blank=True,
+        help_text="Preenchido quando item_type=SERVICO — nunca junto com 'equipment_model'.",
     )
     description_snapshot = models.CharField(max_length=200, blank=True)
+    # RODADA 4 (15/09/2026): rótulo de unidade congelado no momento da
+    # adição (ex. "hora") — vazio para itens de equipamento, cujo rótulo
+    # ("unidade") já é fixo na apresentação (nunca mudou nesta rodada).
+    unit_label_snapshot = models.CharField(max_length=20, blank=True)
     quantity = models.PositiveIntegerField()
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     # RODADA 3 DE REFINAMENTOS (14/09/2026): desconto do item deixou de
@@ -778,6 +859,19 @@ class ProposalItem(models.Model):
                 name="proposal_item_discount_amount_not_greater_than_gross",
             ),
             models.CheckConstraint(check=models.Q(line_total__gte=0), name="proposal_item_line_total_not_negative"),
+            # RODADA 4 (15/09/2026, seção 18-20): a referência precisa
+            # bater com o tipo declarado — nunca um item EQUIPAMENTO sem
+            # `equipment_model`, nem um item SERVICO sem `service`, nem
+            # os dois preenchidos ao mesmo tempo. Banco de dados como
+            # última linha de defesa, além de `_validate_item_fields()`
+            # (services.py) e `ProposalItemForm.clean()`.
+            models.CheckConstraint(
+                check=(
+                    models.Q(item_type=ProposalItemType.EQUIPAMENTO, equipment_model__isnull=False, service__isnull=True)
+                    | models.Q(item_type=ProposalItemType.SERVICO, equipment_model__isnull=True, service__isnull=False)
+                ),
+                name="proposal_item_type_matches_single_reference",
+            ),
         ]
 
     def __str__(self) -> str:

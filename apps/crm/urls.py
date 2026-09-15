@@ -47,11 +47,6 @@ urlpatterns = [
         name="proposal_conditions_save",
     ),
     path(
-        "oportunidades/<int:pk>/produtos-servicos/nova-versao/",
-        views.ProposalNewVersionView.as_view(),
-        name="proposal_new_version",
-    ),
-    path(
         "oportunidades/<int:pk>/produtos-servicos/gerar-documento/",
         views.ProposalGenerateDocumentView.as_view(),
         name="proposal_generate_document",
@@ -117,5 +112,14 @@ urlpatterns = [
         "configuracoes/tipos-atividade/<int:pk>/editar/",
         views.ActivityTypeUpdateView.as_view(),
         name="activity_type_update",
+    ),
+    # Catálogo de serviços comerciais — RODADA 4 DE REFINAMENTOS
+    # (15/09/2026, seção 21): mesmo padrão de Tipos de atividade acima.
+    path("configuracoes/servicos/", views.ServiceCatalogItemListView.as_view(), name="service_catalog_item_list"),
+    path("configuracoes/servicos/novo/", views.ServiceCatalogItemCreateView.as_view(), name="service_catalog_item_create"),
+    path(
+        "configuracoes/servicos/<int:pk>/editar/",
+        views.ServiceCatalogItemUpdateView.as_view(),
+        name="service_catalog_item_update",
     ),
 ]

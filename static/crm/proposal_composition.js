@@ -78,10 +78,45 @@
     quantityField.addEventListener("input", check);
   }
 
+  /*
+   * RODADA 4 (15/09/2026, seções 18-25): alterna qual grupo de campo
+   * ("Produto/Modelo" vs. "Serviço") fica visível no form de adicionar
+   * item, conforme o Tipo escolhido. Os dois campos continuam presentes
+   * no HTML: sem JS (navegador antigo, JS desabilitado) ambos ficam
+   * visíveis e habilitados e o form ainda funciona normalmente, pois o
+   * `clean()` do backend é a autoridade real (seção 18). Quando o JS
+   * roda, além de esconder o grupo não selecionado, desabilitamos seu
+   * `<select>` para não enviar no POST um valor obsoleto do campo que o
+   * usuário não está usando.
+   */
+  function initItemTypeToggle(form) {
+    var typeSelect = form.querySelector("[data-item-type-select]");
+    var groups = form.querySelectorAll("[data-item-type-group]");
+    if (!typeSelect || !groups.length) {
+      return;
+    }
+
+    function applyVisibility() {
+      var selected = typeSelect.value;
+      groups.forEach(function (group) {
+        var matches = group.getAttribute("data-item-type-group") === selected;
+        group.hidden = !matches;
+        var field = group.querySelector("[data-item-type-field]");
+        if (field) {
+          field.disabled = !matches;
+        }
+      });
+    }
+
+    typeSelect.addEventListener("change", applyVisibility);
+    applyVisibility();
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     var form = document.querySelector("[data-proposal-item-add-form]");
     if (form) {
       initAvailabilityCheck(form);
+      initItemTypeToggle(form);
     }
   });
 })();
