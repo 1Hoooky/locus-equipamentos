@@ -428,6 +428,26 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
         # 11/12, "lazy": "não criar versão apenas porque o usuário abriu
         # a tela").
         item_form = ProposalItemForm() if (can_change_opportunity and current_version) else None
+        # RODADA 4 (CORREÇÃO — "Local de entrega/operação", 15/09/2026,
+        # seção 6): se a versão AINDA não tem `delivery_location` salvo e
+        # o cliente da Oportunidade tem exatamente UMA unidade ativa,
+        # pré-seleciona essa unidade no `initial` — o campo continua
+        # sendo um `<select>` normal mostrando claramente qual local será
+        # usado (nunca escondido/automático demais); se a versão já tem
+        # um valor salvo (mesmo de uma unidade que não é mais a única),
+        # esse valor sempre prevalece.
+        initial_delivery_location = None
+        if current_version is not None:
+            if current_version.delivery_location_id:
+                initial_delivery_location = current_version.delivery_location_id
+            else:
+                client_locations = list(
+                    Location.objects.filter(is_active=True, type=LocationType.CLIENTE, client=opportunity.client).values_list(
+                        "pk", flat=True
+                    )[:2]
+                )
+                if len(client_locations) == 1:
+                    initial_delivery_location = client_locations[0]
         conditions_form = (
             ProposalConditionsForm(
                 initial={
@@ -444,14 +464,15 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     "expected_delivery_time": current_version.expected_delivery_time,
                     "expected_pickup_date": current_version.expected_pickup_date,
                     "expected_pickup_time": current_version.expected_pickup_time,
-                    "delivery_location": current_version.delivery_location_id,
+                    "delivery_location": initial_delivery_location,
                     "general_discount": current_version.general_discount,
                     "interest_amount": current_version.interest_amount,
                     "freight_amount": current_version.freight_amount,
                     "special_clauses": current_version.special_clauses,
                     "payment_info_notes": current_version.payment_info_notes,
                     "general_notes": current_version.general_notes,
-                }
+                },
+                opportunity=opportunity,
             )
             if (can_change_opportunity and current_version)
             else None
@@ -1398,7 +1419,7 @@ class ProposalConditionsSaveView(LoginRequiredMixin, PermissionRequiredMixin, Vi
     def post(self, request, pk):
         opportunity = get_object_or_404(Opportunity, pk=pk)
         version = _get_or_create_editable_version(request, opportunity)
-        form = ProposalConditionsForm(request.POST)
+        form = ProposalConditionsForm(request.POST, opportunity=opportunity)
         if not form.is_valid():
             messages.error(request, "Não foi possível salvar — corrija os erros abaixo.")
             for field_errors in form.errors.values():

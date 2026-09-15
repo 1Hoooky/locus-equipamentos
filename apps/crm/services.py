@@ -785,6 +785,16 @@ def update_draft_conditions(*, proposal_version: ProposalVersion, data: Proposal
     _require_draft(proposal_version)
     if data.general_discount < 0 or data.interest_amount < 0 or data.freight_amount < 0:
         raise ValueError("Desconto geral, juros e frete não podem ser negativos.")
+    # CORREÇÃO — "Local de entrega/operação" (15/09/2026): segunda camada
+    # de defesa (a primeira é a queryset de `ProposalConditionsForm`,
+    # escopada pelo `opportunity` da URL — nunca "todas as Locations").
+    # Mesmo que este service seja chamado de outro lugar no futuro sem
+    # passar por aquele form, um `delivery_location` de um cliente
+    # diferente do cliente desta Oportunidade nunca é persistido.
+    if data.delivery_location is not None:
+        opportunity_client_id = proposal_version.proposal.opportunity.client_id
+        if data.delivery_location.client_id != opportunity_client_id:
+            raise ValueError("O local de entrega/operação precisa pertencer ao cliente desta oportunidade.")
 
     proposal_version.price_table_label = data.price_table_label
     proposal_version.payment_method = data.payment_method

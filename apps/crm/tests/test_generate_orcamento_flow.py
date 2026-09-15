@@ -6,6 +6,12 @@ período/logística, produtos, resumo financeiro, informações
 complementares), download automático do PDF após gerar, e a regra crítica
 repetida: gerar orçamento NUNCA marca a oportunidade como ganha — só o
 botão "Orçamento aceito" no topo faz isso.
+
+CORREÇÃO (15/09/2026): confirmado que o rótulo ESPECÍFICO por tipo de
+documento ("Gerar orçamento"/"Gerar contrato"/"Gerar proposta +
+contrato", nunca o genérico "Gerar documento") permanece exatamente como
+na RODADA 3 — a relabelagem dinâmica via JS não foi tocada; esta rodada
+só reordenou os blocos ao redor (ver `templates/crm/_proposal_composition.html`).
 """
 
 from decimal import Decimal

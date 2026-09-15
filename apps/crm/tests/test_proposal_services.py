@@ -240,7 +240,14 @@ class DraftEditabilityTest(ProposalServiceTestBase):
         _, version = self._proposal_and_version()
         from apps.operations.models import Location, LocationType
 
-        location = Location.objects.create(name="Depósito", type=LocationType.ESTOQUE)
+        # CORREÇÃO (15/09/2026) — "Local de entrega/operação" passou a
+        # ser EXCLUSIVAMENTE uma unidade do CLIENTE da própria
+        # Opportunity (nunca mais um Location genérico de qualquer tipo,
+        # como o antigo "Depósito"/ESTOQUE sem cliente usado aqui) —
+        # `update_draft_conditions()` agora rejeita explicitamente uma
+        # Location de outro cliente/sem cliente (ver
+        # `DeliveryLocationClientMismatchTest` abaixo).
+        location = Location.objects.create(name="Unidade Centro", type=LocationType.CLIENTE, client=self.client_obj)
         update_draft_conditions(
             proposal_version=version,
             data=ProposalConditionsData(payment_condition="28 dias", delivery_location=location, general_notes="obs"),
@@ -248,6 +255,43 @@ class DraftEditabilityTest(ProposalServiceTestBase):
         version.refresh_from_db()
         self.assertEqual(version.payment_condition, "28 dias")
         self.assertEqual(version.delivery_location_id, location.pk)
+
+
+class DeliveryLocationClientMismatchTest(ProposalServiceTestBase):
+    """
+    CORREÇÃO — "Local de entrega/operação" (15/09/2026): segunda camada
+    de defesa no SERVICE, além da queryset do form. `update_draft_conditions()`
+    nunca persiste uma `Location` que não pertence ao cliente da própria
+    `Opportunity`, mesmo chamada diretamente (sem passar pelo form/view).
+    """
+
+    def test_rejects_location_of_a_different_client(self):
+        from apps.clients.models import Client as ClientModel
+        from apps.operations.models import Location, LocationType
+
+        _, version = self._proposal_and_version()
+        other_client = ClientModel.objects.create(company_name="Outro Cliente LTDA")
+        other_location = Location.objects.create(name="Unidade Outro Cliente", type=LocationType.CLIENTE, client=other_client)
+
+        with self.assertRaises(ValueError):
+            update_draft_conditions(
+                proposal_version=version,
+                data=ProposalConditionsData(delivery_location=other_location),
+            )
+        version.refresh_from_db()
+        self.assertIsNone(version.delivery_location_id)
+
+    def test_rejects_location_without_any_client(self):
+        from apps.operations.models import Location, LocationType
+
+        _, version = self._proposal_and_version()
+        estoque = Location.objects.create(name="Depósito", type=LocationType.ESTOQUE)
+
+        with self.assertRaises(ValueError):
+            update_draft_conditions(
+                proposal_version=version,
+                data=ProposalConditionsData(delivery_location=estoque),
+            )
 
 
 class IssueProposalTest(ProposalServiceTestBase):

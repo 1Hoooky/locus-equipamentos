@@ -17,22 +17,26 @@ regressão ao final deste arquivo):
 10. Layout sem lacunas quebradas (nenhum campo removido deixa
     `<label>`/`<input>` órfão no HTML).
 
-Mais os testes da regra Matriz/Unidade (seção 23-28 da especificação):
-`Location` do tipo CLIENTE passa a aparecer no select "Local de
-entrega/operação" qualificada pelo nome do cliente (reaproveitando
-`apps.operations.forms.location_display_label` — MESMA função já
-testada em `apps.operations.tests.test_movement_destination_selection`,
-não uma cópia divergente), sem alterar Client/Location/Address.
+Mais os testes da regra "Local de entrega/operação" — CORRIGIDA em
+15/09/2026 (ver docs/apps/crm.md, seção "RODADA 4"): o select mostra
+EXCLUSIVAMENTE as `Location`s do CLIENTE da PRÓPRIA Opportunity — nunca
+uma busca/autocomplete global entre clientes. A especificação original
+desta seção pedia qualificar cada opção com o nome do cliente
+("Cliente — Unidade", reaproveitando `location_display_label`); a
+correção substitui isso porque, com o select já escopado a um único
+cliente, repetir o nome do cliente em toda linha é ruído — mostra só o
+nome da unidade (`_client_location_display_label`, `apps/crm/forms.py`).
 """
 
 from decimal import Decimal
 
 from django.test import TestCase
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 
+from apps.clients.models import Client
 from apps.crm.forms import ProposalConditionsForm
-from apps.crm.models import PaymentMethod, ProposalVersionStatus
-from apps.crm.services import ProposalItemData, add_proposal_item, get_or_create_active_proposal
+from apps.crm.models import BusinessType, Opportunity, PaymentMethod, ProposalVersionStatus
+from apps.crm.services import ProposalItemData, add_proposal_item, get_or_create_active_proposal, issue_proposal
 from apps.crm.tests.test_proposal_views import ProposalViewsTestBase, _user_with_perms
 from apps.operations.models import Location, LocationType
 
@@ -261,25 +265,33 @@ class IssuanceAndCalculationRegressionTest(ProposalViewsTestBase):
         self.assertFalse("Server Error" in client.get(reverse("crm:opportunity_detail", args=[self.opportunity.pk])).content.decode())
 
 
-class MatrizUnidadeDisplayTest(ProposalViewsTestBase):
-    """Seção 23-28 — Local de entrega/operação mostra o cliente (matriz)
-    junto do nome da unidade, sem alterar Client/Location/Address."""
+class DeliveryLocationScopedToOpportunityClientTest(ProposalViewsTestBase):
+    """
+    CORREÇÃO (15/09/2026) — "Local de entrega/operação" mostra
+    EXCLUSIVAMENTE as `Location`s do cliente da PRÓPRIA `Opportunity`
+    (`self.opportunity.client`, "Cliente Views" em `ProposalViewsTestBase`)
+    — nunca Locations de outro cliente, mesmo que existam no banco.
+    Substitui a antiga `MatrizUnidadeDisplayTest`, que (por engano,
+    seguindo a especificação original já corrigida) testava Locations de
+    clientes SEM NENHUMA relação com a Opportunity aparecendo no select.
+    """
 
     def setUp(self):
         super().setUp()
         from apps.clients.models import Client as ClientModel
 
-        self.matriz_client = ClientModel.objects.create(company_name="Gerdau Aços Especiais LTDA", trade_name="Gerdau")
+        # Locations do cliente DA PRÓPRIA Opportunity — devem aparecer.
         self.loc_norte = Location.objects.create(
-            name="Unidade Norte", type=LocationType.CLIENTE, client=self.matriz_client, is_active=True
+            name="Unidade Norte", type=LocationType.CLIENTE, client=self.client_obj, is_active=True
         )
         self.loc_sul = Location.objects.create(
-            name="Unidade Sul", type=LocationType.CLIENTE, client=self.matriz_client, is_active=True
+            name="Unidade Sul", type=LocationType.CLIENTE, client=self.client_obj, is_active=True
         )
-        # Cliente com uma única unidade — não deve ganhar sufixo redundante.
-        self.single_client = ClientModel.objects.create(company_name="Marista Eventos LTDA", trade_name="Marista")
-        self.loc_unica = Location.objects.create(
-            name="Unidade principal", type=LocationType.CLIENTE, client=self.single_client, is_active=True
+        # Cliente DIFERENTE, sem nenhuma relação com esta Opportunity —
+        # a Location dele nunca pode aparecer nem ser aceita no POST.
+        self.other_client = ClientModel.objects.create(company_name="Gerdau Aços Especiais LTDA", trade_name="Gerdau")
+        self.loc_outro_cliente = Location.objects.create(
+            name="Unidade Maringá", type=LocationType.CLIENTE, client=self.other_client, is_active=True
         )
 
         self.proposal = get_or_create_active_proposal(opportunity=self.opportunity, created_by=self.owner)
@@ -288,19 +300,32 @@ class MatrizUnidadeDisplayTest(ProposalViewsTestBase):
             data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("100.00")),
         )
 
-    def test_select_shows_client_qualified_label_for_multi_unit_client(self):
+    def test_select_shows_only_locations_of_opportunity_client(self):
         client = self._login(self.owner)
         resp = client.get(reverse("crm:opportunity_detail", args=[self.opportunity.pk]))
         body = resp.content.decode()
-        self.assertIn("Gerdau — Unidade Norte", body)
-        self.assertIn("Gerdau — Unidade Sul", body)
+        self.assertIn(">Unidade Norte<", body)
+        self.assertIn(">Unidade Sul<", body)
 
-    def test_select_shows_just_client_name_for_single_unit_client(self):
+    def test_other_client_locations_never_appear_in_select(self):
+        """Item 2 da correção: outros clientes NUNCA aparecem, mesmo que
+        existam no banco."""
         client = self._login(self.owner)
         resp = client.get(reverse("crm:opportunity_detail", args=[self.opportunity.pk]))
         body = resp.content.decode()
-        self.assertIn(">Marista<", body)
-        self.assertNotIn("Marista — Unidade principal", body)
+        self.assertNotIn("Unidade Maringá", body)
+        self.assertNotIn("Gerdau", body)
+
+    def test_label_shows_only_unit_name_never_repeats_client(self):
+        """Item 5 da correção: como todas as opções já pertencem ao
+        mesmo cliente, o rótulo mostra só o nome da unidade — nunca
+        "Cliente — Unidade" (isso seria ruído aqui, ao contrário do
+        select de destino de `MovementForm`, que mistura clientes)."""
+        client = self._login(self.owner)
+        resp = client.get(reverse("crm:opportunity_detail", args=[self.opportunity.pk]))
+        body = resp.content.decode()
+        self.assertIn(">Unidade Norte<", body)
+        self.assertNotIn("Cliente Views — Unidade Norte", body)
 
     def test_saving_delivery_location_persists_and_does_not_alter_client_or_location(self):
         client = self._login(self.owner)
@@ -314,7 +339,101 @@ class MatrizUnidadeDisplayTest(ProposalViewsTestBase):
         self.assertEqual(version.delivery_location_id, self.loc_norte.pk)
 
         self.loc_norte.refresh_from_db()
-        self.matriz_client.refresh_from_db()
-        self.assertEqual(self.loc_norte.client_id, self.matriz_client.pk)
+        self.client_obj.refresh_from_db()
+        self.assertEqual(self.loc_norte.client_id, self.client_obj.pk)
         self.assertEqual(self.loc_norte.name, "Unidade Norte")
-        self.assertEqual(self.matriz_client.company_name, "Gerdau Aços Especiais LTDA")
+
+    def test_posting_location_of_another_client_is_rejected(self):
+        """Item 4 da correção — SEGURANÇA BACKEND: mesmo manipulando o
+        POST manualmente com o PK de uma Location de OUTRO cliente, o
+        form rejeita (queryset escopada por `opportunity.client` já
+        recusa o valor — `ModelChoiceField` nunca aceita um PK fora da
+        queryset) e nada é persistido."""
+        client = self._login(self.owner)
+        client.post(
+            reverse("crm:proposal_conditions_save", args=[self.opportunity.pk]),
+            {"payment_method": "", "delivery_location": self.loc_outro_cliente.pk},
+        )
+        version = self.proposal.latest_version
+        version.refresh_from_db()
+        self.assertNotEqual(version.delivery_location_id, self.loc_outro_cliente.pk)
+        self.assertIsNone(version.delivery_location_id)
+
+    def test_client_with_no_locations_shows_empty_state(self):
+        """Item 8 da correção — cliente sem nenhuma unidade cadastrada
+        mostra um estado vazio em vez de um select sem opções (e nunca
+        cai para Locations de outro cliente como fallback)."""
+        empty_client_opportunity = Opportunity.objects.create(
+            client=Client.objects.create(company_name="Cliente Sem Unidade LTDA"),
+            title="Oportunidade sem unidade", owner=self.owner, source=self.source,
+            business_type=BusinessType.LOCACAO, stage=self.stage_novo, created_by=self.owner,
+        )
+        client = self._login(self.owner)
+        resp = client.get(reverse("crm:opportunity_detail", args=[empty_client_opportunity.pk]))
+        body = resp.content.decode()
+        self.assertIn("Nenhuma unidade cadastrada para este cliente.", body)
+
+    def test_single_location_client_is_preselected_but_still_shown(self):
+        """Item 6 da correção — cliente com uma única unidade ativa vem
+        pré-selecionada no `initial`, mas o campo continua sendo um
+        `<select>` normal mostrando claramente qual local será usado
+        (nunca escondido)."""
+        single_client = Client.objects.create(company_name="Cliente Uma Unidade LTDA")
+        Location.objects.create(name="Unidade principal", type=LocationType.CLIENTE, client=single_client, is_active=True)
+        single_opportunity = Opportunity.objects.create(
+            client=single_client, title="Oportunidade unidade única", owner=self.owner, source=self.source,
+            business_type=BusinessType.LOCACAO, stage=self.stage_novo, created_by=self.owner,
+        )
+        client = self._login(self.owner)
+        resp = client.get(reverse("crm:opportunity_detail", args=[single_opportunity.pk]))
+        body = resp.content.decode()
+        self.assertIn(">Unidade principal<", body)
+        # A OPÇÃO em si vem marcada como selecionada — não só presente
+        # no select (o campo continua mostrando claramente qual local
+        # será usado, nunca escondido).
+        self.assertIn("selected>Unidade principal</option>", body)
+
+    def test_inactive_location_never_appears(self):
+        """Item 3 da correção — respeita ativo/inativo."""
+        inactive = Location.objects.create(
+            name="Unidade Desativada", type=LocationType.CLIENTE, client=self.client_obj, is_active=False
+        )
+        client = self._login(self.owner)
+        resp = client.get(reverse("crm:opportunity_detail", args=[self.opportunity.pk]))
+        body = resp.content.decode()
+        self.assertNotIn("Unidade Desativada", body)
+
+    def test_editing_loads_the_previously_saved_location_selected(self):
+        """Item 9 do checklist de testes obrigatórios — reabrir a tela
+        depois de salvar mostra a MESMA Location marcada como
+        selecionada no select (nunca perdida/trocada por outra)."""
+        client = self._login(self.owner)
+        client.post(
+            reverse("crm:proposal_conditions_save", args=[self.opportunity.pk]),
+            {"payment_method": "", "delivery_location": self.loc_sul.pk},
+        )
+        resp = client.get(reverse("crm:opportunity_detail", args=[self.opportunity.pk]))
+        body = resp.content.decode()
+        self.assertIn("selected>Unidade Sul</option>", body)
+
+    def test_no_global_location_autocomplete_endpoint_exists(self):
+        """Item 10 do checklist — nenhum endpoint de busca global de
+        Location foi criado (ao contrário da especificação original,
+        já corrigida)."""
+        for name in ("crm:location_autocomplete", "crm:location_search", "crm:delivery_location_search"):
+            with self.assertRaises(NoReverseMatch):
+                reverse(name)
+
+    def test_issuing_proposal_preserves_the_saved_delivery_location(self):
+        """Item 12 do checklist — a emissão continua usando a Location
+        correta (nenhuma regressão introduzida pela correção)."""
+        client = self._login(self.owner)
+        client.post(
+            reverse("crm:proposal_conditions_save", args=[self.opportunity.pk]),
+            {"payment_method": "", "delivery_location": self.loc_norte.pk},
+        )
+        version = self.proposal.latest_version
+        version.refresh_from_db()
+        issue_proposal(proposal_version=version, issued_by=self.owner)
+        version.refresh_from_db()
+        self.assertEqual(version.delivery_location_id, self.loc_norte.pk)

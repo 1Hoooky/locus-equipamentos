@@ -2,48 +2,51 @@
 {% load currency %}
 {% comment %}
 Composição comercial da Opportunity ("Produtos e Serviços") — 14/09/2026,
-refinada em 14/09/2026 (REFINAMENTO VISUAL E FUNCIONAL) e em 15/09/2026
-(RODADA 4 DE REFINAMENTOS — ver docs/apps/crm.md, seção "RODADA 4").
-Aparência 100% do design system atual do LocusHub (nunca copiada do
-sistema antigo).
+refinada em 14/09/2026 (REFINAMENTO VISUAL E FUNCIONAL), em 15/09/2026
+(RODADA 4 DE REFINAMENTOS) e novamente em 15/09/2026 (CORREÇÃO — Local de
+entrega/operação + reordenação Ajustes financeiros/Resumo financeiro —
+ver docs/apps/crm.md, seção "RODADA 4"). Aparência 100% do design system
+atual do LocusHub (nunca copiada do sistema antigo).
 
-Hierarquia de 5 blocos (RODADA 4 removeu o bloco "Aceite" que existia
-depois de Documento — ver abaixo): 1. Condições comerciais; 2.
-Período/Logística; 3. Produtos/Serviços; 4. Resumo financeiro; 5.
-Informações complementares; 6. Documento (botão primário alinhado à
-direita, ao final da página — ÚLTIMO bloco, nada depois dele). `.proposal-block`
-(ver templates/_design_tokens.html) só acrescenta espaçamento/divisor
-sutil entre eles — nunca vira caixa própria (isso é reservado ao cartão
-de item comercial, `.proposal-item-card`, o único lugar desta tela que
-usa cartão).
+Hierarquia de blocos (`.proposal-block`, ver templates/_design_tokens.html
+— só acrescenta espaçamento/divisor sutil, nunca vira caixa própria, isso
+é reservado ao cartão de item comercial `.proposal-item-card`), na ordem
+em que aparecem na página: 1. Condições comerciais; 2. Período/Logística
+(inclui "Local de entrega/operação"); 3. Produtos/Serviços; 4. Ajustes
+financeiros; 5. Resumo financeiro; 6. Informações complementares; 7.
+Documento (botão primário alinhado à direita, ÚLTIMO bloco, nada depois
+dele). O bloco "Aceite" existia depois de Documento em rodadas
+anteriores — removido inteiramente na RODADA 4 (o único CTA de aceite
+comercial visível no Hub é "Orçamento aceito", no cabeçalho/topo da
+página, fora deste parcial; `accept_proposal_version()`/
+`ProposalAcceptVersionView` continuam existindo, só sem gatilho aqui).
 
-RODADA 4 (15/09/2026, seção 1-4/9-14/34): duas mudanças estruturais
-importantes em relação às rodadas anteriores:
-
-1. O bloco "Aceite" (aceitar uma `ProposalVersion` específica, com botão
-   "Aceitar versão") foi REMOVIDO INTEIRAMENTE desta tela — o único CTA
-   de aceite comercial visível no Hub é "Orçamento aceito", no
-   cabeçalho/topo da página (fora deste parcial). O backend de aceite
-   (`accept_proposal_version()`/`ProposalAcceptVersionView`) continua
-   existindo, só não tem mais nenhum gatilho aqui (ver
-   `apps.crm.views.OpportunityDetailView.get`).
-
-2. `current_version.is_editable` deixou de ser condição para EXIBIR os
-   formulários de condições/produtos — auto-versionamento preguiçoso
-   (`ensure_editable_version()`/`ensure_editable_item()`, services.py)
-   significa que o usuário pode continuar editando mesmo depois de uma
-   emissão; a PRIMEIRA alteração de verdade (POST) é quem decide, nos
-   bastidores, clonar uma nova versão DRAFT — nunca esta tela. Por isso
-   `current_version.is_editable` não aparece mais como condição de
-   exibição abaixo (só `can_change_opportunity`/existência dos forms,
-   que a própria view já calcula considerando isso). O botão manual
-   "Criar nova versão" também foi removido (seção 7-8) — o mecanismo
-   continua existindo no backend (`create_new_version()`), só não é mais
-   acionado manualmente pelo usuário.
+`current_version.is_editable` NÃO é condição para EXIBIR os formulários
+de condições/produtos — auto-versionamento preguiçoso
+(`ensure_editable_version()`/`ensure_editable_item()`, services.py)
+significa que o usuário pode continuar editando mesmo depois de uma
+emissão; a PRIMEIRA alteração de verdade (POST) é quem decide, nos
+bastidores, clonar uma nova versão DRAFT — nunca esta tela. O botão
+manual "Criar nova versão" foi removido — o mecanismo continua existindo
+no backend (`create_new_version()`), só não é mais acionado manualmente.
 
 `current_version` pode ser `None` (nenhuma proposta criada ainda e o
 usuário não tem `crm.change_opportunities`) — nesse caso só um estado
 vazio aparece.
+
+UM SÓ FORMULÁRIO LÓGICO para "Salvar rascunho" (correção de um bug
+herdado: a tela tinha DOIS `<form>` HTML separados apontando para
+`proposal_conditions_save` — um sem nenhum botão de envio, que por isso
+NUNCA enviava `payment_method`/período/`delivery_location`). Agora existe
+um único `<form id="proposal-conditions-form">`, que fisicamente só
+envolve os blocos "Condições comerciais" e "Período/Logística" (fecha
+antes de "Produtos/Serviços", que tem seu PRÓPRIO `<form>` — aninhar
+`<form>` dentro de `<form>` é HTML inválido). Os campos de "Ajustes
+financeiros"/"Informações complementares" e o botão "Salvar rascunho"
+ficam mais abaixo na página, fora desse `<form>`, mas usam o atributo
+HTML5 `form="proposal-conditions-form"` (aplicado a TODO campo de
+`ProposalConditionsForm` em `apps/crm/forms.py.__init__`) para continuar
+pertencendo ao MESMO envio — um único POST, um único "Salvar rascunho".
 {% endcomment %}
 
 {% if current_version is None %}
@@ -66,10 +69,10 @@ vazio aparece.
 </div>
 
 {% if conditions_form %}
-<form method="post" action="{% url 'crm:proposal_conditions_save' opportunity.pk %}">
+<form id="proposal-conditions-form" method="post" action="{% url 'crm:proposal_conditions_save' opportunity.pk %}">
   {% csrf_token %}
 
-  {# ---------------- BLOCO 2 · CONDIÇÕES COMERCIAIS ---------------- #}
+  {# ---------------- BLOCO · CONDIÇÕES COMERCIAIS ---------------- #}
   <div class="proposal-block">
     <h3 class="section-heading">{% icon "currency-dollar" size="compact" %} Condições comerciais</h3>
     <div class="max-w-xs">
@@ -80,7 +83,7 @@ vazio aparece.
     <p class="text-xs text-gray-500 mt-2">Condições específicas (parcelamento, entrada, prazos) entram em "Informações de valor e pagamento", mais abaixo.</p>
   </div>
 
-  {# ---------------- BLOCO 3 · PERÍODO / LOGÍSTICA ---------------- #}
+  {# ---------------- BLOCO · PERÍODO / LOGÍSTICA ---------------- #}
   <div class="proposal-block">
     <h3 class="section-heading">{% icon "calendar" size="compact" %} Período / Logística</h3>
     <div class="proposal-period-grid">
@@ -94,9 +97,19 @@ vazio aparece.
         {% endif %}
       {% endfor %}
     </div>
+    {# CORREÇÃO — "Local de entrega/operação" (15/09/2026): o select só  #}
+    {# oferece as unidades do CLIENTE desta Opportunity                  #}
+    {# (`ProposalConditionsForm.__init__`, `apps/crm/forms.py`) — nunca  #}
+    {# um buscador global entre todos os clientes do sistema. Cliente    #}
+    {# sem nenhuma unidade cadastrada mostra um estado vazio em vez do   #}
+    {# select (nada pra escolher).                                      #}
     <div class="mt-4">
       <label class="field-label" for="{{ conditions_form.delivery_location.id_for_label }}">{{ conditions_form.delivery_location.label }}</label>
+      {% if conditions_form.delivery_location.field.queryset.exists %}
       <div class="max-w-md">{{ conditions_form.delivery_location }}</div>
+      {% else %}
+      <p class="empty-state text-sm">Nenhuma unidade cadastrada para este cliente.</p>
+      {% endif %}
       {% for error in conditions_form.delivery_location.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
       <p class="field-hint">{{ conditions_form.delivery_location.help_text }}</p>
     </div>
@@ -170,11 +183,40 @@ vazio aparece.
   {% endif %}
 </div>
 
-{# ---------------- BLOCO 5 · RESUMO FINANCEIRO ---------------- #}
+{% if conditions_form %}
+{# ---------------- BLOCO · AJUSTES FINANCEIROS ---------------- #}
+{# CORREÇÃO (15/09/2026): bloco PRÓPRIO, antes do Resumo financeiro (era #}
+{# um parágrafo + grid embutidos dentro do bloco Resumo financeiro) —    #}
+{# mesmo tratamento visual centralizado (`.proposal-summary-wrap`) do    #}
+{# Resumo financeiro logo abaixo. Campos fisicamente FORA de             #}
+{# `#proposal-conditions-form` — ver `form="proposal-conditions-form"`   #}
+{# no comentário do topo do arquivo e em `ProposalConditionsForm.__init__`.#}
+<div class="proposal-block">
+  <div class="proposal-summary-wrap">
+    <h3 class="section-heading text-center">{% icon "cog-6-tooth" size="compact" %} Ajustes financeiros</h3>
+    <p class="text-xs text-gray-500 mb-2 text-center">Desconto geral, juros e frete — afetam o TOTAL do Resumo financeiro abaixo.</p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl mx-auto">
+      {% for field in conditions_form %}
+        {% if field.name in "general_discount,interest_amount,freight_amount" %}
+        <div>
+          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ---------------- BLOCO · RESUMO FINANCEIRO ---------------- #}
 {# RODADA 4 (15/09/2026, seção 5-6): bloco CENTRALIZADO horizontalmente  #}
 {# dentro da área disponível (largura contida, nunca esticado) — labels #}
 {# continuam alinhados à esquerda e valores à direita DENTRO do bloco   #}
-{# centralizado; em mobile ocupa a largura disponível.                 #}
+{# centralizado; em mobile ocupa a largura disponível. Só leitura — não #}
+{# tem nenhum campo de formulário, por isso não precisa do atributo     #}
+{# `form="proposal-conditions-form"`.                                   #}
 <div class="proposal-block">
   <div class="proposal-summary-wrap">
     <h3 class="section-heading text-center">Resumo financeiro</h3>
@@ -186,56 +228,48 @@ vazio aparece.
       <tr class="text-base font-bold border-t border-gray-200"><td class="pr-6 pt-2">TOTAL</td><td class="text-right tabular-nums pt-2">{{ current_version.total|brl }}</td></tr>
     </table>
   </div>
-
-  {% if conditions_form %}
-  <form method="post" action="{% url 'crm:proposal_conditions_save' opportunity.pk %}" class="mt-4">
-    {% csrf_token %}
-    <p class="text-xs text-gray-500 mb-2">Ajustes (desconto geral, juros, frete) — afetam o TOTAL acima.</p>
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl">
-      {% for field in conditions_form %}
-        {% if field.name in "general_discount,interest_amount,freight_amount" %}
-        <div>
-          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-          {{ field }}
-          {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-        </div>
-        {% endif %}
-      {% endfor %}
-    </div>
-
-    {# ---------------- BLOCO 6 · INFORMAÇÕES COMPLEMENTARES ---------------- #}
-    <h3 class="section-heading mt-6">{% icon "folder" size="compact" %} Informações complementares</h3>
-    {% for field in conditions_form %}
-      {% if field.name in "special_clauses,payment_info_notes,general_notes" %}
-      <div class="mb-3">
-        <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-        {{ field }}
-        {% if field.help_text %}<p class="field-hint">{{ field.help_text }}</p>{% endif %}
-        {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-      </div>
-      {% endif %}
-    {% endfor %}
-
-    {% if conditions_form.non_field_errors %}
-      {% for error in conditions_form.non_field_errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-    {% endif %}
-
-    <button type="submit" class="btn-primary">Salvar rascunho</button>
-  </form>
-  {% endif %}
 </div>
 
-{# ---------------- BLOCO 6 · DOCUMENTO (último bloco da página — nada   #}
+{% if conditions_form %}
+{# ---------------- BLOCO · INFORMAÇÕES COMPLEMENTARES ---------------- #}
+{# Último bloco do formulário lógico de "Salvar rascunho" — o botão de  #}
+{# envio usa `form="proposal-conditions-form"` (não está dentro de     #}
+{# nenhuma tag `<form>`; ver comentário no topo do arquivo).            #}
+<div class="proposal-block">
+  <h3 class="section-heading">{% icon "folder" size="compact" %} Informações complementares</h3>
+  {% for field in conditions_form %}
+    {% if field.name in "special_clauses,payment_info_notes,general_notes" %}
+    <div class="mb-3">
+      <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.help_text %}<p class="field-hint">{{ field.help_text }}</p>{% endif %}
+      {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+    {% endif %}
+  {% endfor %}
+
+  {% if conditions_form.non_field_errors %}
+    {% for error in conditions_form.non_field_errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  {% endif %}
+
+  <button type="submit" form="proposal-conditions-form" class="btn-primary">Salvar rascunho</button>
+</div>
+{% endif %}
+
+{# ---------------- BLOCO · DOCUMENTO (último bloco da página — nada    #}
 {# depois dele, RODADA 4 removeu o bloco "Aceite" que existia aqui      #}
 {# embaixo, seção 1-4/29). Botão primário, sempre alinhado à direita    #}
 {# (`ml-auto`), com nome ESPECÍFICO ao tipo escolhido (nunca genérico   #}
 {# "Gerar documento"): "Gerar orçamento" (Proposta Comercial, valor     #}
 {# padrão do select) / "Gerar contrato" / "Gerar proposta + contrato" — #}
 {# atualizado ao vivo pelo pequeno script abaixo quando o usuário troca #}
-{# o tipo, sem nenhum reload. GERAR NUNCA é ACEITAR (seção 3/34) — nem  #}
-{# muda etapa, nem marca ganho; RODADA 4 removeu o texto explicativo    #}
-{# redundante que estava abaixo do botão (seção 4: "a interface deve    #}
-{# ser autoexplicativa" — a regra continua documentada no backend/docs).#}
+{# o tipo, sem nenhum reload (CORREÇÃO 15/09/2026: confirmado que este  #}
+{# comportamento da RODADA 3 permanece — nenhuma mudança de texto/rótulo#}
+{# aqui, só a reordenação dos blocos acima). GERAR NUNCA é ACEITAR      #}
+{# (seção 3/34) — nem muda etapa, nem marca ganho; RODADA 4 removeu o   #}
+{# texto explicativo redundante que estava abaixo do botão (seção 4:    #}
+{# "a interface deve ser autoexplicativa" — a regra continua            #}
+{# documentada no backend/docs).                                       #}
 {% if document_form %}
 <div class="proposal-block">
   <h3 class="section-heading">{% icon "document-text" size="compact" %} Documento</h3>

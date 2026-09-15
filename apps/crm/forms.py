@@ -530,6 +530,40 @@ class ProposalItemForm(forms.Form):
         return cleaned
 
 
+def _opportunity_delivery_location_queryset(client: Client | None):
+    """
+    RODADA 4 (CORREÇÃO — "Local de entrega/operação", 15/09/2026): o
+    campo mostra EXCLUSIVAMENTE as `Location`s do CLIENTE da própria
+    `Opportunity` — nunca uma busca/autocomplete global entre todos os
+    clientes do sistema (a especificação anterior que pedia isso foi
+    corrigida). Sem `client` (chamador não passou `opportunity`, ex.:
+    instanciação avulsa em teste) devolve uma queryset VAZIA — nunca
+    "todas as Locations" como fallback, que reabriria a brecha que esta
+    correção fecha. `type=LocationType.CLIENTE` é redundante com
+    `client=client` (a `CheckConstraint` do model já garante que só
+    Locations desse tipo têm `client` preenchido) mas deixa a intenção
+    explícita na leitura do código. Reaproveita o mesmo campo
+    `Location.client` (FK real, já existente desde a Fase 2) — nenhum
+    relacionamento novo foi inventado.
+    """
+    if client is None:
+        return Location.objects.none()
+    return Location.objects.filter(is_active=True, type=LocationType.CLIENTE, client=client).order_by("name")
+
+
+def _client_location_display_label(location: Location) -> str:
+    """
+    RODADA 4 — como o queryset acima já restringe as opções a um único
+    cliente (o da própria `Opportunity`), repetir "Cliente — Unidade" em
+    toda linha do select é ruído puro (nunca há ambiguidade entre
+    clientes diferentes dentro deste campo, ao contrário do select de
+    destino de `MovementForm`, que mistura Locations de vários clientes
+    e por isso precisa de `location_display_label`). Mostra só o nome da
+    unidade.
+    """
+    return location.name
+
+
 class ProposalConditionsForm(forms.Form):
     """
     Condições comerciais/período/logística/financeiro/textos de uma
@@ -580,21 +614,14 @@ class ProposalConditionsForm(forms.Form):
     expected_pickup_time = forms.TimeField(label="Horário de retirada", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
     delivery_location = forms.ModelChoiceField(
         label="Local de entrega/operação",
-        # `active_sibling_count` alimenta `location_display_label` (mesma
-        # annotation de `apps.operations.forms._destination_queryset`,
-        # sem cópia divergente da lógica) — evita 1 query extra por
-        # opção do select ao decidir "só o cliente" vs "Cliente —
-        # Unidade".
-        queryset=Location.objects.filter(is_active=True)
-        .select_related("client")
-        .annotate(
-            active_sibling_count=Count(
-                "client__locations", filter=Q(client__locations__is_active=True), distinct=True
-            )
-        )
-        .order_by("type", "name"),
+        # Default de CLASSE vazio de propósito — a queryset real (RODADA
+        # 4: só as Locations do CLIENTE desta Opportunity, nunca busca
+        # global) é montada em `__init__`, que exige o `opportunity` para
+        # poder escopar; sem ele, fica vazia (nunca "todas as Locations"
+        # como fallback — ver `_opportunity_delivery_location_queryset`).
+        queryset=Location.objects.none(),
         required=False,
-        help_text="Reaproveita Location real (seção 41) — nunca sobrescreve o endereço fiscal do cliente.",
+        help_text="Reaproveita Location real (seção 41) — nunca sobrescreve o endereço fiscal do cliente. Mostra só as unidades do cliente desta oportunidade.",
     )
 
     general_discount = forms.DecimalField(label="Desconto geral (R$)", max_digits=12, decimal_places=2, min_value=0, required=False)
@@ -615,10 +642,53 @@ class ProposalConditionsForm(forms.Form):
     )
     general_notes = forms.CharField(label="Observações", required=False, widget=forms.Textarea(attrs={"rows": 3}))
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, opportunity=None, **kwargs):
+        """
+        `opportunity` (RODADA 4, CORREÇÃO — "Local de entrega/operação"):
+        precisa ser passado por quem instancia este form dentro de uma
+        `Opportunity` real (`OpportunityDetailView.get()`,
+        `ProposalConditionsSaveView.post()`) para que `delivery_location`
+        só ofereça Locations do `opportunity.client` — nunca de outro
+        cliente. Igual ao raciocínio já usado em
+        `MovementForm.__init__`/`current_location` (mesmo padrão:
+        queryset do campo montada em `__init__`, não como default
+        estático de classe). Opcional (`None`) só para instanciação
+        avulsa (ex.: testes que checam só `.fields`, sem contexto de
+        Opportunity) — nesse caso `delivery_location` fica com queryset
+        vazia, nunca "todas as Locations".
+        """
         super().__init__(*args, **kwargs)
         _apply_input_class(self.fields)
-        self.fields["delivery_location"].label_from_instance = location_display_label
+        self.opportunity = opportunity
+        client = opportunity.client if opportunity is not None else None
+        self.fields["delivery_location"].queryset = _opportunity_delivery_location_queryset(client)
+        self.fields["delivery_location"].label_from_instance = _client_location_display_label
+        # RODADA 4 (reorganização Ajustes financeiros/Resumo
+        # financeiro/Informações complementares, 15/09/2026): o template
+        # só tem UM `<form id="proposal-conditions-form">`, que envolve
+        # física/visualmente só "Condições comerciais" e
+        # "Período/Logística" (fecha antes do bloco Produtos/Serviços,
+        # que tem seu PRÓPRIO `<form>` de "Adicionar produto/serviço" —
+        # aninhar um `<form>` dentro do outro é HTML inválido). Os campos
+        # de "Ajustes financeiros"/"Informações complementares" (e o
+        # botão "Salvar rascunho") são renderizados MAIS ABAIXO na
+        # página, fisicamente FORA desse `<form>` — o atributo HTML5
+        # `form="proposal-conditions-form"` em cada um deles é o que os
+        # associa ao mesmo `<form>` mesmo sem serem descendentes dele no
+        # DOM, exatamente o padrão nativo do HTML para "um formulário,
+        # campos em qualquer lugar da página" (suportado por todos os
+        # navegadores modernos). Corrige um bug real herdado das rodadas
+        # anteriores: a tela tinha DOIS `<form action="...conditions_save...">`
+        # separados — um sem nenhum botão "Salvar rascunho" (Condições/
+        # Período/`delivery_location`) e outro com o botão (Ajustes/
+        # Informações complementares) — então clicar "Salvar rascunho"
+        # nunca enviava `payment_method`/datas/`delivery_location` ao
+        # backend, e `update_draft_conditions()` gravava esses campos
+        # como vazios a cada "Salvar rascunho" (regressão silenciosa,
+        # nunca pega pelos testes porque `self.client.post()` testa
+        # direto no endpoint, sem passar pela renderização real do HTML).
+        for field in self.fields.values():
+            field.widget.attrs["form"] = "proposal-conditions-form"
 
     def clean(self):
         cleaned = super().clean()
@@ -626,6 +696,20 @@ class ProposalConditionsForm(forms.Form):
         end = cleaned.get("contracted_end_date")
         if start and end and end < start:
             self.add_error("contracted_end_date", "A data final contratada não pode ser anterior à data inicial.")
+        # RODADA 4 — segunda camada de defesa (a primeira já é a própria
+        # queryset do `ModelChoiceField`, escopada por `opportunity` em
+        # `__init__`: um `delivery_location` de outro cliente já é
+        # rejeitado ali com "Faça uma escolha válida..."). Esta checagem
+        # explícita só existe para dar um erro mais claro e nunca deixar
+        # passar uma Location de outro cliente mesmo que, no futuro, o
+        # form seja reaproveitado sem passar `opportunity` corretamente.
+        delivery_location = cleaned.get("delivery_location")
+        if delivery_location is not None and self.opportunity is not None:
+            if delivery_location.client_id != self.opportunity.client_id:
+                self.add_error(
+                    "delivery_location",
+                    "Este local de entrega/operação não pertence ao cliente desta oportunidade.",
+                )
         return cleaned
 
 
