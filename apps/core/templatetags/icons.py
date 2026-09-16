@@ -39,14 +39,6 @@ register = template.Library()
 
 # name -> conteúdo interno do <svg> (um ou mais <path>), sem o <svg> em si.
 _ICONS = {
-    
-    "rede":(
-        '<path d="M3 18h3v3H3z" fill="currentColor" />'
-        '<path d="M8 14h3v7H8z" fill="currentColor" />'
-        '<path d="M13 10h3v11h-3z" fill="currentColor" />'
-        '<path d="M18 6h3v15h-3z" fill="currentColor" />'  
-    ),
-    
     "eye": (
         '<path stroke-linecap="round" stroke-linejoin="round" '
         'd="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 '
@@ -388,6 +380,23 @@ _ICONS = {
     "check-circle": (
         '<path stroke-linecap="round" stroke-linejoin="round" '
         'd="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />'
+    ),
+    # -------------------------------------------------------------------
+    # Adicionado em 15/09/2026 (troca do ícone do grupo "CRM" na sidebar,
+    # de "funnel" para este ícone de "rede"/crescimento em barras).
+    # Fornecido diretamente pelo usuário, preenchido (fill), não
+    # contornado — foge do padrão Heroicons "outline" dos demais ícones
+    # deste dicionário (aceito como exceção deliberada, igual já ocorre
+    # com `_BRAND_ICONS`/"instagram"). O `<svg>` pai de `icon()` ainda
+    # aplica `stroke="currentColor" stroke-width="1.5"`, então cada barra
+    # sai preenchida com um contorno fino — efeito aceito, nunca ajustado
+    # sem pedido explícito.
+    # -------------------------------------------------------------------
+    "rede": (
+        '<path d="M3 18h3v3H3z" fill="currentColor" />'
+        '<path d="M8 14h3v7H8z" fill="currentColor" />'
+        '<path d="M13 10h3v11h-3z" fill="currentColor" />'
+        '<path d="M18 6h3v15h-3z" fill="currentColor" />'
     ),
 }
 
