@@ -173,13 +173,17 @@ demais.
     impressão (`qrcodes:model_qr_grid`/`ModelQRGridDownloadView`/
     `generate_qr_grid_pdf`). Botão NOVO, não substitui nem altera
     "Etiquetas em lote" ao lado — mesmo escopo/permissão
-    (`user.is_administrativo_ou_superior`), sem `data-label-theme-trigger`
-    (QR puro não tem tema LIGHT/DARK, mesmo raciocínio do botão
-    "Exportar QR Codes (puro)" do menu de ações acima).
+    (`user.is_administrativo_ou_superior`). Ganhou
+    `data-label-theme-trigger` na mesma rodada da correção de
+    dimensionamento (decisão revista: reaproveita o MESMO modal
+    Claro/Escuro de "Etiquetas em lote" — mesmo `href`, mesmo JS
+    genérico em static/qrcodes/label_theme_modal.js, só muda o fundo da
+    página do PDF, nunca o QR em si).
     {% endcomment %}
     {% if user.is_administrativo_ou_superior %}
     <div class="action-group absolute top-2 right-3 sm:top-2.5 z-10">
       <a href="{% url 'qrcodes:model_qr_grid' group.model_id %}"
+         data-label-theme-trigger
          class="icon-btn-neutral"
          aria-label="Exportar QR Codes em PDF do modelo {{ group.model_name }}"
          title="Exportar QR Codes em PDF">

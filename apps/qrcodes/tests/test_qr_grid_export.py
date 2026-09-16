@@ -29,6 +29,8 @@ from apps.equipment.models import ConditionHistory, Equipment, StatusHistory
 from apps.equipment.services import NewEquipmentData, create_equipment
 from apps.operations.models import Movement
 from apps.qrcodes.services import (
+    LABEL_THEME_DARK,
+    LABEL_THEME_LIGHT,
     QR_GRID_CELL_SIZE_MM,
     QR_GRID_COLUMNS,
     QR_GRID_GUTTER_MM,
@@ -41,6 +43,7 @@ from apps.qrcodes.services import (
     QR_GRID_ROWS,
     QR_GRID_WIDTH_MM,
     equipment_url,
+    generate_qr_grid_pdf,
     generate_qr_png,
 )
 
@@ -77,8 +80,9 @@ class ModelQRGridDownloadViewTest(TestCase):
         for role in (Role.ADMIN, Role.ADMINISTRATIVO, Role.OPERACIONAL, Role.CONSULTA):
             User.objects.create_user(username=f"qrgrid_{role.lower()}", password="senha-forte-123", role=role)
 
-    def _url(self, model_id):
-        return f"/qrcodes/modelo/{model_id}/qrcodes.pdf"
+    def _url(self, model_id, *, tema=None):
+        base = f"/qrcodes/modelo/{model_id}/qrcodes.pdf"
+        return f"{base}?tema={tema}" if tema is not None else base
 
     def _decode_all_qrs(self, pdf_bytes):
         """
@@ -558,3 +562,153 @@ class ModelQRGridPhysicalDimensionsTest(TestCase):
         self._download()
         after = list(Equipment.objects.filter(pk__in=[e.pk for e in equipment_list]).order_by("pk").values())
         self.assertEqual(before, after)
+
+
+class ModelQRGridThemeTest(TestCase):
+    """
+    Tema Claro/Escuro (pedido de 16/09/2026, decisão revista na mesma
+    rodada da correção de dimensionamento): "Exportar QR Codes em PDF"
+    passou a reaproveitar o MESMO modal/`?tema=` já usado por "Etiquetas
+    em lote" — nenhum modal novo, nenhuma validação de tema nova
+    (`_validated_theme`, a mesma função de sempre). Só o FUNDO da página
+    muda; o QR em si nunca é invertido, e a geometria física (posição/
+    tamanho/margem) da correção anterior tem que continuar idêntica nos
+    dois temas.
+    """
+
+    def setUp(self):
+        self.category = Category.objects.create(name="Climatizador")
+        self.model = EquipmentModel.objects.create(category=self.category, name="NI23 Big Tank", code="NI23BT")
+        self.creator = User.objects.create_user(username="cadastrador_qrgrid_tema", password="senha-forte-123")
+        User.objects.create_user(username="qrgridtema_admin", password="senha-forte-123", role=Role.ADMIN)
+
+    def _create_equipment(self, quantity):
+        return [create_equipment(NewEquipmentData(model_id=self.model.pk, created_by=self.creator)) for _ in range(quantity)]
+
+    def _url(self, *, tema=None):
+        base = f"/qrcodes/modelo/{self.model.pk}/qrcodes.pdf"
+        return f"{base}?tema={tema}" if tema is not None else base
+
+    def _get(self, **kwargs):
+        self.client.login(username="qrgridtema_admin", password="senha-forte-123")
+        return self.client.get(self._url(**kwargs))
+
+    # 1. Sem `?tema=`, continua caindo no padrão "light" — mesmo
+    # comportamento de sempre desta e de toda outra rota deste app,
+    # nenhuma mudança de comportamento para quem não usa o modal.
+    def test_without_tema_defaults_to_light(self):
+        self._create_equipment(1)
+        response = self._get()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
+    def test_accepts_light_explicitly(self):
+        self._create_equipment(1)
+        response = self._get(tema="light")
+        self.assertEqual(response.status_code, 200)
+
+    def test_accepts_dark(self):
+        self._create_equipment(1)
+        response = self._get(tema="dark")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
+    # 2. Tema inválido continua rejeitado com 400 — mesma validação
+    # (`_validated_theme`) de toda outra rota, nunca aceito
+    # silenciosamente.
+    def test_rejects_invalid_theme(self):
+        self._create_equipment(1)
+        response = self._get(tema="roxo")
+        self.assertEqual(response.status_code, 400)
+
+    # 3. Light e dark produzem PDFs BYTES DIFERENTES (o fundo realmente
+    # muda) — não é um parâmetro aceito e ignorado.
+    def test_light_and_dark_produce_different_pdf_bytes(self):
+        self._create_equipment(3)
+        light_bytes = self._get(tema="light").content
+        dark_bytes = self._get(tema="dark").content
+        self.assertNotEqual(light_bytes, dark_bytes)
+
+    # 4. A geometria física da correção anterior (posição/tamanho de
+    # cada QR, margens, gutter) é IDÊNTICA nos dois temas — o tema muda
+    # só o fundo, nunca o layout/dimensionamento.
+    def test_physical_geometry_is_identical_regardless_of_theme(self):
+        self._create_equipment(4)
+        light_bytes = self._get(tema="light").content
+        dark_bytes = self._get(tema="dark").content
+
+        def measure(pdf_bytes):
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                page = pdf.pages[0]
+                images = sorted(page.images, key=lambda im: (round(im["top"], 1), round(im["x0"], 1)))
+                return [
+                    (
+                        round(im["x0"] / PT_PER_MM, 2),
+                        round(im["top"] / PT_PER_MM, 2),
+                        round((im["x1"] - im["x0"]) / PT_PER_MM, 2),
+                        round((im["bottom"] - im["top"]) / PT_PER_MM, 2),
+                    )
+                    for im in images
+                ]
+
+        self.assertEqual(measure(light_bytes), measure(dark_bytes))
+
+    # 5. O QR em si NUNCA é invertido — continua decodificando para a
+    # MESMA URL correta em qualquer tema (mesma regra incondicional de
+    # `label_square.html`: confiabilidade de leitura acima de estética).
+    def test_qr_still_decodes_correctly_in_both_themes(self):
+        equipment = self._create_equipment(1)[0]
+        for tema in ("light", "dark"):
+            with self.subTest(tema=tema):
+                response = self._get(tema=tema)
+                reader = PdfReader(io.BytesIO(response.content))
+                embedded = list(reader.pages[0].images)
+                self.assertEqual(len(embedded), 1)
+                decoded = decode(Image.open(io.BytesIO(embedded[0].data)))
+                self.assertEqual(len(decoded), 1)
+                self.assertEqual(decoded[0].data.decode(), equipment_url(equipment))
+
+    # 6. A própria imagem do QR (os bytes do PNG embutido) é
+    # BYTE-A-BYTE IDÊNTICA em light e dark — reforça que o tema só pinta
+    # o fundo da página, nunca gera um QR diferente/invertido.
+    def test_embedded_qr_png_bytes_are_identical_across_themes(self):
+        self._create_equipment(1)
+        light_bytes = self._get(tema="light").content
+        dark_bytes = self._get(tema="dark").content
+
+        light_img = list(PdfReader(io.BytesIO(light_bytes)).pages[0].images)[0].data
+        dark_img = list(PdfReader(io.BytesIO(dark_bytes)).pages[0].images)[0].data
+        self.assertEqual(light_img, dark_img)
+
+    # 7. Nome de arquivo não muda por causa do tema — continua
+    # `qrcodes-{code}.pdf` nos dois casos (mesma convenção já
+    # confirmada).
+    def test_filename_does_not_change_with_theme(self):
+        self._create_equipment(1)
+        expected = f'attachment; filename="qrcodes-{self.model.code}.pdf"'
+        for tema in ("light", "dark"):
+            with self.subTest(tema=tema):
+                response = self._get(tema=tema)
+                self.assertEqual(response["Content-Disposition"], expected)
+
+    # 8. Nenhum texto em nenhum dos dois temas — QR puro continua puro,
+    # tema não introduziu nenhuma legenda/rótulo.
+    def test_no_text_in_either_theme(self):
+        self._create_equipment(2)
+        for tema in ("light", "dark"):
+            with self.subTest(tema=tema):
+                response = self._get(tema=tema)
+                reader = PdfReader(io.BytesIO(response.content))
+                full_text = "".join(page.extract_text() for page in reader.pages).strip()
+                self.assertEqual(full_text, "")
+
+    # 9. `generate_qr_grid_pdf` sozinha (sem o client HTTP) também aceita
+    # os dois temas nomeados via constante — reforça que a função de
+    # serviço, não só a view, suporta o parâmetro.
+    def test_service_function_accepts_both_theme_constants(self):
+        equipment_list = self._create_equipment(2)
+        light_pdf = generate_qr_grid_pdf(equipment_list, theme=LABEL_THEME_LIGHT)
+        dark_pdf = generate_qr_grid_pdf(equipment_list, theme=LABEL_THEME_DARK)
+        self.assertTrue(light_pdf.startswith(b"%PDF"))
+        self.assertTrue(dark_pdf.startswith(b"%PDF"))
+        self.assertNotEqual(light_pdf, dark_pdf)

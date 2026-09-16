@@ -424,7 +424,7 @@ def _chunked(items: list, size: int) -> list[list]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
-def generate_qr_grid_pdf(equipment_list: list[Equipment]) -> bytes:
+def generate_qr_grid_pdf(equipment_list: list[Equipment], theme: str = LABEL_THEME_LIGHT) -> bytes:
     """
     UM ÚNICO PDF A4, multi-página, com os QR Codes PUROS dos
     equipamentos em `equipment_list`, em grade (`QR_GRID_COLUMNS` ×
@@ -440,6 +440,17 @@ def generate_qr_grid_pdf(equipment_list: list[Equipment]) -> bytes:
     Ordem de `equipment_list` é responsabilidade do CHAMADOR (mesmo
     padrão de `generate_labels_pdf`/`generate_square_labels_pdf` acima) —
     esta função nunca reordena.
+
+    `theme` (pedido de 16/09/2026, mesma rodada da correção de
+    dimensionamento) — "light" (padrão) ou "dark", reaproveitando o MESMO
+    modal/`?tema=` já usado por `generate_labels_pdf`/
+    `generate_square_labels_pdf` acima (validado pelo chamador via
+    `views.py::_validated_theme`, nunca validado aqui — mesmo padrão do
+    resto deste arquivo). Só muda o fundo da página; o QR em si nunca é
+    invertido em nenhum tema (mesma regra incondicional de
+    `_square_label_context`/`label_square.html` — "priorize
+    confiabilidade de leitura"), porque o PNG de `generate_qr_png` já é
+    opaco com fundo branco.
     """
     pages = _chunked([_qr_grid_cell_context(eq) for eq in equipment_list], QR_GRID_PAGE_SIZE) or [[]]
     html_string = render_to_string(
@@ -452,6 +463,7 @@ def generate_qr_grid_pdf(equipment_list: list[Equipment]) -> bytes:
             "gutter_mm": QR_GRID_GUTTER_MM,
             "margin_horizontal_mm": QR_GRID_MARGIN_HORIZONTAL_MM,
             "margin_vertical_mm": QR_GRID_MARGIN_VERTICAL_MM,
+            "theme": theme,
         },
     )
     return HTML(string=html_string).write_pdf()

@@ -268,10 +268,17 @@ class ModelQRGridDownloadView(RoleRequiredMixin, View):
     Mesmo escopo/permissão/tratamento de 404 de `ModelLabelBatchDownloadView`
     — só muda o conteúdo do PDF (QR puro em grade, via
     `generate_qr_grid_pdf`, em vez de etiqueta 6x6 por página via
-    `generate_square_labels_pdf`) e o nome do arquivo. Sem `?tema=`: QR
-    puro não tem etiqueta nenhuma para ter LIGHT/DARK (mesmo raciocínio
-    de `QRCodeOnlyZipExportView` acima) — este botão não intercepta o
-    modal de tema.
+    `generate_square_labels_pdf`) e o nome do arquivo.
+
+    `?tema=light|dark` (pedido de 16/09/2026, mesma rodada da correção de
+    dimensionamento — decisão revista: inicialmente este botão não
+    interceptava o modal de tema, mas o pedido passou a ser explícito
+    para reaproveitar o MESMO modal/mecanismo já usado por
+    `ModelLabelBatchDownloadView` acima). Validado aqui via
+    `_validated_theme` — a MESMA função já usada por toda outra rota
+    deste arquivo que aceita tema, nenhuma validação nova/duplicada.
+    Muda só o fundo da página do PDF; o QR em si nunca é invertido (ver
+    `generate_qr_grid_pdf`).
 
     Ordenado por `patrimonio` (pedido explícito: "ordem determinística,
     preferencialmente por patrimônio") — `ModelLabelBatchDownloadView`
@@ -292,6 +299,9 @@ class ModelQRGridDownloadView(RoleRequiredMixin, View):
 
     def get(self, request, model_id: int):
         equipment_model = get_object_or_404(EquipmentModel, pk=model_id)
+        theme, error_response = _validated_theme(request)
+        if error_response is not None:
+            return error_response
         equipment_list = list(
             Equipment.objects.filter(model_id=model_id, is_active=True)
             .select_related("model", "category")
@@ -303,7 +313,7 @@ class ModelQRGridDownloadView(RoleRequiredMixin, View):
                 content_type="text/plain; charset=utf-8",
                 status=404,
             )
-        pdf_bytes = generate_qr_grid_pdf(equipment_list)
+        pdf_bytes = generate_qr_grid_pdf(equipment_list, theme=theme)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="qrcodes-{equipment_model.code}.pdf"'
         return response

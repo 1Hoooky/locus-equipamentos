@@ -413,6 +413,31 @@ class LabelThemeModalMarkupTest(TestCase):
         content = self.client.get("/equipamentos/").content.decode()
         self.assertNotIn(f'/qrcodes/modelo/{self.model.pk}/etiquetas.pdf', content)
 
+    def test_model_qr_grid_button_is_also_a_theme_trigger(self):
+        """
+        "Exportar QR Codes em PDF" (pedido de 16/09/2026) ganhou
+        `data-label-theme-trigger` na mesma rodada da correção de
+        dimensionamento (decisão revista, seguindo o pedido explícito de
+        reaproveitar o MESMO modal Claro/Escuro de "Etiquetas em lote" —
+        não um modal/gatilho novo). Confirma que o botão aponta para
+        `model_qr_grid` e é interceptado pelo MESMO script já validado
+        acima (`qrcodes/label_theme_modal.js`), nunca um mecanismo
+        próprio.
+        """
+        self.client.login(username="modal_markup_administrativo", password="senha-forte-123")
+        content = self.client.get("/equipamentos/").content.decode()
+        self.assertIn(f'href="/qrcodes/modelo/{self.model.pk}/qrcodes.pdf"', content)
+        self.assertRegex(
+            content,
+            r'data-label-theme-trigger[^>]*href="/qrcodes/modelo/%s/qrcodes\.pdf"'
+            r'|href="/qrcodes/modelo/%s/qrcodes\.pdf"[^>]*data-label-theme-trigger' % (self.model.pk, self.model.pk),
+        )
+
+    def test_model_qr_grid_button_hidden_for_consulta(self):
+        self.client.login(username="modal_markup_consulta", password="senha-forte-123")
+        content = self.client.get("/equipamentos/").content.decode()
+        self.assertNotIn(f"/qrcodes/modelo/{self.model.pk}/qrcodes.pdf", content)
+
     def test_batch_result_qr_export_link_is_also_a_theme_trigger(self):
         from apps.equipment.models import EquipmentBatch
 

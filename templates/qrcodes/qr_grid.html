@@ -31,6 +31,25 @@ não só defensivo.
     comercial, sem descrição, sem patrimônio escrito, sem código de
     barras, sem borda, sem qualquer texto (pedido explícito).
 
+    TEMA CLARO/ESCURO (pedido de 16/09/2026, mesma rodada da correção de
+    dimensionamento): reaproveita o MESMO modal/mecanismo já usado por
+    "Etiquetas em lote" (`data-label-theme-trigger` em
+    templates/equipment/list.html →
+    static/qrcodes/label_theme_modal.js → `?tema=light|dark` na
+    querystring → `apps/qrcodes/views.py::_validated_theme` →
+    `generate_qr_grid_pdf(equipment_list, theme=...)`) — nenhum modal
+    novo, nenhuma lógica de validação de tema nova. O QR em si NUNCA é
+    invertido em nenhum tema (mesma regra incondicional de
+    `label_square.html`: "priorize confiabilidade de leitura") — como
+    `generate_qr_png` já produz um PNG opaco com fundo branco (modo "1"
+    do Pillow, sem transparência), colocar essa imagem sobre um fundo de
+    página escuro já resulta na mesma "ilha branca" sem precisar de
+    nenhum wrapper/padding extra (e sem violar a exigência de
+    `cell_size_mm×cell_size_mm` exatos — o PNG em si já é 100% opaco).
+    Só o FUNDO da página muda entre os temas — texto (`qr-caption`,
+    hoje sempre inativo) também ganha a variante clara para continuar
+    legível se um dia for usado.
+
     DIMENSIONAMENTO FÍSICO (correção de 16/09/2026): o requisito agora é
     que cada QR impresso meça EXATAMENTE 50×50mm e que a grade inteira
     fique centralizada na folha A4 — não "no olho", calculado. Por isso:
@@ -73,6 +92,12 @@ não só defensivo.
     font-family: "DejaVu Sans", Arial, sans-serif;
     background: #fff;
   }
+  /* Mesmo tom de "preto de marca" usado em label_square.html
+     (body.theme-dark) — nunca um preto puro (#000) diferente do resto
+     do sistema. */
+  body.theme-dark {
+    background: #0a0a0a;
+  }
 
   /*
     Uma `.qr-page` por folha impressa — `page-break-after: always` em
@@ -84,12 +109,21 @@ não só defensivo.
     width: {{ page_width_mm }}mm;
     height: {{ page_height_mm }}mm;
     padding: {{ margin_vertical_mm }}mm {{ margin_horizontal_mm }}mm;
+    /* Fundo explícito por página (não só confiar no `body`): cada
+       `.qr-page` já é dimensionada como a folha inteira, então pintar o
+       fundo aqui garante a cor certa em TODAS as páginas do PDF
+       multi-página, sem depender de o `background` do `body` "vazar"
+       corretamente por trás de cada quebra de página no WeasyPrint. */
+    background: #fff;
     display: flex;
     flex-wrap: wrap;
     align-content: flex-start;
     gap: {{ gutter_mm }}mm;
     page-break-after: always;
     overflow: hidden;
+  }
+  body.theme-dark .qr-page {
+    background: #0a0a0a;
   }
 
   .qr-cell {
@@ -132,10 +166,13 @@ não só defensivo.
     text-align: center;
     color: #000;
   }
+  body.theme-dark .qr-caption {
+    color: #fff;
+  }
 </style>
 {% endlocalize %}
 </head>
-<body>
+<body{% if theme == "dark" %} class="theme-dark"{% endif %}>
   {% for page in pages %}
   <div class="qr-page">
     {% for label in page %}
