@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% load icons %}
+{% load currency %}
+{% block title %}Tabela de Preços — Locus{% endblock %}
+{% block content %}
+{% comment %}
+Tabela de Preços V1 (16/09/2026, "TABELA DE PREÇOS V1 / LOCUSHUB / CRM /
+PROPOSTAS"). Fonte de SUGESTÃO de preço para `ProposalItem` — nunca a
+fonte dinâmica do valor histórico de uma Proposta já criada (ver
+`apps/crm/models.py`, docstring de `PriceTable`). Aparência de planilha
+administrativa: busca sempre visível, abas por `BusinessType` (querystring
+`?tipo=`, nunca segmento de URL — recarrega a página com o tipo trocado,
+sem framework novo), edição inline por linha via htmx (`data-*` do próprio
+`_price_table_row.html`/`_price_table_row_edit.html`, mesmo mecanismo já
+usado em `templates/equipment/list.html`).
+
+Nenhum botão "Adicionar linha" (seção 13): os itens vêm 100% de
+`EquipmentModel`/`ServiceCatalogItem` ATIVOS — um modelo/serviço novo
+aparece aqui sozinho, como "Sem valor", assim que fica ativo.
+{% endcomment %}
+<div class="page-header">
+  <h1 class="page-title">Tabela de Preços</h1>
+  <p class="page-subtitle">Preço sugerido ao adicionar itens a uma proposta — editar aqui nunca altera propostas já criadas.</p>
+</div>
+
+<div class="flex flex-wrap gap-2 mb-4" role="tablist" aria-label="Tipo de negócio">
+  {% for value, label in business_type_choices %}
+  <a href="?tipo={{ value }}{% if search %}&q={{ search|urlencode }}{% endif %}{% if only_missing %}&sem_valor=1{% endif %}"
+     class="{% if value == business_type %}btn-primary{% else %}btn-neutral{% endif %}"
+     role="tab" aria-selected="{% if value == business_type %}true{% else %}false{% endif %}">
+    {{ label }}
+  </a>
+  {% endfor %}
+</div>
+
+<form method="get" class="mb-4">
+  <input type="hidden" name="tipo" value="{{ business_type }}">
+  <div class="flex flex-wrap gap-2 items-end">
+    <div class="flex-1 min-w-[200px]">
+      <label class="field-label icon-inline">{% icon "magnifying-glass" size="compact" %} Buscar</label>
+      <input type="text" name="q" value="{{ search }}" placeholder="Nome, código ou serviço" class="filter-input w-full">
+    </div>
+    <label class="flex items-center gap-2 text-sm text-gray-700 pb-2">
+      <input type="checkbox" name="sem_valor" value="1" {% if only_missing %}checked{% endif %}>
+      Somente sem valor
+    </label>
+    <button type="submit" class="btn-neutral">Filtrar</button>
+    {% if search or only_missing %}
+    <a href="?tipo={{ business_type }}" class="link text-sm">Limpar filtros</a>
+    {% endif %}
+  </div>
+</form>
+
+<p class="text-sm text-gray-500 mb-4">
+  {{ total_count }} ite{{ total_count|pluralize:"m,ns" }} ·
+  {{ configured_count }} configurado{{ configured_count|pluralize }} ·
+  {{ missing_count }} sem valor
+</p>
+
+<div class="table-wrap mb-6">
+  <h2 class="section-heading">{% icon "cube" size="compact" %} Equipamentos</h2>
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Modelo</th>
+        <th>Valor</th>
+        {% if can_change %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in equipment_rows %}
+      {% include "crm/_price_table_row.html" with kind=row.kind target_id=row.target_id label=row.label unit_price=row.unit_price updated_by_label=row.updated_by_label can_change=can_change business_type=business_type %}
+      {% empty %}
+      <tr><td class="empty-state" colspan="3">Nenhum equipamento ativo encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="table-wrap">
+  <h2 class="section-heading">{% icon "tag" size="compact" %} Serviços</h2>
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Serviço</th>
+        <th>Valor</th>
+        {% if can_change %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in service_rows %}
+      {% include "crm/_price_table_row.html" with kind=row.kind target_id=row.target_id label=row.label unit_price=row.unit_price updated_by_label=row.updated_by_label can_change=can_change business_type=business_type %}
+      {% empty %}
+      <tr><td class="empty-state" colspan="3">Nenhum serviço comercial ativo encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

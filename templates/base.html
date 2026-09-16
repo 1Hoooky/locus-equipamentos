@@ -89,7 +89,7 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
         diretos do grupo, cada um com a MESMA permissão de antes
         (`perms.crm.manage_commercial_settings`).
         {% endcomment %}
-        {% if perms.crm.view_opportunities or perms.crm.manage_commercial_settings %}
+        {% if perms.crm.view_opportunities or perms.crm.manage_commercial_settings or perms.crm.view_price_table %}
         <div class="sidebar-group">
           <button type="button" data-group-toggle data-group-key="crm"
                   {% if current_group == "crm" %}data-group-current="true"{% endif %}
@@ -104,6 +104,12 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
                class="sidebar-link {% if request.resolver_match.view_name == 'crm:opportunity_list' or request.resolver_match.view_name == 'crm:opportunity_detail' %}sidebar-link-active{% endif %}"
                {% if request.resolver_match.view_name == 'crm:opportunity_list' %}aria-current="page"{% endif %}>
               {% icon "funnel" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Funil</span>
+            </a>
+            {% endif %}
+            {% if perms.crm.view_price_table %}
+            <a href="{% url 'crm:price_table' %}" title="Tabela de preços" aria-label="Tabela de preços"
+               class="sidebar-link {% if 'crm:price_table' in request.resolver_match.view_name %}sidebar-link-active{% endif %}">
+              {% icon "currency-dollar" size="compact" extra_class="sidebar-link-icon" %}<span class="sidebar-link-label">Tabela de preços</span>
             </a>
             {% endif %}
             {% if perms.crm.manage_commercial_settings %}
@@ -259,7 +265,7 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
         {% icon "home" size="compact" %} Início
       </a>
 
-      {% if perms.crm.view_opportunities or perms.crm.manage_commercial_settings %}
+      {% if perms.crm.view_opportunities or perms.crm.manage_commercial_settings or perms.crm.view_price_table %}
       <div class="mobile-menu-group">
         <button type="button" data-group-toggle data-group-key="crm"
                 {% if current_group == "crm" %}data-group-current="true"{% endif %}
@@ -273,6 +279,11 @@ foco expandir o painel) — identificação visual adequada mesmo sem texto.
           <a href="{% url 'crm:opportunity_list' %}" class="mobile-menu-link {% if request.resolver_match.view_name == 'crm:opportunity_list' or request.resolver_match.view_name == 'crm:opportunity_detail' %}mobile-menu-link-active{% endif %}"
              {% if request.resolver_match.view_name == 'crm:opportunity_list' %}aria-current="page"{% endif %}>
             {% icon "funnel" size="compact" %} Funil
+          </a>
+          {% endif %}
+          {% if perms.crm.view_price_table %}
+          <a href="{% url 'crm:price_table' %}" class="mobile-menu-link {% if 'crm:price_table' in request.resolver_match.view_name %}mobile-menu-link-active{% endif %}">
+            {% icon "currency-dollar" size="compact" %} Tabela de preços
           </a>
           {% endif %}
           {% if perms.crm.manage_commercial_settings %}

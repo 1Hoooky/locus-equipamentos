@@ -61,6 +61,12 @@ urlpatterns = [
         views.AvailabilityCheckView.as_view(),
         name="proposal_availability_check",
     ),
+    # Tabela de Preços V1 (16/09/2026) — preço sugerido ao adicionar item.
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/preco-sugerido/",
+        views.SuggestedPriceView.as_view(),
+        name="proposal_suggested_price",
+    ),
     path(
         "oportunidades/<int:pk>/anexos/<int:attachment_pk>/download/",
         views.AttachmentDownloadView.as_view(),
@@ -121,5 +127,16 @@ urlpatterns = [
         "configuracoes/servicos/<int:pk>/editar/",
         views.ServiceCatalogItemUpdateView.as_view(),
         name="service_catalog_item_update",
+    ),
+    # Tabela de Preços V1 (16/09/2026) — seção 18/19 da especificação: sem
+    # nenhuma tela de CRUD de `PriceTable` em si, só a listagem/edição de
+    # linhas (`PriceTableItem`), com abas por `BusinessType` na própria
+    # querystring (`?tipo=`), nunca um segmento de URL por tipo de
+    # negócio (evita 3 rotas quase idênticas para o mesmo conceito).
+    path("configuracoes/tabela-de-precos/", views.PriceTableView.as_view(), name="price_table"),
+    path(
+        "configuracoes/tabela-de-precos/linha/<str:kind>/<int:target_id>/",
+        views.PriceTableItemRowView.as_view(),
+        name="price_table_item_row",
     ),
 ]

@@ -1,0 +1,26 @@
+{% comment %}
+Linha (modo edição) da Tabela de Preços — Tabela de Preços V1
+(16/09/2026). Só renderizado para quem já passou pela checagem manual de
+`crm.change_price_table` em `PriceTableItemRowView` (GET com
+`?modo=editar` ou POST) — nunca incluído condicionalmente aqui de novo
+(a view é a autoridade).
+{% endcomment %}
+<tr id="price-table-row-{{ kind }}-{{ target_id }}">
+  <td>{{ label }}</td>
+  <td colspan="2">
+    <form hx-post="{% url 'crm:price_table_item_row' kind target_id %}?tipo={{ business_type }}"
+          hx-target="#price-table-row-{{ kind }}-{{ target_id }}" hx-swap="outerHTML"
+          class="flex flex-wrap items-center gap-2">
+      {% csrf_token %}
+      <span class="field-label mb-0">R$</span>
+      {{ form.unit_price }}
+      <button type="submit" class="btn-primary btn-sm">Salvar</button>
+      <button type="button" class="btn-neutral btn-sm"
+              hx-get="{% url 'crm:price_table_item_row' kind target_id %}?tipo={{ business_type }}"
+              hx-target="#price-table-row-{{ kind }}-{{ target_id }}" hx-swap="outerHTML">
+        Cancelar
+      </button>
+      {% for error in form.unit_price.errors %}<p class="field-error w-full">{{ error }}</p>{% endfor %}
+    </form>
+  </td>
+</tr>

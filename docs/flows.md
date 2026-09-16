@@ -274,6 +274,56 @@ AttachmentDownloadView (GET)
 
 "Criar/salvar" (`add_proposal_item`/`update_draft_conditions`) ≠ "emitir" (`issue_proposal`, produz PDF + snapshot + número definitivo) ≠ "gerar contrato" (`generate_contract`) ≠ "aceitar" (`accept_proposal_version`, o único caminho que fecha a Oportunidade). Cada verbo é uma função de `services.py` distinta — nenhum deles implica o próximo automaticamente, exceto a auto-emissão embutida em `generate_documents()` quando o Contrato é pedido diretamente sobre uma versão ainda em rascunho (documentado ali mesmo, não é um atalho oculto).
 
+## 12. Tabela de Preços V1 → preço sugerido ao compor uma Proposta (CRM, 16/09/2026)
+
+```
+[usuário abre "Tabela de Preços" — configuracoes/tabela-de-precos/?tipo=LOCACAO]
+  → PriceTableView.get()
+      → list_price_table_rows(business_type, search, only_missing)   # 3 queries, nunca N+1
+      → renderiza EQUIPAMENTOS + SERVIÇOS ativos, "Sem valor" para quem não tem PriceTableItem
+
+[usuário clica no lápis de uma linha]
+  → PriceTableItemRowView.get() com ?modo=editar          # exige crm.change_price_table (checagem manual)
+      → devolve _price_table_row_edit.html (htmx, outerHTML no <tr>)
+
+[usuário digita o valor e clica "Salvar"]
+  → PriceTableItemRowView.post()                          # exige crm.change_price_table
+      → PriceTableItemForm.is_valid()
+      → apps.crm.services.set_price_table_item(PriceTableItemData, user=request.user)
+          → @transaction.atomic:
+              PriceTable.objects.get_or_create(business_type=...)      # nunca criada manualmente
+              select_for_update() na linha existente, se houver
+              PriceTableItem criado ou atualizado; item._history_user = user; item.save()
+              # simple_history grava um HistoricalPriceTableItem (usuário + data/hora + valor)
+      → devolve _price_table_row.html atualizado (htmx, outerHTML no <tr>)
+  # NENHUM ProposalItem já existente é tocado por esta escrita — ver seção "Preço sugerido" abaixo.
+
+---
+
+[usuário, numa Oportunidade, abre "Adicionar produto/serviço" e escolhe um Modelo/Serviço]
+  → JS (proposal_composition.js, initSuggestedPrice): fetch debounced 250ms
+  → SuggestedPriceView.get(pk=opportunity.pk)              # só leitura, GET, exige crm.view_opportunities
+      → apps.crm.services.get_suggested_price(
+            business_type=opportunity.business_type,        # SEMPRE da própria Opportunity, nunca da querystring
+            equipment_model=... ou service=...)
+          → PriceTableItem.objects.filter(price_table__business_type=..., equipment_model=...).first()
+          → devolve unit_price ou None (nunca 0.00 inventado)
+      → JSON {"ok", "found", "unit_price", "business_type_display"}
+  → JS preenche <input name="unit_price"> SÓ SE ainda vazio E o usuário não digitou nele antes
+  → usuário pode sobrescrever livremente — o campo nunca é travado (readonly/disabled)
+
+[usuário clica "Adicionar produto/serviço" — POST normal, sem relação com a Tabela de Preços]
+  → ProposalItemAddView.post() → add_proposal_item(...)     # EXATAMENTE o mesmo fluxo da seção 11 acima
+      → ProposalItem.unit_price = o que veio no POST (sugerido ou sobrescrito) — SNAPSHOT congelado
+
+[dias depois, alguém muda o preço na Tabela de Preços para este mesmo Modelo/BusinessType]
+  → set_price_table_item() atualiza SÓ o PriceTableItem
+  → o ProposalItem já criado permanece com o unit_price antigo — ninguém o reescreve, em lugar nenhum
+  → uma NOVA consulta a get_suggested_price()/SuggestedPriceView já devolve o valor novo
+```
+
+**PriceTable é sugestão, ProposalItem é snapshot** — os dois fluxos acima (edição da tabela vs. composição da proposta) nunca se cruzam depois do momento em que o formulário de adicionar item é preenchido. `get_suggested_price()` é consultada exatamente uma vez, no instante do preenchimento (via AJAX) — nunca em `calculate_proposal_version()`, nunca em `issue_proposal()`, nunca em nenhum recálculo posterior.
+
 ## Nota sobre "efeitos colaterais entre apps"
 
 Dois pontos do sistema mudam `Equipment.status` fora de `apps.equipment`, sempre através de `apps.equipment.services.change_status()` (nunca atribuição direta):

@@ -64,17 +64,20 @@ from apps.crm.forms import (
     OpportunityStageChangeForm,
     OpportunityStageForm,
     OpportunityUpdateForm,
+    PriceTableItemForm,
     ProposalConditionsForm,
     ProposalItemForm,
     ServiceCatalogItemForm,
 )
 from apps.crm.models import (
     ActivityType,
+    BusinessType,
     CommercialSource,
     LossReason,
     Opportunity,
     OpportunityEquipment,
     OpportunityStage,
+    PriceTableItem,
     ProposalItem,
     ServiceCatalogItem,
 )
@@ -84,6 +87,7 @@ from apps.crm.services import (
     NewActivityData,
     NewOpportunityData,
     OpportunityUpdateData,
+    PriceTableItemData,
     ProposalConditionsData,
     ProposalItemData,
     UnlinkEquipmentData,
@@ -101,11 +105,14 @@ from apps.crm.services import (
     generate_documents,
     get_observation_activity_type,
     get_or_create_active_proposal,
+    get_suggested_price,
     hard_delete_opportunity,
     link_equipment_to_opportunity,
     linked_equipment_for,
+    list_price_table_rows,
     preview_opportunity_hard_delete,
     remove_proposal_item,
+    set_price_table_item,
     unlink_equipment_from_opportunity,
     update_draft_conditions,
     update_opportunity,
@@ -1265,6 +1272,156 @@ class ServiceCatalogItemUpdateView(LoginRequiredMixin, PermissionRequiredMixin, 
 
 
 # ---------------------------------------------------------------------------
+# Tabela de Preços V1 (16/09/2026). Tela de configuração comercial —
+# mesma família de Origens/Etapas/Motivos/Tipos de atividade/Serviços
+# comerciais acima, mas com DUAS permissões PRÓPRIAS
+# (`crm.view_price_table`/`crm.change_price_table`, seção 18: "preço é
+# informação comercial sensível... separar ver tabela / editar valores")
+# em vez de reaproveitar `crm.manage_commercial_settings`.
+#
+# `PriceTableItemRowView` é GET (visualizar/entrar em modo de edição de
+# UMA linha) + POST (salvar) — o `permission_required` da classe só exige
+# `crm.view_price_table` (visualizar a linha); a checagem de
+# `crm.change_price_table` (entrar em modo de edição OU salvar) é manual,
+# DENTRO da view (mesmo padrão de checagem manual já documentado em
+# `docs/permissions.md`, seção "Nota sobre apps.crm") — "Botão escondido
+# ≠ bloqueio no backend" (seção 33 dos testes: acesso direto por URL sem
+# `change_price_table` precisa ser bloqueado mesmo com o lápis escondido
+# na tela).
+# ---------------------------------------------------------------------------
+
+
+class PriceTableView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "crm.view_price_table"
+
+    def get(self, request):
+        business_type = request.GET.get("tipo") or BusinessType.LOCACAO
+        if business_type not in BusinessType.values:
+            business_type = BusinessType.LOCACAO
+        search = request.GET.get("q", "").strip()
+        only_missing = request.GET.get("sem_valor") == "1"
+
+        rows = list_price_table_rows(business_type=business_type, search=search, only_missing=only_missing)
+        context = {
+            "business_type": business_type,
+            "business_type_choices": BusinessType.choices,
+            "search": search,
+            "only_missing": only_missing,
+            "equipment_rows": rows.equipment_rows,
+            "service_rows": rows.service_rows,
+            "total_count": rows.total_count,
+            "configured_count": rows.configured_count,
+            "missing_count": rows.missing_count,
+            "can_change": request.user.has_perm("crm.change_price_table"),
+        }
+        return render(request, "crm/price_table.html", context)
+
+
+class PriceTableItemRowView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "crm.view_price_table"
+
+    def _resolve_target(self, request, kind, target_id):
+        business_type = request.GET.get("tipo") or request.POST.get("tipo")
+        if business_type not in BusinessType.values:
+            raise Http404("Tipo de negócio inválido.")
+        if kind == "equipamento":
+            target = get_object_or_404(EquipmentModel, pk=target_id, is_active=True)
+            label = f"{target.name} ({target.code})"
+            filter_kwargs = {"equipment_model": target, "service": None}
+        elif kind == "servico":
+            target = get_object_or_404(ServiceCatalogItem, pk=target_id, is_active=True)
+            label = target.name
+            filter_kwargs = {"equipment_model": None, "service": target}
+        else:
+            raise Http404("Tipo de item inválido.")
+        return business_type, target, label, filter_kwargs
+
+    def _current_item(self, business_type, filter_kwargs):
+        return PriceTableItem.objects.select_related("updated_by").filter(
+            price_table__business_type=business_type, **filter_kwargs
+        ).first()
+
+    @staticmethod
+    def _updated_by_label(item):
+        if item is None:
+            return ""
+        return item.updated_by.get_full_name() or item.updated_by.username
+
+    def get(self, request, kind, target_id):
+        business_type, target, label, filter_kwargs = self._resolve_target(request, kind, target_id)
+        can_change = request.user.has_perm("crm.change_price_table")
+        edit_mode = request.GET.get("modo") == "editar"
+        if edit_mode and not can_change:
+            raise PermissionDenied("Você não tem permissão para editar valores da Tabela de Preços.")
+
+        item = self._current_item(business_type, filter_kwargs)
+        # Contexto SEMPRE em campos "achatados" (`unit_price`/
+        # `updated_by_label`, nunca o `PriceTableItem` bruto) — o mesmo
+        # parcial `_price_table_row.html` também é `{% include %}`'d por
+        # `price_table.html` a partir de `PriceTableRow` (dataclass de
+        # `services.list_price_table_rows()`), que tem exatamente este
+        # formato; um único parcial funciona para os dois chamadores.
+        context = {
+            "kind": kind,
+            "target_id": target.pk,
+            "label": label,
+            "business_type": business_type,
+            "unit_price": item.unit_price if item else None,
+            "updated_by_label": self._updated_by_label(item),
+            "can_change": can_change,
+        }
+        if edit_mode:
+            context["form"] = PriceTableItemForm(initial={"unit_price": item.unit_price if item else None})
+            return render(request, "crm/_price_table_row_edit.html", context)
+        return render(request, "crm/_price_table_row.html", context)
+
+    def post(self, request, kind, target_id):
+        if not request.user.has_perm("crm.change_price_table"):
+            raise PermissionDenied("Você não tem permissão para editar valores da Tabela de Preços.")
+
+        business_type, target, label, filter_kwargs = self._resolve_target(request, kind, target_id)
+        form = PriceTableItemForm(request.POST)
+        base_context = {
+            "kind": kind,
+            "target_id": target.pk,
+            "label": label,
+            "business_type": business_type,
+            "can_change": True,
+        }
+        if not form.is_valid():
+            base_context["form"] = form
+            return render(request, "crm/_price_table_row_edit.html", base_context, status=400)
+
+        try:
+            item = set_price_table_item(
+                data=PriceTableItemData(
+                    business_type=business_type,
+                    equipment_model=filter_kwargs["equipment_model"],
+                    service=filter_kwargs["service"],
+                    unit_price=form.cleaned_data["unit_price"],
+                ),
+                user=request.user,
+            )
+        except ValueError as exc:
+            form.add_error("unit_price", str(exc))
+            base_context["form"] = form
+            return render(request, "crm/_price_table_row_edit.html", base_context, status=400)
+
+        # Sem `messages.success()` aqui de propósito: esta view devolve só
+        # o `<tr>` (fragmento HTML via htmx, nunca um redirect/reload de
+        # página inteira) — uma mensagem da framework `django.contrib.
+        # messages` ficaria "pendurada" na sessão e apareceria fora de
+        # contexto na PRÓXIMA navegação normal do usuário. A confirmação
+        # visual já é o próprio valor atualizado aparecendo na linha.
+        context = {
+            **base_context,
+            "unit_price": item.unit_price,
+            "updated_by_label": self._updated_by_label(item),
+        }
+        return render(request, "crm/_price_table_row.html", context)
+
+
+# ---------------------------------------------------------------------------
 # Produtos e Serviços / Proposta Comercial + Contrato (14/09/2026).
 #
 # Toda escrita aqui é SÓ POST (seção 85, "Nunca GET para: emitir/aceitar/
@@ -1707,6 +1864,50 @@ class AvailabilityCheckView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 "requested": result.requested,
                 "available": result.available,
                 "missing": result.missing,
+            }
+        )
+
+
+class SuggestedPriceView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    "Preço sugerido" (Tabela de Preços V1, seção 23) — SÓ LEITURA, AJAX,
+    GET (mesmo raciocínio de `AvailabilityCheckView`: não é mudança de
+    estado). Ao escolher um Produto/Modelo OU Serviço no form de
+    adicionar item, `static/crm/proposal_composition.js` consulta este
+    endpoint e PREENCHE (nunca trava — seção 24) o campo "Valor unitário"
+    se ele ainda estiver vazio; o vendedor continua livre para digitar
+    outro valor por cima. Resolve o `BusinessType` da própria Opportunity
+    da URL (nunca aceita um `business_type` vindo do GET — eliminaria por
+    construção qualquer tentativa de consultar o preço de um tipo de
+    negócio diferente do desta oportunidade).
+    """
+
+    permission_required = "crm.view_opportunities"
+
+    def get(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        equipment_model_id = request.GET.get("equipment_model", "")
+        service_id = request.GET.get("service", "")
+
+        equipment_model = None
+        service = None
+        if equipment_model_id.isdigit():
+            equipment_model = EquipmentModel.objects.filter(pk=equipment_model_id, is_active=True).first()
+        elif service_id.isdigit():
+            service = ServiceCatalogItem.objects.filter(pk=service_id, is_active=True).first()
+
+        if equipment_model is None and service is None:
+            return JsonResponse({"ok": False, "error": "Selecione um produto/modelo ou um serviço."}, status=400)
+
+        unit_price = get_suggested_price(
+            business_type=opportunity.business_type, equipment_model=equipment_model, service=service
+        )
+        return JsonResponse(
+            {
+                "ok": True,
+                "found": unit_price is not None,
+                "unit_price": str(unit_price) if unit_price is not None else None,
+                "business_type_display": opportunity.get_business_type_display(),
             }
         )
 

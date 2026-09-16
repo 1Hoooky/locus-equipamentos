@@ -171,6 +171,16 @@ pertencendo ao MESMO envio — um único POST, um único "Salvar rascunho".
       <div {% if field.name == "equipment_model" %}data-item-type-group="EQUIPAMENTO"{% elif field.name == "service" %}data-item-type-group="SERVICO"{% endif %}>
         <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
         {{ field }}
+        {% if field.name == "unit_price" %}
+        {% comment %}
+        Tabela de Preços V1 (16/09/2026, seção 23): preenchido via AJAX
+        por `static/crm/proposal_composition.js` (`data-suggested-price-hint`)
+        assim que um Produto/Modelo ou Serviço é escolhido — só um TEXTO
+        informativo, nunca trava o campo (seção 24: usuário sempre pode
+        digitar outro valor por cima).
+        {% endcomment %}
+        <p class="text-xs text-gray-500 mt-1" data-suggested-price-hint hidden></p>
+        {% endif %}
         {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
       </div>
       {% endfor %}

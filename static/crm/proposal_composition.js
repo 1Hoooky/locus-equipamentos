@@ -79,6 +79,87 @@
   }
 
   /*
+   * Tabela de Preços V1 (16/09/2026, seção 23): ao escolher um
+   * Produto/Modelo OU um Serviço no form de adicionar item, consulta
+   * `SuggestedPriceView` (só leitura, GET, AJAX — mesmo padrão de
+   * `initAvailabilityCheck` acima) e PREENCHE "Valor unitário" — só se o
+   * campo ainda estiver vazio (nunca sobrescreve um valor que o usuário
+   * já digitou, seção 24: "não travar unit_price... o vendedor pode
+   * negociar valor diferente"). Um "toque" real do usuário no campo
+   * (evento `input`, nunca disparado por atribuição via JS) marca
+   * `data-user-edited`, e a partir daí a sugestão nunca mais sobrescreve
+   * o campo automaticamente — só atualiza o texto informativo ao lado.
+   */
+  function initSuggestedPrice(form) {
+    var modelField = form.querySelector('[name="equipment_model"]');
+    var serviceField = form.querySelector('[name="service"]');
+    var typeSelect = form.querySelector("[data-item-type-select]");
+    var unitPriceField = form.querySelector('[name="unit_price"]');
+    var hintEl = form.querySelector("[data-suggested-price-hint]");
+    if (!unitPriceField || !hintEl || (!modelField && !serviceField)) {
+      return;
+    }
+
+    unitPriceField.addEventListener("input", function () {
+      unitPriceField.setAttribute("data-user-edited", "1");
+    });
+
+    var opportunityMatch = window.location.pathname.match(/\/oportunidades\/(\d+)\//);
+    if (!opportunityMatch) {
+      return;
+    }
+    var suggestedPriceUrl = "/crm/oportunidades/" + opportunityMatch[1] + "/produtos-servicos/preco-sugerido/";
+
+    var check = debounce(function () {
+      var itemType = typeSelect ? typeSelect.value : "EQUIPAMENTO";
+      var params = "";
+      if (itemType === "SERVICO" && serviceField && serviceField.value) {
+        params = "service=" + encodeURIComponent(serviceField.value);
+      } else if (modelField && modelField.value) {
+        params = "equipment_model=" + encodeURIComponent(modelField.value);
+      } else {
+        hintEl.hidden = true;
+        return;
+      }
+
+      fetch(suggestedPriceUrl + "?" + params, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+        .then(function (response) {
+          return response.json();
+        })
+        .then(function (data) {
+          if (!data.ok) {
+            hintEl.hidden = true;
+            return;
+          }
+          if (!data.found) {
+            hintEl.hidden = false;
+            hintEl.textContent = "Sem valor sugerido na Tabela de Preços — informe manualmente.";
+            return;
+          }
+          var formatted = "R$ " + Number(data.unit_price).toFixed(2).replace(".", ",");
+          hintEl.hidden = false;
+          hintEl.textContent = "Preço sugerido (" + data.business_type_display + "): " + formatted;
+          if (!unitPriceField.value && !unitPriceField.getAttribute("data-user-edited")) {
+            unitPriceField.value = data.unit_price;
+          }
+        })
+        .catch(function () {
+          hintEl.hidden = true;
+        });
+    }, 250);
+
+    if (modelField) {
+      modelField.addEventListener("change", check);
+    }
+    if (serviceField) {
+      serviceField.addEventListener("change", check);
+    }
+    if (typeSelect) {
+      typeSelect.addEventListener("change", check);
+    }
+  }
+
+  /*
    * RODADA 4 (15/09/2026, seções 18-25): alterna qual grupo de campo
    * ("Produto/Modelo" vs. "Serviço") fica visível no form de adicionar
    * item, conforme o Tipo escolhido. Os dois campos continuam presentes
@@ -117,6 +198,7 @@
     if (form) {
       initAvailabilityCheck(form);
       initItemTypeToggle(form);
+      initSuggestedPrice(form);
     }
   });
 })();

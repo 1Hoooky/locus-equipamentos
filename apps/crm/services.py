@@ -33,6 +33,7 @@ from apps.core.hard_delete import (
 from apps.core.services import get_company_profile
 from apps.crm.models import (
     ActivityType,
+    BusinessType,
     CommercialActivity,
     CommercialSource,
     Contract,
@@ -42,6 +43,8 @@ from apps.crm.models import (
     OpportunityEquipment,
     OpportunityStage,
     OpportunityStageChange,
+    PriceTable,
+    PriceTableItem,
     Proposal,
     ProposalItem,
     ProposalItemType,
@@ -846,6 +849,201 @@ def check_availability(*, equipment_model: EquipmentModel, requested_quantity: i
 
     available = Equipment.objects.filter(model=equipment_model, is_active=True, status=Status.DISPONIVEL).count()
     return AvailabilityResult(requested=requested_quantity, available=available)
+
+
+# ---------------------------------------------------------------------------
+# Tabela de Preços V1 (16/09/2026, "TABELA DE PREÇOS V1 / LOCUSHUB / CRM /
+# PROPOSTAS"). `get_suggested_price()` é a ÚNICA autoridade para resolver
+# "qual preço sugerido para este EquipmentModel/ServiceCatalogItem neste
+# BusinessType" (seção 10: "Não espalhar consultas de PriceTable
+# diretamente em templates/views") — usada tanto pelo endpoint AJAX que
+# preenche `unit_price` no form de "Adicionar produto/serviço"
+# (`SuggestedPriceView`) quanto por qualquer chamador futuro.
+# `set_price_table_item()` é o ÚNICO caminho de escrita de
+# `PriceTable`/`PriceTableItem` (seção 30) — nunca `.save()` direto em
+# view/form. `list_price_table_rows()` monta as linhas (equipamentos +
+# serviços, com/sem valor) da tela "Tabela de Preços" em NO MÁXIMO 3
+# queries, independente de quantos EquipmentModel/ServiceCatalogItem
+# existam (seção 37: "evitar N+1").
+# ---------------------------------------------------------------------------
+
+
+def get_suggested_price(
+    *, business_type: str, equipment_model: EquipmentModel | None = None, service: ServiceCatalogItem | None = None
+) -> Decimal | None:
+    """
+    Só LEITURA. Devolve o `unit_price` configurado na `PriceTable` do
+    `business_type` informado para o `equipment_model` OU `service` dado
+    (exatamente um dos dois — mesma regra XOR de `PriceTableItem`), ou
+    `None` se não houver `PriceTable`/`PriceTableItem` configurado (seção
+    11: "Se não houver PriceTableItem configurado, NÃO bloquear criação
+    da Proposal... Não inventar R$ 0,00 como se fosse preço real" — por
+    isso `None`, nunca `Decimal("0.00")`, quando não há sugestão).
+    """
+    if bool(equipment_model) == bool(service):
+        raise ValueError("Informe exatamente um: equipment_model OU service.")
+    lookup: dict[str, object] = {"price_table__business_type": business_type}
+    if equipment_model is not None:
+        lookup["equipment_model"] = equipment_model
+    else:
+        lookup["service"] = service
+    item = PriceTableItem.objects.filter(**lookup).only("unit_price").first()
+    return item.unit_price if item else None
+
+
+@dataclass
+class PriceTableItemData:
+    business_type: str
+    equipment_model: EquipmentModel | None = None
+    service: ServiceCatalogItem | None = None
+    unit_price: Decimal = Decimal("0.00")
+
+
+def _validate_price_table_item_fields(data: PriceTableItemData) -> None:
+    if data.business_type not in BusinessType.values:
+        raise ValueError(f"Tipo de negócio inválido: {data.business_type!r}.")
+    if bool(data.equipment_model) == bool(data.service):
+        raise ValueError("Informe exatamente um: um equipamento OU um serviço.")
+    if data.unit_price is None or data.unit_price < 0:
+        raise ValueError("O valor não pode ser negativo.")
+
+
+@transaction.atomic
+def set_price_table_item(*, data: PriceTableItemData, user: User) -> PriceTableItem:
+    """
+    ÚNICO caminho de escrita de `PriceTableItem` (seção 30). `get_or_create`
+    da `PriceTable` do `business_type` (nunca criada manualmente pelo
+    usuário — ver docstring de `PriceTable`). `select_for_update()` na
+    linha existente (seção 29: "avaliar cenário de dois usuários editando
+    o mesmo preço simultaneamente... se o padrão services.py +
+    transaction.atomic + select_for_update() for aplicável, usar de forma
+    consistente") evita duas escritas concorrentes se sobrescreverem de
+    forma incoerente; a `UniqueConstraint` condicional no banco
+    (`unique_price_table_equipment_model`/`unique_price_table_service`) é
+    a última linha de defesa contra duas linhas criadas ao mesmo tempo
+    para o mesmo item (corrida na criação da PRIMEIRA linha, quando ainda
+    não há o que travar com `select_for_update()`).
+    """
+    _validate_price_table_item_fields(data)
+    price_table, _ = PriceTable.objects.get_or_create(business_type=data.business_type)
+
+    lookup = {"price_table": price_table, "equipment_model": data.equipment_model, "service": data.service}
+    item = PriceTableItem.objects.select_for_update().filter(**lookup).first()
+    if item is None:
+        item = PriceTableItem(unit_price=data.unit_price, updated_by=user, **lookup)
+    else:
+        item.unit_price = data.unit_price
+        item.updated_by = user
+    # `_history_user` (seção 17: "usuário e data/hora da alteração")
+    # setado explicitamente em vez de depender só de
+    # `simple_history.middleware.HistoryRequestMiddleware` (thread-local
+    # da request atual) — este service já RECEBE o `user` que fez a
+    # mudança, então grava esse mesmo usuário no histórico mesmo quando
+    # chamado fora de uma request HTTP (ex.: um script/shell futuro).
+    item._history_user = user
+    item.save()
+    return item
+
+
+@dataclass
+class PriceTableRow:
+    kind: str  # "equipamento" | "servico"
+    target_id: int
+    label: str
+    unit_price: Decimal | None
+    updated_by_label: str = ""
+    updated_at: datetime | None = None
+
+    @property
+    def has_price(self) -> bool:
+        return self.unit_price is not None
+
+
+@dataclass
+class PriceTableRows:
+    equipment_rows: list[PriceTableRow]
+    service_rows: list[PriceTableRow]
+    total_count: int
+    configured_count: int
+    missing_count: int
+
+
+def _price_table_item_updated_by_label(item: PriceTableItem | None) -> str:
+    if item is None:
+        return ""
+    user = item.updated_by
+    return user.get_full_name() or user.username
+
+
+def list_price_table_rows(*, business_type: str, search: str = "", only_missing: bool = False) -> PriceTableRows:
+    """
+    Monta as linhas EQUIPAMENTOS + SERVIÇOS da tela "Tabela de Preços"
+    para um `business_type`. Só itens ATIVOS entram na listagem (seção
+    14) — um `EquipmentModel`/`ServiceCatalogItem` inativado some da
+    tela, mas seu `PriceTableItem` (se existir) permanece intacto no
+    banco.
+
+    Exatamente 3 queries no total, sempre — nunca uma por linha (seção
+    37, "evitar N+1"): 1) os `PriceTableItem` já configurados nesta
+    `PriceTable` (um único `SELECT`, indexado em Python por
+    `equipment_model_id`/`service_id`); 2) `EquipmentModel`s ativos; 3)
+    `ServiceCatalogItem`s ativos. `only_missing` filtra a lista já em
+    memória (Python puro), nunca uma query extra.
+    """
+    price_table = PriceTable.objects.filter(business_type=business_type).first()
+    item_by_equipment_model: dict[int, PriceTableItem] = {}
+    item_by_service: dict[int, PriceTableItem] = {}
+    if price_table is not None:
+        for item in price_table.items.select_related("updated_by"):
+            if item.equipment_model_id is not None:
+                item_by_equipment_model[item.equipment_model_id] = item
+            elif item.service_id is not None:
+                item_by_service[item.service_id] = item
+
+    equipment_qs = EquipmentModel.objects.filter(is_active=True).order_by("name")
+    service_qs = ServiceCatalogItem.objects.filter(is_active=True).order_by("order", "name")
+    if search:
+        equipment_qs = equipment_qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
+        service_qs = service_qs.filter(name__icontains=search)
+
+    equipment_rows = [
+        PriceTableRow(
+            kind="equipamento",
+            target_id=model.pk,
+            label=f"{model.name} ({model.code})",
+            unit_price=(item_by_equipment_model.get(model.pk).unit_price if model.pk in item_by_equipment_model else None),
+            updated_by_label=_price_table_item_updated_by_label(item_by_equipment_model.get(model.pk)),
+            updated_at=(item_by_equipment_model[model.pk].updated_at if model.pk in item_by_equipment_model else None),
+        )
+        for model in equipment_qs
+    ]
+    service_rows = [
+        PriceTableRow(
+            kind="servico",
+            target_id=service.pk,
+            label=service.name,
+            unit_price=(item_by_service.get(service.pk).unit_price if service.pk in item_by_service else None),
+            updated_by_label=_price_table_item_updated_by_label(item_by_service.get(service.pk)),
+            updated_at=(item_by_service[service.pk].updated_at if service.pk in item_by_service else None),
+        )
+        for service in service_qs
+    ]
+
+    total_count = len(equipment_rows) + len(service_rows)
+    configured_count = sum(1 for row in equipment_rows + service_rows if row.has_price)
+    missing_count = total_count - configured_count
+
+    if only_missing:
+        equipment_rows = [row for row in equipment_rows if not row.has_price]
+        service_rows = [row for row in service_rows if not row.has_price]
+
+    return PriceTableRows(
+        equipment_rows=equipment_rows,
+        service_rows=service_rows,
+        total_count=total_count,
+        configured_count=configured_count,
+        missing_count=missing_count,
+    )
 
 
 # --- Emissão / versionamento / contrato / aceite ----------------------------

@@ -57,10 +57,11 @@ class PermissionCatalogIntegrityTest(TestCase):
     marcado como não-legado.
     """
 
-    def test_catalog_has_exactly_27_entries(self):
-        # 18 legadas (espelhando CAN_*) + 9 nativas do CRM, sem CAN_*
-        # equivalente (ver classe CrmCatalogEntriesTest abaixo).
-        self.assertEqual(len(PERMISSION_CATALOG), 27)
+    def test_catalog_has_exactly_29_entries(self):
+        # 18 legadas (espelhando CAN_*) + 11 nativas do CRM, sem CAN_*
+        # equivalente (ver classe CrmCatalogEntriesTest abaixo) — 9 até
+        # 15/09/2026 + 2 da Tabela de Preços V1 (16/09/2026).
+        self.assertEqual(len(PERMISSION_CATALOG), 29)
 
     def test_catalog_codenames_are_unique(self):
         codenames = [spec.codename for spec in PERMISSION_CATALOG]
@@ -100,17 +101,18 @@ class PermissionCatalogIntegrityTest(TestCase):
 
 class CrmCatalogEntriesTest(TestCase):
     """
-    As 9 entradas do CRM (7 do LocusHub Etapa 1 — 10/09/2026 — + 2 de
-    Produtos e Serviços/Proposta Comercial — 14/09/2026): nenhum CAN_*
-    equivalente por design (o módulo nasceu 100% na arquitetura nova),
-    por isso isoladas do resto do catálogo legado nesta classe própria.
+    As 11 entradas do CRM (7 do LocusHub Etapa 1 — 10/09/2026 — + 2 de
+    Produtos e Serviços/Proposta Comercial — 14/09/2026 — + 2 da Tabela
+    de Preços V1 — 16/09/2026): nenhum CAN_* equivalente por design (o
+    módulo nasceu 100% na arquitetura nova), por isso isoladas do resto
+    do catálogo legado nesta classe própria.
     """
 
     def _crm_specs(self):
         return [spec for spec in PERMISSION_CATALOG if spec.app_label == "crm"]
 
-    def test_exactly_9_crm_entries(self):
-        self.assertEqual(len(self._crm_specs()), 9)
+    def test_exactly_11_crm_entries(self):
+        self.assertEqual(len(self._crm_specs()), 11)
 
     def test_expected_crm_codenames(self):
         codenames = {spec.codename for spec in self._crm_specs()}
@@ -126,6 +128,8 @@ class CrmCatalogEntriesTest(TestCase):
                 "manage_commercial_settings",
                 "issue_proposal_documents",
                 "generate_contract",
+                "view_price_table",
+                "change_price_table",
             },
         )
 

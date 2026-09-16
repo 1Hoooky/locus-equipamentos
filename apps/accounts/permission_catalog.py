@@ -152,6 +152,15 @@ PERMISSION_CATALOG: tuple[PermissionSpec, ...] = (
     # (ato ainda mais sensível — compromete juridicamente a Locus).
     PermissionSpec("issue_proposal_documents", "crm", "proposal"),
     PermissionSpec("generate_contract", "crm", "proposalversion"),
+    # ------------------------------------------------------------------
+    # Tabela de Preços V1 (LocusHub, 16/09/2026). DUAS permissões novas,
+    # deliberadamente SEPARADAS de `manage_commercial_settings` (seção 18
+    # da especificação: "preço é informação comercial sensível... separar
+    # ver tabela / editar valores") — quem hoje gerencia Origem/Etapa/
+    # Motivo/Tipos de atividade/Serviços comerciais NÃO ganha automatica-
+    # mente acesso a ver/editar preços só por causa dessa mudança.
+    PermissionSpec("view_price_table", "crm", "pricetable"),
+    PermissionSpec("change_price_table", "crm", "pricetable"),
 )
 
 # Nome amigável do módulo (app) para agrupar a tela de cargos —

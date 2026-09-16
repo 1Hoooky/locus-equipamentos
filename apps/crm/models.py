@@ -784,6 +784,151 @@ class ServiceCatalogItem(TimeStampedModel, SoftDeleteModel):
         return self.name
 
 
+class PriceTable(TimeStampedModel):
+    """
+    Tabela de Preços V1 — IMPLEMENTAÇÃO (16/09/2026, "TABELA DE PREÇOS V1
+    / LOCUSHUB / CRM / PROPOSTAS"). Fonte de SUGESTÃO de preço para um
+    novo `ProposalItem`, nunca a fonte dinâmica do valor histórico: ver
+    `PriceTableItem` abaixo e `apps.crm.services.get_suggested_price()`/
+    `set_price_table_item()`. `ProposalItem.unit_price` continua sendo um
+    snapshot congelado no momento em que o item é adicionado (mesma REGRA
+    CRÍTICA já documentada no docstring de `ProposalItem`) — mudar um
+    valor aqui NUNCA reescreve uma `Proposal` já existente.
+
+    Uma `PriceTable` por `BusinessType` (Locação/Venda/Serviço) —
+    conjunto fechado, mesmo `TextChoices` já usado por `Opportunity`.
+    Nunca criada/nomeada manualmente pelo usuário: `PriceTable` não tem
+    nenhuma tela de CRUD própria (`get_or_create(business_type=...)`,
+    seção 6 da especificação — "a UX não precisa obrigatoriamente expor o
+    conceito técnico 'PriceTable' ao usuário"). A única tela voltada ao
+    usuário é a "Tabela de Preços" (`crm:price_table`), que lista/edita
+    `PriceTableItem`, com abas por `BusinessType`.
+
+    `is_active` existe só como ponto de extensão explícito pedido pela
+    especificação (seção 4, "estrutura mínima correta") — sempre `True`
+    nesta V1; não há tela/fluxo que desative uma tabela inteira (fora de
+    escopo — seção 39: nenhum motor de ativação/desativação de tabela).
+    Por isso não é `SoftDeleteModel`: o único "apagar" possível em V1 é
+    por linha (`PriceTableItem`), nunca a tabela toda.
+    """
+
+    business_type = models.CharField(max_length=10, choices=BusinessType.choices, unique=True)
+    name = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Preenchido automaticamente ('Tabela de Locação', etc.) quando vazio — texto livre é só ponto de extensão futuro, não editável na V1.",
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "tabela de preços"
+        verbose_name_plural = "tabelas de preços"
+        ordering = ["business_type"]
+        # Seção 18 da especificação: "Separar ver tabela / editar
+        # valores" — deliberadamente DUAS permissões próprias, nunca
+        # reaproveitando `crm.manage_commercial_settings` (preço é
+        # informação comercial sensível; quem gerencia Origem/Etapa/
+        # Motivo/Tipos de atividade/Serviços comerciais não deve ganhar
+        # acesso a preços só por consequência).
+        permissions = [
+            ("view_price_table", "Pode ver a Tabela de Preços"),
+            ("change_price_table", "Pode editar valores da Tabela de Preços"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.name:
+            self.name = f"Tabela de {self.get_business_type_display()}"
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class PriceTableItem(TimeStampedModel):
+    """
+    Uma linha da Tabela de Preços — preço sugerido para UM `EquipmentModel`
+    OU UM `ServiceCatalogItem` (nunca os dois, nunca nenhum — mesmo
+    padrão XOR de `ProposalItem.equipment_model`/`service`, ver
+    `CheckConstraint` abaixo, e mesma lógica de unicidade condicional já
+    usada por `ActivityType.code`).
+
+    Não existe "linha manual" (seção 13): toda `EquipmentModel`/
+    `ServiceCatalogItem` ATIVO aparece na tela "Tabela de Preços"
+    automaticamente como "Sem valor" até que um `PriceTableItem` seja
+    criado para ele (`apps.crm.services.list_price_table_rows()`) — a
+    tela nunca oferece um botão "Adicionar linha" genérico. Inativar o
+    `EquipmentModel`/`ServiceCatalogItem` depois NUNCA apaga a linha aqui
+    (seção 14: "Preservar integridade e histórico") — ela só deixa de
+    aparecer na listagem padrão (que só mostra ativos), permanecendo
+    intacta no banco.
+
+    Histórico (seção 17): reaproveita `django-simple-history` — já usado
+    por `Opportunity`/`EquipmentModel` neste mesmo projeto — em vez de um
+    sistema de auditoria paralelo. `history_user`/`history_date` cobrem
+    "usuário e data/hora da alteração"; cada `HistoricalPriceTableItem`
+    guarda o valor de `unit_price` daquele momento, o que já dá "valor
+    anterior" (registro N-1) e "valor novo" (registro N) sem nenhum campo
+    extra. `updated_by` fica também DENORMALIZADO aqui (fora do
+    histórico) só para a tela listar "atualizado por Fulano" sem
+    precisar de uma segunda query ao histórico por linha.
+    """
+
+    price_table = models.ForeignKey(PriceTable, on_delete=models.CASCADE, related_name="items")
+    equipment_model = models.ForeignKey(
+        "catalog.EquipmentModel",
+        on_delete=models.PROTECT,
+        related_name="price_table_items",
+        null=True,
+        blank=True,
+        help_text="Preenchido XOR com 'service' — nunca os dois, nunca nenhum.",
+    )
+    service = models.ForeignKey(
+        ServiceCatalogItem,
+        on_delete=models.PROTECT,
+        related_name="price_table_items",
+        null=True,
+        blank=True,
+        help_text="Preenchido XOR com 'equipment_model' — nunca os dois, nunca nenhum.",
+    )
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "item da tabela de preços"
+        verbose_name_plural = "itens da tabela de preços"
+        ordering = ["id"]
+        constraints = [
+            models.CheckConstraint(check=models.Q(unit_price__gte=0), name="price_table_item_unit_price_not_negative"),
+            # Mesmo raciocínio/formato de `proposal_item_type_matches_single_reference`
+            # (`ProposalItem`, abaixo): exatamente uma referência preenchida.
+            models.CheckConstraint(
+                check=(
+                    models.Q(equipment_model__isnull=False, service__isnull=True)
+                    | models.Q(equipment_model__isnull=True, service__isnull=False)
+                ),
+                name="price_table_item_xor_reference",
+            ),
+            # Nunca duas linhas para o mesmo (tabela, modelo) ou (tabela,
+            # serviço) — `UniqueConstraint` condicional (`condition=`),
+            # mesmo padrão já usado por `ActivityType.code`.
+            models.UniqueConstraint(
+                fields=["price_table", "equipment_model"],
+                condition=models.Q(equipment_model__isnull=False),
+                name="unique_price_table_equipment_model",
+            ),
+            models.UniqueConstraint(
+                fields=["price_table", "service"],
+                condition=models.Q(service__isnull=False),
+                name="unique_price_table_service",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        target = self.equipment_model or self.service
+        return f"{self.price_table} — {target}"
+
+
 class ProposalItem(models.Model):
     """
     Produto/serviço comercial de uma `ProposalVersion` (seção 55; RODADA

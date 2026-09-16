@@ -1,0 +1,32 @@
+{% load icons %}
+{% load currency %}
+{% comment %}
+Linha (modo leitura) da Tabela de Preços — Tabela de Preços V1
+(16/09/2026). Reaproveitado por `price_table.html` (a partir de
+`PriceTableRow`, `apps.crm.services.list_price_table_rows()`) E por
+`PriceTableItemRowView` (depois de ler/salvar UM item) — por isso o
+contexto esperado é sempre "achatado" (`kind`, `target_id`, `label`,
+`business_type`, `unit_price`, `updated_by_label`, `can_change`), nunca
+um objeto de model bruto.
+{% endcomment %}
+<tr id="price-table-row-{{ kind }}-{{ target_id }}">
+  <td>{{ label }}</td>
+  <td>
+    {% if unit_price is not None %}
+    {{ unit_price|brl }}
+    {% if updated_by_label %}<span class="text-xs text-gray-400 block">atualizado por {{ updated_by_label }}</span>{% endif %}
+    {% else %}
+    <span class="badge-neutral">Sem valor</span>
+    {% endif %}
+  </td>
+  {% if can_change %}
+  <td>
+    <button type="button" class="icon-btn-neutral"
+            hx-get="{% url 'crm:price_table_item_row' kind target_id %}?tipo={{ business_type }}&modo=editar"
+            hx-target="#price-table-row-{{ kind }}-{{ target_id }}" hx-swap="outerHTML">
+      <span class="sr-only">Editar preço de {{ label }}</span>
+      {% icon "pencil" size="compact" %}
+    </button>
+  </td>
+  {% endif %}
+</tr>

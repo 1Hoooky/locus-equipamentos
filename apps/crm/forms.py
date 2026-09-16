@@ -530,6 +530,28 @@ class ProposalItemForm(forms.Form):
         return cleaned
 
 
+class PriceTableItemForm(forms.Form):
+    """
+    Edição inline de UMA linha da Tabela de Preços (`crm:price_table_item_row`)
+    — Tabela de Preços V1, 16/09/2026. `forms.Form` (não `ModelForm`), mesmo
+    raciocínio de `ProposalItemForm` logo acima: a escrita real passa por
+    `apps.crm.services.set_price_table_item()` (resolve/cria a `PriceTable`,
+    `select_for_update()`, histórico) — este form só valida o valor digitado.
+    """
+
+    unit_price = forms.DecimalField(
+        label="Valor",
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal("0"),
+        error_messages={"min_value": "O valor não pode ser negativo."},
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_input_class(self.fields)
+
+
 def _opportunity_delivery_location_queryset(client: Client | None):
     """
     RODADA 4 (CORREÇÃO — "Local de entrega/operação", 15/09/2026): o
