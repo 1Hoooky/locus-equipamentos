@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-`apps.qrcodes` é um app puramente de **serviço + views de download**: gera, sob demanda e inteiramente em memória, PNG de QR Code, PNG de código de barras (Code128), etiquetas em PDF (padrão antigo 100×50mm e padrão novo 6×6cm) e exportações em `.zip`/PDF combinado em lote. **Não define landing pública nem admin customizado próprio** — a landing pública do QR e o modal de tema no Django Admin vivem em `apps.equipment`, que só consome `apps.qrcodes.services`/`urls`. O QR sempre codifica só a URL permanente `SITE_BASE_URL + /equipamentos/{patrimonio}/` — nunca dados do equipamento.
+`apps.qrcodes` é um app puramente de **serviço + views de download**: gera, sob demanda e inteiramente em memória, PNG de QR Code, PNG de código de barras (Code128), etiquetas em PDF (padrão antigo 100×50mm e padrão novo 6×6cm), um PDF A4 em grade de QR "puro" por modelo, e exportações em `.zip`/PDF combinado em lote. **Não define landing pública nem admin customizado próprio** — a landing pública do QR e o modal de tema no Django Admin vivem em `apps.equipment`, que só consome `apps.qrcodes.services`/`urls`. O QR sempre codifica só a URL permanente `SITE_BASE_URL + /equipamentos/{patrimonio}/` — nunca dados do equipamento.
 
 ## Models
 
@@ -10,7 +10,7 @@
 
 ## Services
 
-Arquivo: `apps/qrcodes/services.py` (354 linhas). Bibliotecas: `qrcode[pil]`, `Pillow`, `weasyprint`, `python-barcode`.
+Arquivo: `apps/qrcodes/services.py`. Bibliotecas: `qrcode[pil]`, `Pillow`, `weasyprint`, `python-barcode`.
 
 - `equipment_url(equipment)` — `SITE_BASE_URL + reverse("equipment:detail", patrimonio=...)`.
 - `generate_qr_png(equipment)` / `generate_barcode_png(equipment)` (Code128 codificando só o `patrimonio`).
@@ -18,6 +18,7 @@ Arquivo: `apps/qrcodes/services.py` (354 linhas). Bibliotecas: `qrcode[pil]`, `P
 - `generate_square_label_pdf`/`generate_square_labels_pdf(equipment_list, theme)` — etiqueta **nova** 6×6cm: só QR + `model.code` (nunca o nome comercial) + `legacy_code` opcional. Sem logo, sem barcode, sem URL escrita, sem patrimônio.
 - `_sanitize_path_segment()` — sanitiza nomes de pasta/arquivo dentro dos `.zip` (proteção contra directory traversal).
 - `generate_qr_zip()` (QR "puro"), `generate_labels_zip()` (etiquetas antigas), `generate_square_labels_zip()` (etiquetas novas) — todos `.zip` em memória (disco efêmero do Render free tier).
+- `generate_qr_grid_pdf(equipment_list)` (pedido de 16/09/2026) — **um único PDF A4** com QR "puro" (sem logo/nome/patrimônio/barcode/texto) em grade `QR_GRID_COLUMNS × QR_GRID_ROWS` (3×5, `QR_GRID_PAGE_SIZE=15` por página; constantes `QR_GRID_PAGE_MARGIN_MM=10`/`QR_GRID_CELL_SIZE_MM=48`/`QR_GRID_GUTTER_MM=4`), pronto para impressão em lote. Reaproveita `generate_qr_png`/`equipment_url` (via `_qr_data_uri`) — a MESMA origem de QR de qualquer outra função deste arquivo, nenhum segundo padrão. Paginação decidida em Python (`_chunked`), nunca deixada para o WeasyPrint resolver sozinho (quebra automática de grid/flex entre páginas não é confiável). Renderiza `templates/qrcodes/qr_grid.html`. Distinta de `generate_qr_zip` (que gera um `.zip` de PNGs soltos, sem paginação/impressão) — aqui o resultado é um documento único.
 
 Nenhuma função grava em disco. Validação de tema é só em `views.py` (whitelist "light"/"dark"); `services.py` nunca valida, confia no chamador.
 
@@ -27,7 +28,7 @@ Nenhum form neste app — todas as views são GET puro (download).
 
 ## Views
 
-Arquivo: `apps/qrcodes/views.py` (277 linhas). Todas usam `RoleRequiredMixin` com `CAN_MANAGE_EQUIPMENT=(ADMIN,ADMINISTRATIVO)` — **as 7 rotas são privadas**.
+Arquivo: `apps/qrcodes/views.py`. Todas usam `RoleRequiredMixin` com `CAN_MANAGE_EQUIPMENT=(ADMIN,ADMINISTRATIVO)` — **as 8 rotas são privadas**.
 
 | View | Resumo |
 |---|---|
@@ -37,11 +38,14 @@ Arquivo: `apps/qrcodes/views.py` (277 linhas). Todas usam `RoleRequiredMixin` co
 | `QRCodeZipExportView` | zip de etiquetas 6×6 (apesar do nome "QR Codes") |
 | `QRCodeOnlyZipExportView` | zip de QR "puro" |
 | `ModelLabelBatchDownloadView` | PDF 6×6 de todos equipamentos ativos de 1 modelo |
+| `ModelQRGridDownloadView` | PDF A4 em grade de QR "puro" de todos equipamentos ativos de 1 modelo (16/09/2026) |
 | `LabelZipExportView` | zip de etiquetas antigas |
+
+`ModelQRGridDownloadView` espelha exatamente o escopo/permissão/tratamento de 404 de `ModelLabelBatchDownloadView` (mesmo `Equipment.objects.filter(model_id=model_id, is_active=True)`, só acrescentando `order_by("patrimonio")` para ordem determinística — a spec pediu explicitamente ordem determinística, o que `model_label_batch` nunca precisou declarar) — só troca o conteúdo do PDF (`generate_qr_grid_pdf` em vez de `generate_square_labels_pdf`) e o nome do arquivo (`qrcodes-{code}.pdf`). Sem `?tema=` (QR puro não tem etiqueta para ter LIGHT/DARK).
 
 ## URLs
 
-`app_name="qrcodes"`, montado como `path("qrcodes/", ...)`. **Todas as 7 rotas são privadas.** A rota realmente pública ligada ao QR físico **não está aqui** — é `equipment:detail` (`/equipamentos/<patrimonio>/`), em `apps.equipment`.
+`app_name="qrcodes"`, montado como `path("qrcodes/", ...)`. **Todas as 8 rotas são privadas.** A rota realmente pública ligada ao QR físico **não está aqui** — é `equipment:detail` (`/equipamentos/<patrimonio>/`), em `apps.equipment`. `modelo/<int:model_id>/qrcodes.pdf` (`model_qr_grid`) vem antes do catch-all `<str:patrimonio>/...`, mesmo raciocínio defensivo de `modelo/<int:model_id>/etiquetas.pdf`.
 
 ## Permissions
 
@@ -49,7 +53,7 @@ Arquivo: `apps/qrcodes/views.py` (277 linhas). Todas usam `RoleRequiredMixin` co
 
 ## Templates
 
-`templates/qrcodes/label.html` (etiqueta antiga) e `label_square.html` (etiqueta nova) — renderizados só internamente via `render_to_string` → WeasyPrint, nunca servidos como página normal.
+`templates/qrcodes/label.html` (etiqueta antiga), `label_square.html` (etiqueta nova) e `qr_grid.html` (grade A4 de QR puro, 16/09/2026) — renderizados só internamente via `render_to_string` → WeasyPrint, nunca servidos como página normal. `qr_grid.html` recebe `pages` (lista de páginas já paginadas em Python, cada uma com até `QR_GRID_PAGE_SIZE` células) mais `page_margin_mm`/`cell_size_mm`/`gutter_mm` — nenhuma medida fixa no template. Cada célula tem um campo `caption` (sempre `None` hoje) como ponto de extensão futuro, sem nenhuma opção de UI para preenchê-lo ainda.
 
 ## JavaScript
 
@@ -68,11 +72,13 @@ Dois arquivos **distintos e não relacionados por herança**, cobrindo o mesmo c
 
 ## Quem chama apps.qrcodes
 
-`apps.equipment.admin` (links, redirect, `LABEL_THEME_LIGHT`, assets do modal); templates de `apps.equipment` (`list.html`, `batch_result.html`, `_model_group_items.html`, `detail_private.html`). Nenhum outro app (`clients`, `operations`, `maintenance`, `crm`, `dashboard`, `catalog`) referencia `qrcodes` diretamente.
+`apps.equipment.admin` (links, redirect, `LABEL_THEME_LIGHT`, assets do modal); templates de `apps.equipment` (`list.html`, `batch_result.html`, `_model_group_items.html`, `detail_private.html`). `list.html` também tem o botão novo "Exportar QR Codes em PDF" (`qrcodes:model_qr_grid`), sibling do botão "Etiquetas em lote" já existente, dentro do mesmo `.model-group-card` (agrupados num wrapper `.action-group`, 16/09/2026). Nenhum outro app (`clients`, `operations`, `maintenance`, `crm`, `dashboard`, `catalog`) referencia `qrcodes` diretamente.
 
 ## Testes
 
-`apps/qrcodes/tests/test_qr_and_labels.py` (1012 linhas) — cobertura ampla: QR/barcode válidos e decodificáveis, conteúdo do PDF nos dois temas, etiqueta quadrada nunca expõe nome comercial/patrimônio/URL, sanitização de path contra directory traversal, geração não escreve em disco, permissões (Admin/Administrativo podem, Operacional/Consulta proibidos). Mais `apps/equipment/tests/test_admin_label_theme_action.py` (confirma via `assertContains` que os assets do `Media` estão na changelist) e `test_equipment_grouped_listing.py` (confirma o JS de app na listagem).
+`apps/qrcodes/tests/test_qr_and_labels.py` — cobertura ampla: QR/barcode válidos e decodificáveis, conteúdo do PDF nos dois temas, etiqueta quadrada nunca expõe nome comercial/patrimônio/URL, sanitização de path contra directory traversal, geração não escreve em disco, permissões (Admin/Administrativo podem, Operacional/Consulta proibidos). Mais `apps/equipment/tests/test_admin_label_theme_action.py` (confirma via `assertContains` que os assets do `Media` estão na changelist) e `test_equipment_grouped_listing.py` (confirma o JS de app na listagem).
+
+`apps/qrcodes/tests/test_qr_grid_export.py` (16/09/2026) — `ModelQRGridDownloadViewTest`: permissão (backend, igual a `model_label_batch`), 200/`Content-Type: application/pdf`, 1 QR por equipamento (lote único e grande/multi-página), o QR embutido decodifica para a MESMA URL/bytes de `generate_qr_png`/`equipment_url` (nenhum segundo padrão), sem mistura de escopo (outro modelo/inativo nunca aparece), ordem determinística por `patrimonio`, ausência total de efeito colateral (`Equipment`/`Movement`/`StatusHistory`/`ConditionHistory`/`Attachment` inalterados), nome de arquivo (`qrcodes-{code}.pdf`), PDF sem nenhum texto (QR puro), 404 de modelo inexistente/sem equipamento ativo.
 
 ## Migrations
 
@@ -84,4 +90,5 @@ Nenhuma — `apps/qrcodes/migrations/` só tem `__init__.py` (reflexo de não ha
 - **Duas gerações de etiqueta coexistem deliberadamente, nunca unificadas** — reaproveitar a mesma função faria um botão existente mudar de formato sem ter sido pedido.
 - **`generate_qr_zip` ficou "órfã" por um tempo** (08/09 a 10/09/2026) até ganhar um chamador de volta (`QRCodeOnlyZipExportView`) — mantida porque tinha cobertura de teste.
 - **Validação de tema é redundante por design**: front-end evita esquecimento, back-end (`_validated_theme`) é a única barreira real contra tema forjado via querystring/POST.
+- **`generate_qr_grid_pdf`/`model_qr_grid` (16/09/2026) foi escopado ao lote POR MODELO** (mesma queryset de `ModelLabelBatchDownloadView`), não ao lote "todos os equipamentos ativos" do toolbar (`_active_equipment_for_export`/`QRCodeOnlyZipExportView`) — decisão inferida do exemplo concreto do pedido original (card de 1 modelo específico), não reconfirmada explicitamente. Se um QR grid em PDF do escopo do toolbar também for desejado, é uma extensão futura, não implementada nesta rodada.
 - Nenhum TODO/FIXME real encontrado.

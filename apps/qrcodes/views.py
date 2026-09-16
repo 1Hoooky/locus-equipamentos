@@ -19,6 +19,7 @@ from apps.qrcodes.services import (
     generate_label_pdf,
     generate_labels_pdf,
     generate_labels_zip,
+    generate_qr_grid_pdf,
     generate_qr_png,
     generate_qr_zip,
     generate_square_label_pdf,
@@ -253,6 +254,58 @@ class ModelLabelBatchDownloadView(RoleRequiredMixin, View):
         pdf_bytes = generate_square_labels_pdf(equipment_list, theme=theme)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="etiquetas-{equipment_model.code}.pdf"'
+        return response
+
+
+class ModelQRGridDownloadView(RoleRequiredMixin, View):
+    """
+    QR Codes PUROS em lote de UM modelo, num único PDF A4 em grade
+    (pedido de 16/09/2026) — botão novo "Exportar QR Codes em PDF" no
+    mesmo card de modelo da listagem agrupada, ao lado do botão já
+    existente "Etiquetas em lote" (`model_label_batch`/
+    `ModelLabelBatchDownloadView` acima, de 08/09/2026).
+
+    Mesmo escopo/permissão/tratamento de 404 de `ModelLabelBatchDownloadView`
+    — só muda o conteúdo do PDF (QR puro em grade, via
+    `generate_qr_grid_pdf`, em vez de etiqueta 6x6 por página via
+    `generate_square_labels_pdf`) e o nome do arquivo. Sem `?tema=`: QR
+    puro não tem etiqueta nenhuma para ter LIGHT/DARK (mesmo raciocínio
+    de `QRCodeOnlyZipExportView` acima) — este botão não intercepta o
+    modal de tema.
+
+    Ordenado por `patrimonio` (pedido explícito: "ordem determinística,
+    preferencialmente por patrimônio") — `ModelLabelBatchDownloadView`
+    acima não define `order_by` explícito porque a ordem de impressão de
+    etiquetas nunca foi um requisito; aqui é, então a ordenação é
+    explícita em vez de depender de uma ordenação default do model que
+    pode mudar.
+
+    100% leitura: só monta um PDF em memória a partir de dados já
+    existentes — nenhum `Equipment`/`Movement`/`Attachment`/histórico é
+    criado, alterado ou consultado além do necessário para montar a
+    página. Nada grava em `/media/` nem usa `apps.attachments` (mesmo
+    raciocínio de "tudo em memória" do restante deste app — ver
+    docstring de `apps/qrcodes/services.py`).
+    """
+
+    allowed_roles = CAN_MANAGE_EQUIPMENT
+
+    def get(self, request, model_id: int):
+        equipment_model = get_object_or_404(EquipmentModel, pk=model_id)
+        equipment_list = list(
+            Equipment.objects.filter(model_id=model_id, is_active=True)
+            .select_related("model", "category")
+            .order_by("patrimonio")
+        )
+        if not equipment_list:
+            return HttpResponse(
+                "Nenhum equipamento ativo para este modelo.",
+                content_type="text/plain; charset=utf-8",
+                status=404,
+            )
+        pdf_bytes = generate_qr_grid_pdf(equipment_list)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="qrcodes-{equipment_model.code}.pdf"'
         return response
 
 

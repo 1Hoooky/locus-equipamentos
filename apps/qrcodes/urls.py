@@ -16,6 +16,10 @@ urlpatterns = [
     # vir antes do catch-all "<str:patrimonio>/..." abaixo, mesmo
     # raciocínio defensivo já usado para as rotas "lote/..." acima.
     path("modelo/<int:model_id>/etiquetas.pdf", views.ModelLabelBatchDownloadView.as_view(), name="model_label_batch"),
+    # QR Codes puros em lote por modelo, um único PDF A4 em grade (pedido
+    # de 16/09/2026) — mesmo raciocínio defensivo da rota acima, precisa
+    # vir antes do catch-all "<str:patrimonio>/..." abaixo.
+    path("modelo/<int:model_id>/qrcodes.pdf", views.ModelQRGridDownloadView.as_view(), name="model_qr_grid"),
     path("<str:patrimonio>/qr.png", views.QRCodeDownloadView.as_view(), name="qr_png"),
     path("<str:patrimonio>/etiqueta.pdf", views.LabelDownloadView.as_view(), name="label_pdf"),
 ]

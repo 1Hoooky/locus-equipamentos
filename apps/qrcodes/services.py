@@ -351,3 +351,80 @@ def generate_square_labels_zip(equipment_list: list[Equipment], theme: str = LAB
         for equipment in equipment_list:
             zip_file.writestr(_equipment_zip_path(equipment, "pdf"), generate_square_label_pdf(equipment, theme=theme))
     return buffer.getvalue()
+
+
+# --------------------------------------------------------------------------
+# Exportação em lote de QR "puro" — UM ÚNICO PDF em grade A4, pronto para
+# impressão (pedido de 16/09/2026). Distinta de `generate_qr_zip` acima
+# (que gera um .zip com um PNG solto por equipamento, sem paginação
+# nenhuma) — aqui o objetivo é um documento único que alguém imprime de
+# uma vez, com vários QRs por folha.
+#
+# Regra central (a mesma do topo deste arquivo): cada QR vem de
+# `generate_qr_png`/`equipment_url` — a MESMA função/URL usada por
+# QUALQUER outro QR do sistema (individual, etiqueta 6x6, etiqueta
+# antiga, `generate_qr_zip`). Esta seção só adiciona uma COMPOSIÇÃO em
+# grade nova; nenhuma lógica de geração/URL de QR é duplicada.
+# --------------------------------------------------------------------------
+
+# Medidas da grade, centralizadas aqui como as demais constantes deste
+# módulo (mesmo raciocínio de LABEL_WIDTH_MM/LABEL_HEIGHT_MM acima) — o
+# template (`templates/qrcodes/qr_grid.html`) só lê estes números, nunca
+# um valor fixo escrito lá. Célula ~48mm (pedido: "cerca de 50x50mm") em
+# folha A4 com margem de 10mm por lado: 3 colunas × 48mm + 2 espaçamentos
+# × 4mm = 152mm, contra 190mm de largura útil (210mm - 2×10mm) — cabe
+# com folga, sem cortar nem deformar o QR. 5 linhas × 48mm + 4
+# espaçamentos × 4mm = 256mm, contra 277mm de altura útil — também cabe
+# com folga. Resultado: 15 QRs por página.
+QR_GRID_PAGE_MARGIN_MM = 10
+QR_GRID_CELL_SIZE_MM = 48
+QR_GRID_GUTTER_MM = 4
+QR_GRID_COLUMNS = 3
+QR_GRID_ROWS = 5
+QR_GRID_PAGE_SIZE = QR_GRID_COLUMNS * QR_GRID_ROWS
+
+
+def _qr_grid_cell_context(equipment: Equipment) -> dict:
+    """
+    Só o QR em si — nenhum outro dado do equipamento (pedido explícito:
+    "QR puro", sem logo/nome/descrição/patrimônio/barcode/texto
+    comercial). `caption` existe só como ponto de extensão: hoje é
+    sempre `None` (nenhuma opção de UI liga isso), mas o template já
+    sabe renderizar uma legenda opcional por célula se um dia isso for
+    pedido — sem precisar reescrever o gerador/grade.
+    """
+    return {"qr_data_uri": _qr_data_uri(equipment), "caption": None}
+
+
+def _chunked(items: list, size: int) -> list[list]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def generate_qr_grid_pdf(equipment_list: list[Equipment]) -> bytes:
+    """
+    UM ÚNICO PDF A4, multi-página, com os QR Codes PUROS dos
+    equipamentos em `equipment_list`, em grade (`QR_GRID_COLUMNS` ×
+    `QR_GRID_ROWS` por página) — pronto para impressão.
+
+    A paginação é decidida aqui em Python (`_chunked`), não deixada para
+    o WeasyPrint resolver sozinho: quebra de página automática dentro de
+    uma grade/flexbox não é confiável entre motores de renderização, então
+    cada "folha" já chega ao template só com os itens que cabem numa
+    página A4 — o template (`qrcodes/qr_grid.html`) só desenha o que
+    recebe, sem decidir quebra nenhuma.
+
+    Ordem de `equipment_list` é responsabilidade do CHAMADOR (mesmo
+    padrão de `generate_labels_pdf`/`generate_square_labels_pdf` acima) —
+    esta função nunca reordena.
+    """
+    pages = _chunked([_qr_grid_cell_context(eq) for eq in equipment_list], QR_GRID_PAGE_SIZE) or [[]]
+    html_string = render_to_string(
+        "qrcodes/qr_grid.html",
+        {
+            "pages": pages,
+            "page_margin_mm": QR_GRID_PAGE_MARGIN_MM,
+            "cell_size_mm": QR_GRID_CELL_SIZE_MM,
+            "gutter_mm": QR_GRID_GUTTER_MM,
+        },
+    )
+    return HTML(string=html_string).write_pdf()

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<style>
+  /*
+    PDF de QR Codes PUROS em grade A4 (pedido de 16/09/2026) — uma folha
+    A4 por `page` recebida do Python (apps/qrcodes/services.py::
+    generate_qr_grid_pdf), já paginada lá (nunca reflow automático de
+    grid/flex entre páginas, que não é confiável no WeasyPrint — ver
+    comentário da função no services.py).
+
+    "QR puro": só a imagem do QR, nada mais — sem logo, sem nome
+    comercial, sem descrição, sem patrimônio escrito, sem código de
+    barras, sem qualquer texto (pedido explícito). `label.caption` existe
+    só como ponto de extensão futuro (hoje sempre None/vazio — nenhuma
+    opção de UI liga isso ainda).
+
+    Medidas vêm sempre do Python (`page_margin_mm`/`cell_size_mm`/
+    `gutter_mm` — apps/qrcodes/services.py::QR_GRID_*), nunca fixas aqui,
+    mesmo raciocínio de templates/qrcodes/label.html e label_square.html.
+  */
+  @page {
+    size: A4;
+    margin: {{ page_margin_mm }}mm;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "DejaVu Sans", Arial, sans-serif;
+    background: #fff;
+  }
+
+  /*
+    Uma `.qr-page` por folha impressa — `page-break-after: always` em
+    todas, inclusive a última, é inofensivo (WeasyPrint não gera folha
+    em branco extra ao final) e evita ter que calcular "é a última?"
+    aqui no template.
+  */
+  .qr-page {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: {{ gutter_mm }}mm;
+    width: 100%;
+    page-break-after: always;
+  }
+
+  .qr-cell {
+    width: {{ cell_size_mm }}mm;
+    height: {{ cell_size_mm }}mm;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /*
+    Mesmo raciocínio de label_square.html: fundo branco incondicional ao
+    redor do QR (a "quiet zone" visual), garantindo leitura confiável
+    mesmo que este PDF um dia seja impresso sobre papel não-branco ou
+    embutido em outro documento com fundo diferente.
+  */
+  .qr-wrap {
+    background: #fff;
+    padding: 1mm;
+    border-radius: 1mm;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .qr-image {
+    display: block;
+    /* QR sempre quadrado, nunca esticado/cortado — largura e altura
+       iguais, alguns mm menores que a célula para sobrar margem/quiet
+       zone visível ao redor. */
+    width: calc({{ cell_size_mm }}mm - 4mm);
+    height: calc({{ cell_size_mm }}mm - 4mm);
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+
+  .qr-caption {
+    margin: 1mm 0 0 0;
+    font-size: 8pt;
+    line-height: 1.1;
+    text-align: center;
+    color: #000;
+    max-width: 96%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+</style>
+</head>
+<body>
+  {% for page in pages %}
+  <div class="qr-page">
+    {% for label in page %}
+    <div class="qr-cell">
+      <div class="qr-wrap">
+        <img class="qr-image" src="{{ label.qr_data_uri }}" alt="QR Code">
+      </div>
+      {% if label.caption %}<p class="qr-caption">{{ label.caption }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</body>
+</html>
