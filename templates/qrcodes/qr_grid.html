@@ -1,28 +1,71 @@
+{% load l10n %}
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
+{% comment %}
+`{% localize off %}` ao redor do <style> inteiro (correção de 16/09/2026,
+achada só na validação física): `LANGUAGE_CODE="pt-br"` faz o Django
+renderizar float com VÍRGULA decimal (`{{ margin_vertical_mm }}` virava
+"13,5", não "13.5") — CSS inválido, que o WeasyPrint ignora em silêncio,
+colapsando o padding para 0 e jogando a grade inteira pro canto superior
+esquerdo (exatamente o bug relatado: "grade deslocada para a esquerda").
+Os outros templates deste app (label.html/label_square.html) nunca
+passaram por isso porque suas medidas (LABEL_WIDTH_MM=100 etc.) sempre
+foram inteiras; aqui `margin_horizontal_mm`/`margin_vertical_mm`
+(apps/qrcodes/services.py) são derivadas por divisão e podem ser
+fracionárias (13.5), então o bloco `{% localize off %}` é necessário,
+não só defensivo.
+{% endcomment %}
+{% localize off %}
 <style>
   /*
-    PDF de QR Codes PUROS em grade A4 (pedido de 16/09/2026) — uma folha
-    A4 por `page` recebida do Python (apps/qrcodes/services.py::
-    generate_qr_grid_pdf), já paginada lá (nunca reflow automático de
-    grid/flex entre páginas, que não é confiável no WeasyPrint — ver
-    comentário da função no services.py).
+    PDF de QR Codes PUROS em grade A4 (pedido de 16/09/2026, corrigido no
+    mesmo dia após validação física real) — uma folha A4 por `page`
+    recebida do Python (apps/qrcodes/services.py::generate_qr_grid_pdf),
+    já paginada lá (nunca reflow automático de grid/flex entre páginas,
+    que não é confiável no WeasyPrint — ver comentário da função no
+    services.py).
 
     "QR puro": só a imagem do QR, nada mais — sem logo, sem nome
     comercial, sem descrição, sem patrimônio escrito, sem código de
-    barras, sem qualquer texto (pedido explícito). `label.caption` existe
-    só como ponto de extensão futuro (hoje sempre None/vazio — nenhuma
-    opção de UI liga isso ainda).
+    barras, sem borda, sem qualquer texto (pedido explícito).
 
-    Medidas vêm sempre do Python (`page_margin_mm`/`cell_size_mm`/
-    `gutter_mm` — apps/qrcodes/services.py::QR_GRID_*), nunca fixas aqui,
-    mesmo raciocínio de templates/qrcodes/label.html e label_square.html.
+    DIMENSIONAMENTO FÍSICO (correção de 16/09/2026): o requisito agora é
+    que cada QR impresso meça EXATAMENTE 50×50mm e que a grade inteira
+    fique centralizada na folha A4 — não "no olho", calculado. Por isso:
+
+    - `@page { margin: 0 }`: nenhuma margem "de fábrica" do WeasyPrint
+      participa do cálculo — toda margem visível vem do `padding` do
+      `.qr-page` abaixo, em mm explícitos vindos do Python
+      (`margin_horizontal_mm`/`margin_vertical_mm` —
+      apps/qrcodes/services.py::QR_GRID_MARGIN_*), nunca um valor fixo
+      aqui nem uma centralização "automática" (`margin: auto`/
+      `justify-content: center`) que dependeria do motor de renderização
+      não introduzir arredondamento.
+    - `.qr-page` tem `width`/`height` = a folha A4 inteira
+      (`page_width_mm`/`page_height_mm`, sempre 210×297 vindo do
+      Python) e `box-sizing: border-box`, então
+      `padding-horizontal × 2 + largura-da-grade = page_width_mm`
+      exatamente — os números batem porque o Python já garante isso
+      (`QR_GRID_WIDTH_MM`/`QR_GRID_MARGIN_HORIZONTAL_MM` derivados uns
+      dos outros, nunca hardcoded em paralelo).
+    - `.qr-image` é `cell_size_mm × cell_size_mm` SEM nenhum
+      padding/wrapper/borda por cima — a imagem do QR (que já embute a
+      própria quiet zone, gerada pela biblioteca `qrcode`) ocupa o
+      quadrado físico inteiro, exatamente como pedido ("a área
+      preta/branca completa da imagem QR... deve ocupar o quadrado
+      físico de 50×50mm").
+
+    Página incompleta (menos de `QR_GRID_COLUMNS*QR_GRID_ROWS` itens):
+    o `.qr-page` continua com o tamanho/padding da folha cheia — só o
+    conteúdo (`flex-wrap`, preenchendo esquerda→direita, cima→baixo, sem
+    `justify-content: center`) tem menos itens. A grade em si nunca muda
+    de posição/margem por ter menos QRs.
   */
   @page {
     size: A4;
-    margin: {{ page_margin_mm }}mm;
+    margin: 0;
   }
   * { box-sizing: border-box; }
   body {
@@ -38,73 +81,66 @@
     aqui no template.
   */
   .qr-page {
+    width: {{ page_width_mm }}mm;
+    height: {{ page_height_mm }}mm;
+    padding: {{ margin_vertical_mm }}mm {{ margin_horizontal_mm }}mm;
     display: flex;
     flex-wrap: wrap;
     align-content: flex-start;
     gap: {{ gutter_mm }}mm;
-    width: 100%;
     page-break-after: always;
+    overflow: hidden;
   }
 
   .qr-cell {
     width: {{ cell_size_mm }}mm;
     height: {{ cell_size_mm }}mm;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-  }
-
-  /*
-    Mesmo raciocínio de label_square.html: fundo branco incondicional ao
-    redor do QR (a "quiet zone" visual), garantindo leitura confiável
-    mesmo que este PDF um dia seja impresso sobre papel não-branco ou
-    embutido em outro documento com fundo diferente.
-  */
-  .qr-wrap {
-    background: #fff;
-    padding: 1mm;
-    border-radius: 1mm;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
 
   .qr-image {
     display: block;
-    /* QR sempre quadrado, nunca esticado/cortado — largura e altura
-       iguais, alguns mm menores que a célula para sobrar margem/quiet
-       zone visível ao redor. */
-    width: calc({{ cell_size_mm }}mm - 4mm);
-    height: calc({{ cell_size_mm }}mm - 4mm);
+    /* Sem margem/padding/borda ao redor — o QR (já com sua própria
+       quiet zone embutida) preenche o quadrado físico inteiro de
+       `cell_size_mm`. `object-fit: contain` é só defensivo (a imagem já
+       nasce quadrada do gerador — apps/qrcodes/services.py::
+       generate_qr_png — então isto nunca corta/distorce, só garante que
+       um PNG não-quadrado nunca seria esticado). */
+    width: {{ cell_size_mm }}mm;
+    height: {{ cell_size_mm }}mm;
     object-fit: contain;
     image-rendering: pixelated;
   }
 
+  /*
+    Ponto de extensão futuro, hoje sempre inativo (`label.caption` é
+    sempre `None` — nenhuma opção de UI o preenche). AVISO caso isso
+    mude um dia: `.qr-cell` agora é `cell_size_mm × cell_size_mm` exato
+    e `overflow: hidden` (exigência de 16/09/2026 — o QR precisa ocupar
+    o quadrado inteiro, sem sobra), então uma legenda ativada aqui seria
+    cortada — layout precisaria ser revisto (ex.: reservar altura extra
+    fora do quadrado do QR) antes de qualquer UI passar a preencher
+    `caption`.
+  */
   .qr-caption {
-    margin: 1mm 0 0 0;
+    margin: 0.5mm 0 0 0;
     font-size: 8pt;
     line-height: 1.1;
     text-align: center;
     color: #000;
-    max-width: 96%;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 </style>
+{% endlocalize %}
 </head>
 <body>
   {% for page in pages %}
   <div class="qr-page">
     {% for label in page %}
     <div class="qr-cell">
-      <div class="qr-wrap">
-        <img class="qr-image" src="{{ label.qr_data_uri }}" alt="QR Code">
-      </div>
+      <img class="qr-image" src="{{ label.qr_data_uri }}" alt="QR Code">
       {% if label.caption %}<p class="qr-caption">{{ label.caption }}</p>{% endif %}
     </div>
     {% endfor %}

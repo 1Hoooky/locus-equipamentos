@@ -6,3 +6,4 @@ django-debug-toolbar>=4.3,<5.0
 ruff>=0.4,<1.0
 pyzbar>=0.1.9,<0.2  # só para os testes decodificarem o QR/código de barras de verdade
 pypdf>=4.0,<5.0  # só para os testes inspecionarem página/dimensões do PDF gerado
+pdfplumber>=0.11,<0.12  # só para os testes medirem a posição/tamanho físico (mm) de cada imagem embutida no PDF (correção de 16/09/2026 do PDF de QR Codes em grade)

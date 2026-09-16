@@ -370,18 +370,42 @@ def generate_square_labels_zip(equipment_list: list[Equipment], theme: str = LAB
 # Medidas da grade, centralizadas aqui como as demais constantes deste
 # módulo (mesmo raciocínio de LABEL_WIDTH_MM/LABEL_HEIGHT_MM acima) — o
 # template (`templates/qrcodes/qr_grid.html`) só lê estes números, nunca
-# um valor fixo escrito lá. Célula ~48mm (pedido: "cerca de 50x50mm") em
-# folha A4 com margem de 10mm por lado: 3 colunas × 48mm + 2 espaçamentos
-# × 4mm = 152mm, contra 190mm de largura útil (210mm - 2×10mm) — cabe
-# com folga, sem cortar nem deformar o QR. 5 linhas × 48mm + 4
-# espaçamentos × 4mm = 256mm, contra 277mm de altura útil — também cabe
-# com folga. Resultado: 15 QRs por página.
-QR_GRID_PAGE_MARGIN_MM = 10
-QR_GRID_CELL_SIZE_MM = 48
-QR_GRID_GUTTER_MM = 4
+# um valor fixo escrito lá.
+#
+# CORREÇÃO de 16/09/2026: a primeira versão usava célula de ~48mm e
+# margem uniforme de 10mm — a validação visual/física mostrou a grade
+# deslocada para a esquerda (a margem direita sobrando não era
+# compensada) e o QR impresso não batia com o requisito explícito de
+# 50×50mm exatos. Agora as medidas garantem os dois:
+#
+# 1. QR_GRID_CELL_SIZE_MM = 50 — o QR (imagem inteira, incluindo a
+#    quiet zone que a própria biblioteca `qrcode` já embute) ocupa a
+#    célula INTEIRA, sem nenhum padding/wrapper/borda reduzindo o
+#    tamanho visível (ver `qr_grid.html`: `.qr-image` é exatamente
+#    `cell_size_mm × cell_size_mm`, nada por cima).
+# 2. A grade INTEIRA (não a página) é centralizada em A4 — calculado
+#    aqui em Python, nunca deixado para margem default de navegador/
+#    WeasyPrint:
+#      largura da grade  = 3×50 + 2×5 (gutter) = 160mm
+#      altura da grade    = 5×50 + 4×5 (gutter) = 270mm
+#      margem horizontal = (210 - 160) / 2 = 25mm de cada lado
+#      margem vertical    = (297 - 270) / 2 = 13.5mm de cada lado
+#    Essas margens são o `padding` do `.qr-page` no template (`@page`
+#    fica com `margin: 0`, controle 100% explícito em mm) — nunca
+#    resultado de auto-centralização/flex `justify-content: center`,
+#    que dependeria do render engine para não introduzir arredondamento.
+QR_GRID_PAGE_WIDTH_MM = 210  # A4 retrato
+QR_GRID_PAGE_HEIGHT_MM = 297  # A4 retrato
+QR_GRID_CELL_SIZE_MM = 50  # tamanho FÍSICO exigido do QR impresso — não aproximado
+QR_GRID_GUTTER_MM = 5
 QR_GRID_COLUMNS = 3
 QR_GRID_ROWS = 5
 QR_GRID_PAGE_SIZE = QR_GRID_COLUMNS * QR_GRID_ROWS
+
+QR_GRID_WIDTH_MM = QR_GRID_COLUMNS * QR_GRID_CELL_SIZE_MM + (QR_GRID_COLUMNS - 1) * QR_GRID_GUTTER_MM  # 160
+QR_GRID_HEIGHT_MM = QR_GRID_ROWS * QR_GRID_CELL_SIZE_MM + (QR_GRID_ROWS - 1) * QR_GRID_GUTTER_MM  # 270
+QR_GRID_MARGIN_HORIZONTAL_MM = (QR_GRID_PAGE_WIDTH_MM - QR_GRID_WIDTH_MM) / 2  # 25.0
+QR_GRID_MARGIN_VERTICAL_MM = (QR_GRID_PAGE_HEIGHT_MM - QR_GRID_HEIGHT_MM) / 2  # 13.5
 
 
 def _qr_grid_cell_context(equipment: Equipment) -> dict:
@@ -422,9 +446,12 @@ def generate_qr_grid_pdf(equipment_list: list[Equipment]) -> bytes:
         "qrcodes/qr_grid.html",
         {
             "pages": pages,
-            "page_margin_mm": QR_GRID_PAGE_MARGIN_MM,
+            "page_width_mm": QR_GRID_PAGE_WIDTH_MM,
+            "page_height_mm": QR_GRID_PAGE_HEIGHT_MM,
             "cell_size_mm": QR_GRID_CELL_SIZE_MM,
             "gutter_mm": QR_GRID_GUTTER_MM,
+            "margin_horizontal_mm": QR_GRID_MARGIN_HORIZONTAL_MM,
+            "margin_vertical_mm": QR_GRID_MARGIN_VERTICAL_MM,
         },
     )
     return HTML(string=html_string).write_pdf()
