@@ -1,0 +1,28 @@
+{% load currency %}
+{% load icons %}
+{% comment %}
+Célula (modo leitura) da matriz de Preços de Locação — RODADA 1
+(16/09/2026). Reaproveitado por `price_table.html` (a partir de
+`PriceTableMatrixCell`, `apps.crm.services.list_price_table_matrix()`) E
+por `PriceTableRateCellView` (depois de ler/salvar UMA célula) — contexto
+sempre "achatado" (`equipment_model_id`, `commercial_term_id`,
+`commercial_plan_id`, `amount`, `billing_mode`, `updated_by_label`,
+`can_change`), mesmo raciocínio de `_price_table_row.html` (V1).
+{% endcomment %}
+<td id="price-table-cell-{{ equipment_model_id }}-{{ commercial_term_id }}" class="whitespace-nowrap">
+  {% if amount is not None %}
+  <span>{{ amount|brl }}</span>
+  {% if billing_mode == "MONTHLY" %}<span class="text-xs text-gray-400 block">por mês</span>{% endif %}
+  {% if updated_by_label %}<span class="text-xs text-gray-400 block">{{ updated_by_label }}</span>{% endif %}
+  {% else %}
+  <span class="badge-neutral">—</span>
+  {% endif %}
+  {% if can_change %}
+  <button type="button" class="icon-btn-neutral"
+          hx-get="{% url 'crm:price_table_rate_cell' equipment_model_id commercial_term_id %}?plano={{ commercial_plan_id }}&modo=editar"
+          hx-target="#price-table-cell-{{ equipment_model_id }}-{{ commercial_term_id }}" hx-swap="outerHTML">
+    <span class="sr-only">Editar valor</span>
+    {% icon "pencil" size="compact" %}
+  </button>
+  {% endif %}
+</td>

@@ -890,7 +890,18 @@ class PriceTableItem(TimeStampedModel):
         blank=True,
         help_text="Preenchido XOR com 'equipment_model' — nunca os dois, nunca nenhum.",
     )
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    # RODADA 1 (16/09/2026): `null=True` desde esta rodada (era obrigatório
+    # na V1) — só para permitir a linha "âncora" que `set_price_table_rate()`
+    # cria automaticamente na primeira edição de uma célula da matriz de
+    # Locação (equipamento sem NENHUM preço flat V1 ainda configurado, só
+    # `PriceTableRate`). `get_suggested_price()` (caminho flat, sem
+    # plano/prazo) e `list_price_table_rows()` tratam `unit_price=None`
+    # exatamente como "sem PriceTableItem" (nunca inventa R$ 0,00). O
+    # caminho de ESCRITA flat (`set_price_table_item()`, usado pela edição
+    # inline da V1) continua exigindo um valor não nulo — `null=True` é só
+    # para a criação INTERNA do anchor pela matriz, nunca alcançável pela
+    # tela de edição flat.
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
     history = HistoricalRecords()
 
@@ -899,7 +910,10 @@ class PriceTableItem(TimeStampedModel):
         verbose_name_plural = "itens da tabela de preços"
         ordering = ["id"]
         constraints = [
-            models.CheckConstraint(check=models.Q(unit_price__gte=0), name="price_table_item_unit_price_not_negative"),
+            models.CheckConstraint(
+                check=models.Q(unit_price__isnull=True) | models.Q(unit_price__gte=0),
+                name="price_table_item_unit_price_not_negative",
+            ),
             # Mesmo raciocínio/formato de `proposal_item_type_matches_single_reference`
             # (`ProposalItem`, abaixo): exatamente uma referência preenchida.
             models.CheckConstraint(
@@ -927,6 +941,223 @@ class PriceTableItem(TimeStampedModel):
     def __str__(self) -> str:
         target = self.equipment_model or self.service
         return f"{self.price_table} — {target}"
+
+
+# ---------------------------------------------------------------------------
+# RODADA 1 — Planos Comerciais + Prazos + Matriz de Preços de Locação
+# (16/09/2026, "IMPLEMENTAÇÃO — RODADA 1 / PLANOS COMERCIAIS + PRAZOS +
+# MATRIZ DE PREÇOS DE LOCAÇÃO"). EVOLUI a Tabela de Preços V1 acima — não a
+# substitui: `PriceTable`/`PriceTableItem`, `unit_price`, o fluxo de Venda/
+# Serviço e `ProposalItem` continuam EXATAMENTE como estavam (ver
+# `apps.crm.services.get_suggested_price()`/`set_price_table_item()`, que
+# preservam 100% do comportamento V1 quando chamados sem plano/prazo).
+#
+# Hierarquia nova: `BusinessType.LOCACAO` → `CommercialPlan` (Locação Comum
+# e Eventos, Locação Mensal, Locação Anual, Máquinas Instaladas, ...) →
+# `CommercialTerm` (prazo daquele plano, ex. "7 dias", "12 meses") →
+# `PriceTableRate` (valor daquele `PriceTableItem` de EQUIPAMENTO para
+# aquele plano+prazo). A matriz da tela "Tabela de Preços" (aba Locação)
+# passa a ser EquipmentModel (linhas, TODAS as categorias — aquecedores e
+# climatizadores juntos, seção 33: "nenhuma filtragem por categoria na
+# lógica de precificação") × CommercialTerm do plano selecionado (colunas).
+#
+# Bares e Restaurantes / Combos (pricing_mode=BUNDLE) e a seleção de
+# CommercialPlan/CommercialTerm dentro da própria Proposta
+# (`ProposalVersion`) são DECISÕES DE PRODUTO REGISTRADAS COMO FUTURAS —
+# RODADA 3 e RODADA 2 respectivamente, nesta rodada nem o schema nem a
+# lógica de leitura/gravação de nenhuma das duas existe (só o `choice`
+# `PricingMode.BUNDLE`, reservado para não exigir uma migration de schema
+# quando chegar — ver `CommercialPlan.pricing_mode`).
+# ---------------------------------------------------------------------------
+
+
+class PricingMode(models.TextChoices):
+    """
+    Modo de precificação de um `CommercialPlan`. Só `ITEM_TERM` está
+    implementado nesta rodada (preço por item × prazo, via
+    `PriceTableRate`). `BUNDLE` (pacote fechado — RODADA 3, Bares e
+    Restaurantes/Combos) é só um ponto de extensão registrado: nenhuma
+    `CommercialPlan` pode ser salva com `pricing_mode=BUNDLE` nesta versão
+    (ver validação em `apps.crm.services._validate_commercial_plan_fields()`
+    — a proteção real fica no service, não numa `CheckConstraint`, para não
+    travar a migration de schema quando a RODADA 3 vier a implementar o
+    modo de fato).
+    """
+
+    ITEM_TERM = "ITEM_TERM", "Preço por item × prazo"
+    BUNDLE = "BUNDLE", "Pacote fechado (combo)"
+
+
+class DurationUnit(models.TextChoices):
+    DIAS = "DIAS", "dias"
+    MESES = "MESES", "meses"
+
+
+class BillingMode(models.TextChoices):
+    """
+    Como o `amount` de um `PriceTableRate` deve ser lido/cobrado.
+    `TERM_TOTAL`: `amount` já é o valor TOTAL daquele prazo (ex.: "7 dias
+    = R$ 1.200,00", não R$/dia) — uso típico dos planos "Locação Comum e
+    Eventos". `MONTHLY`: `amount` é um valor MENSAL, a ser multiplicado
+    pela duração em meses do prazo na hora de exibir/compor um total (ex.
+    planos "Locação Anual"/"Máquinas Instaladas") — nenhuma multiplicação é
+    feita nesta rodada fora da própria exibição da matriz (seção: "não
+    alterar ProposalVersion para consumir isso ainda", RODADA 2).
+    """
+
+    TERM_TOTAL = "TERM_TOTAL", "Valor total do prazo"
+    MONTHLY = "MONTHLY", "Valor mensal"
+
+
+class CommercialPlan(TimeStampedModel, SoftDeleteModel):
+    """
+    Plano comercial de Locação (ex.: "Locação Comum e Eventos", "Locação
+    Mensal", "Locação Anual", "Máquinas Instaladas") — entidade
+    configurável, MESMO padrão já usado por `CommercialSource`/
+    `OpportunityStage`/`ServiceCatalogItem` acima (nunca um `TextChoices`
+    fixo: planos podem ser criados/renomeados/desativados pelo
+    Administrador sem depender de migration/deploy, mesmo raciocínio já
+    auditado e aprovado para as demais entidades de configuração
+    comercial).
+
+    `business_type`: sempre `LOCACAO` nos 5 planos semeados por esta
+    rodada — o campo existe (em vez de assumir implicitamente) só para não
+    fechar a porta a um plano de outro `business_type` numa etapa futura,
+    sem exigir uma migration de schema quando isso for pedido de verdade;
+    nenhuma tela desta rodada oferece trocar esse valor (nasce sempre
+    `LOCACAO`, ver migration de seed).
+
+    `is_active` (herdado de `SoftDeleteModel`): desativar um plano nunca
+    apaga seus `CommercialTerm`/`PriceTableRate` já existentes (mesmo
+    raciocínio de "inativar, nunca excluir fisicamente" já usado em toda
+    entidade de configuração comercial) — só some das telas/seletores
+    padrão.
+    """
+
+    name = models.CharField(max_length=100, unique=True)
+    business_type = models.CharField(max_length=10, choices=BusinessType.choices, default=BusinessType.LOCACAO)
+    pricing_mode = models.CharField(max_length=15, choices=PricingMode.choices, default=PricingMode.ITEM_TERM)
+    order = models.PositiveIntegerField(default=0, help_text="Ordem de exibição nas abas/seletores de plano.")
+
+    class Meta:
+        verbose_name = "plano comercial"
+        verbose_name_plural = "planos comerciais"
+        ordering = ["order", "name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class CommercialTerm(TimeStampedModel, SoftDeleteModel):
+    """
+    Prazo de um `CommercialPlan` (ex.: "7 dias", "12 meses") — RODADA 1.
+    Cada plano tem seu PRÓPRIO conjunto de prazos (nunca uma lista global
+    compartilhada): "Locação Comum e Eventos" e "Locação Anual" podem ter
+    um prazo de "36 meses" cada, e são DUAS linhas distintas — identidade é
+    sempre (plano, prazo), nunca só a duração isolada (seção: permite, por
+    exemplo, sobreposição intencional entre "Locação Anual" e "Máquinas
+    Instaladas" em 36 meses, sem conflito).
+
+    `duration_value`/`duration_unit` são a duração ESTRUTURADA (permitem
+    ordenação/cálculo futuro) — `label` é o texto de exibição na matriz,
+    preenchido automaticamente a partir dos dois quando vazio (mesmo
+    padrão já usado por `PriceTable.name`).
+    """
+
+    commercial_plan = models.ForeignKey(CommercialPlan, on_delete=models.CASCADE, related_name="terms")
+    label = models.CharField(max_length=50, blank=True, help_text="Texto de exibição, ex.: '7 dias'. Preenchido automaticamente quando vazio.")
+    duration_value = models.PositiveIntegerField()
+    duration_unit = models.CharField(max_length=5, choices=DurationUnit.choices)
+    order = models.PositiveIntegerField(default=0, help_text="Ordem de exibição das colunas na matriz.")
+
+    class Meta:
+        verbose_name = "prazo comercial"
+        verbose_name_plural = "prazos comerciais"
+        ordering = ["commercial_plan_id", "order", "duration_value"]
+        constraints = [
+            models.UniqueConstraint(fields=["commercial_plan", "label"], name="uniq_commercial_term_label_per_plan"),
+            models.CheckConstraint(check=models.Q(duration_value__gt=0), name="commercial_term_duration_value_positive"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.label:
+            self.label = f"{self.duration_value} {self._unit_display_singular_aware()}"
+        super().save(*args, **kwargs)
+
+    def _unit_display_singular_aware(self) -> str:
+        """`get_duration_unit_display()` sempre devolve o plural ('dias'/'meses') — aqui só para o `label` automático (1 dia/1 mês, não '1 dias'/'1 mês')."""
+        if self.duration_unit == DurationUnit.DIAS:
+            return "dia" if self.duration_value == 1 else "dias"
+        return "mês" if self.duration_value == 1 else "meses"
+
+    def __str__(self) -> str:
+        return f"{self.commercial_plan.name} — {self.label}"
+
+
+class PriceTableRate(TimeStampedModel):
+    """
+    Uma célula da matriz de Preços de Locação: o valor de UM
+    `PriceTableItem` de EQUIPAMENTO (nunca de serviço — a matriz desta
+    rodada é só EquipmentModel × CommercialTerm; o catálogo de serviços
+    comerciais continua com preço único/flat, sem prazo, inalterado desde
+    a V1) para UM `CommercialPlan`+`CommercialTerm` específico.
+
+    `price_table_item` é sempre criado pelo MESMO caminho único já
+    existente (`apps.crm.services.set_price_table_item()`, nunca um
+    segundo caminho de escrita) — a primeira vez que uma célula da matriz
+    é editada para um equipamento sem `PriceTableItem` ainda, o service
+    (`set_price_table_rate()`) cria essa linha "âncora" com
+    `unit_price=None` (campo legado da V1, agora nulável — ver docstring
+    do campo — nunca utilizado para leitura de preço de Locação nesta
+    rodada: a leitura de Locação por plano+prazo usa exclusivamente
+    `PriceTableRate`, ver `apps.crm.services.get_suggested_price()`); um
+    `unit_price=None` nunca é confundido com um preço real porque tanto o
+    caminho flat da V1 quanto o caminho plano+prazo desta rodada tratam
+    ausência de valor como "sem sugestão" (`None`), nunca `R$ 0,00`.
+
+    Unicidade (`price_table_item`, `commercial_plan`, `commercial_term`):
+    no máximo um valor por célula da matriz — igual reeditar já
+    sobrescreve (mesmo padrão de `PriceTableItem`, nunca duas linhas para
+    a mesma célula.
+
+    `clean()` garante que `commercial_term` de fato pertence ao
+    `commercial_plan` informado (evita uma combinação inconsistente
+    passada direto por script/shell — a tela nunca oferece essa
+    combinação inválida, já que os prazos exibidos vêm sempre de
+    `commercial_plan.terms`).
+
+    Histórico: reaproveita `django-simple-history`, MESMO padrão de
+    `PriceTableItem`/`Opportunity`/`EquipmentModel` — nenhum sistema de
+    auditoria paralelo.
+    """
+
+    price_table_item = models.ForeignKey(PriceTableItem, on_delete=models.CASCADE, related_name="rates")
+    commercial_plan = models.ForeignKey(CommercialPlan, on_delete=models.PROTECT, related_name="rates")
+    commercial_term = models.ForeignKey(CommercialTerm, on_delete=models.PROTECT, related_name="rates")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    billing_mode = models.CharField(max_length=10, choices=BillingMode.choices, default=BillingMode.TERM_TOTAL)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "valor da matriz de preços de locação"
+        verbose_name_plural = "valores da matriz de preços de locação"
+        ordering = ["price_table_item_id", "commercial_term_id"]
+        constraints = [
+            models.CheckConstraint(check=models.Q(amount__gte=0), name="price_table_rate_amount_not_negative"),
+            models.UniqueConstraint(
+                fields=["price_table_item", "commercial_plan", "commercial_term"],
+                name="uniq_price_table_rate_item_plan_term",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.commercial_term_id and self.commercial_plan_id and self.commercial_term.commercial_plan_id != self.commercial_plan_id:
+            raise ValidationError("O prazo informado não pertence ao plano comercial informado.")
+
+    def __str__(self) -> str:
+        return f"{self.price_table_item} — {self.commercial_plan.name} / {self.commercial_term.label}: {self.amount}"
 
 
 class ProposalItem(models.Model):

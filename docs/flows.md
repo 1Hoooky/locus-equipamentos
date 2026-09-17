@@ -324,6 +324,51 @@ AttachmentDownloadView (GET)
 
 **PriceTable é sugestão, ProposalItem é snapshot** — os dois fluxos acima (edição da tabela vs. composição da proposta) nunca se cruzam depois do momento em que o formulário de adicionar item é preenchido. `get_suggested_price()` é consultada exatamente uma vez, no instante do preenchimento (via AJAX) — nunca em `calculate_proposal_version()`, nunca em `issue_proposal()`, nunca em nenhum recálculo posterior.
 
+## 13. Matriz de Preços de Locação — plano × prazo (CRM, RODADA 1, 16/09/2026)
+
+EVOLUI o fluxo #12 acima para Locação — Venda/Serviço continuam exatamente como estão (fluxo #12, sem nenhuma mudança).
+
+```
+[usuário abre "Tabela de Preços" — configuracoes/tabela-de-precos/?tipo=LOCACAO]
+  → PriceTableView.get()
+      → list_price_table_rows(business_type=LOCACAO, ...)   # só para SERVIÇOS (equipment_rows é descartado)
+      → list_commercial_plans()                              # planos de Locação ativos
+      → resolve o plano (?plano=, default o primeiro por order)
+      → list_price_table_matrix(commercial_plan, search, only_missing)   # 3 queries, nunca N+1
+      → renderiza sub-navegação de planos + matriz EquipmentModel × CommercialTerm (todas as categorias)
+      → Serviços continuam na lista flat de sempre (fluxo #12), sempre visível
+
+[usuário clica no lápis de UMA célula (equipamento × prazo)]
+  → PriceTableRateCellView.get() com ?plano=<id>&modo=editar    # exige crm.change_price_table (checagem manual)
+      → resolve/valida (commercial_plan, equipment_model, commercial_term) — 404 se o prazo não é do plano
+      → devolve _price_table_matrix_cell_edit.html (htmx, outerHTML no <td>)
+
+[usuário digita valor + modo de cobrança e clica "Salvar"]
+  → PriceTableRateCellView.post()                             # exige crm.change_price_table
+      → PriceTableRateForm.is_valid()
+      → apps.crm.services.set_price_table_rate(PriceTableRateData, user=request.user)
+          → @transaction.atomic:
+              PriceTable.objects.get_or_create(business_type=LOCACAO)
+              PriceTableItem existente? não → set_price_table_item(unit_price=None)  # linha "âncora", NUNCA 0.00
+              select_for_update() na PriceTableRate existente, se houver
+              PriceTableRate criada ou atualizada; rate._history_user = user; rate.save()
+              # simple_history grava um HistoricalPriceTableRate (usuário + data/hora + valor)
+      → devolve _price_table_matrix_cell.html atualizado (htmx, outerHTML no <td>)
+  # NENHUM ProposalItem já existente é tocado — mesma regra crítica do fluxo #12.
+
+---
+
+[RODADA 2, ainda NÃO implementada — registrado aqui só como ponto de extensão futuro]
+  → a Proposta ainda NÃO tem seleção de CommercialPlan/CommercialTerm
+  → SuggestedPriceView continua chamando get_suggested_price() SEM plano/prazo para Locação
+  → get_suggested_price(business_type=LOCACAO, equipment_model=..., commercial_plan=None, commercial_term=None)
+      → cai no MESMO caminho flat do fluxo #12 (PriceTableItem.unit_price)
+      → como equipamentos da matriz só têm a linha "âncora" (unit_price=None), a resposta é sempre None
+      → "sem sugestão automática" — o campo continua 100% editável manualmente, nunca bloqueado
+```
+
+**Sem interpolação de prazo** — mesmo com "5 dias" preenchido para um equipamento, uma consulta a `get_suggested_price(commercial_plan=..., commercial_term=<7 dias>)` sem `PriceTableRate` própria devolve `None`, nunca o valor de "5 dias". **Sem cruzamento com Venda/Serviço** — a matriz só existe/é consultada para `business_type=LOCACAO` e só para `equipment_model` (nunca `service`); `get_suggested_price()` rejeita (`ValueError`) qualquer combinação de `commercial_plan`/`commercial_term` com outro `business_type` ou com `service`.
+
 ## Nota sobre "efeitos colaterais entre apps"
 
 Dois pontos do sistema mudam `Equipment.status` fora de `apps.equipment`, sempre através de `apps.equipment.services.change_status()` (nunca atribuição direta):

@@ -181,7 +181,18 @@ class NegativePriceTest(PriceTableServiceTestBase):
 
 
 class GetSuggestedPriceTest(PriceTableServiceTestBase):
-    """6/7/13/14 — `get_suggested_price()` é a autoridade única de leitura."""
+    """
+    6/7/13/14 — `get_suggested_price()` é a autoridade única de leitura.
+
+    RODADA 1 (16/09/2026): `get_suggested_price()` passou a devolver
+    `SuggestedPrice` (dataclass: `amount`/`billing_mode`/`source`) em vez
+    de um `Decimal` puro — evolução do CONTRATO da função para também
+    suportar o caminho plano+prazo de Locação (ver
+    `PlanTermSuggestedPriceTest` em `test_commercial_plans.py`). O
+    comportamento em SI, chamando sem plano/prazo (V1), é 100%
+    preservado — só o envelope do retorno mudou (`.amount` no lugar do
+    valor cru).
+    """
 
     def test_returns_none_when_no_price_table_item_configured(self):
         # 7: item sem preço nunca inventa R$ 0,00.
@@ -194,14 +205,18 @@ class GetSuggestedPriceTest(PriceTableServiceTestBase):
             ),
             user=self.user,
         )
-        self.assertEqual(get_suggested_price(business_type=BusinessType.LOCACAO, equipment_model=self.model), Decimal("900.00"))
+        suggestion = get_suggested_price(business_type=BusinessType.LOCACAO, equipment_model=self.model)
+        self.assertEqual(suggestion.amount, Decimal("900.00"))
+        self.assertEqual(suggestion.source, "item")
+        self.assertIsNone(suggestion.billing_mode)
 
     def test_returns_configured_price_for_service(self):
         set_price_table_item(
             data=PriceTableItemData(business_type=BusinessType.LOCACAO, service=self.service, unit_price=Decimal("150.00")),
             user=self.user,
         )
-        self.assertEqual(get_suggested_price(business_type=BusinessType.LOCACAO, service=self.service), Decimal("150.00"))
+        suggestion = get_suggested_price(business_type=BusinessType.LOCACAO, service=self.service)
+        self.assertEqual(suggestion.amount, Decimal("150.00"))
 
     def test_business_type_correctly_selects_price_rental_vs_sale(self):
         # 13/14: preço de Venda não aparece em Locação e vice-versa.
@@ -216,10 +231,10 @@ class GetSuggestedPriceTest(PriceTableServiceTestBase):
             user=self.user,
         )
         self.assertEqual(
-            get_suggested_price(business_type=BusinessType.LOCACAO, equipment_model=self.model), Decimal("900.00")
+            get_suggested_price(business_type=BusinessType.LOCACAO, equipment_model=self.model).amount, Decimal("900.00")
         )
         self.assertEqual(
-            get_suggested_price(business_type=BusinessType.VENDA, equipment_model=self.model), Decimal("25000.00")
+            get_suggested_price(business_type=BusinessType.VENDA, equipment_model=self.model).amount, Decimal("25000.00")
         )
         # SERVICO nunca foi configurado — continua None, não confunde com nenhum outro tipo.
         self.assertIsNone(get_suggested_price(business_type=BusinessType.SERVICO, equipment_model=self.model))
@@ -332,7 +347,7 @@ class TableChangeDoesNotAffectExistingProposalItemTest(PriceTableServiceTestBase
         item.refresh_from_db()
         self.assertEqual(item.unit_price, Decimal("900.00"), "ProposalItem já criado precisa continuar com o valor antigo.")
         self.assertEqual(
-            get_suggested_price(business_type=BusinessType.LOCACAO, equipment_model=self.model), Decimal("950.00")
+            get_suggested_price(business_type=BusinessType.LOCACAO, equipment_model=self.model).amount, Decimal("950.00")
         )
 
 

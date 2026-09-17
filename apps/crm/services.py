@@ -33,9 +33,12 @@ from apps.core.hard_delete import (
 from apps.core.services import get_company_profile
 from apps.crm.models import (
     ActivityType,
+    BillingMode,
     BusinessType,
     CommercialActivity,
+    CommercialPlan,
     CommercialSource,
+    CommercialTerm,
     Contract,
     LossReason,
     NumberingCounter,
@@ -45,6 +48,8 @@ from apps.crm.models import (
     OpportunityStageChange,
     PriceTable,
     PriceTableItem,
+    PriceTableRate,
+    PricingMode,
     Proposal,
     ProposalItem,
     ProposalItemType,
@@ -865,30 +870,105 @@ def check_availability(*, equipment_model: EquipmentModel, requested_quantity: i
 # serviços, com/sem valor) da tela "Tabela de Preços" em NO MÁXIMO 3
 # queries, independente de quantos EquipmentModel/ServiceCatalogItem
 # existam (seção 37: "evitar N+1").
+#
+# RODADA 1 (16/09/2026, "PLANOS COMERCIAIS + PRAZOS + MATRIZ DE PREÇOS DE
+# LOCAÇÃO") EVOLUI `get_suggested_price()` — nunca duplica — para também
+# resolver preço de Locação por plano+prazo. `SuggestedPrice` (dataclass)
+# passa a ser o retorno único da função (antes era `Decimal | None` puro):
+# `amount`/`billing_mode`/`source` deixam explícito DE ONDE veio o valor
+# (`"item"`: o `PriceTableItem.unit_price` flat da V1 — Venda/Serviço e
+# qualquer chamada de Locação SEM plano/prazo, mesmo comportamento 100%
+# preservado; `"plan_term"`: `PriceTableRate` de um plano+prazo específico
+# — só quando `commercial_plan`/`commercial_term` são informados, novo
+# nesta rodada). `SuggestedPriceView` (endpoint AJAX da composição de
+# proposta) continua chamando a função SEM plano/prazo nesta rodada — a
+# seleção de plano/prazo dentro da própria Proposta é RODADA 2, "não
+# alterar ProposalVersion para isso ainda" — então o comportamento
+# observável por quem usa a tela de proposta hoje não muda em nada.
+#
+# Sem interpolação/prazo mais próximo (seção: "não inventar valor
+# aproximado"): se `commercial_plan`+`commercial_term` forem informados e
+# não existir um `PriceTableRate` EXATO para aquela célula, a resposta é
+# sempre `None` — nunca um valor de outro prazo do mesmo plano.
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class SuggestedPrice:
+    amount: Decimal
+    billing_mode: str | None
+    source: str  # "item" (PriceTableItem.unit_price, V1) | "plan_term" (PriceTableRate, RODADA 1)
+
+
 def get_suggested_price(
-    *, business_type: str, equipment_model: EquipmentModel | None = None, service: ServiceCatalogItem | None = None
-) -> Decimal | None:
+    *,
+    business_type: str,
+    equipment_model: EquipmentModel | None = None,
+    service: ServiceCatalogItem | None = None,
+    commercial_plan: CommercialPlan | None = None,
+    commercial_term: CommercialTerm | None = None,
+) -> SuggestedPrice | None:
     """
-    Só LEITURA. Devolve o `unit_price` configurado na `PriceTable` do
-    `business_type` informado para o `equipment_model` OU `service` dado
-    (exatamente um dos dois — mesma regra XOR de `PriceTableItem`), ou
-    `None` se não houver `PriceTable`/`PriceTableItem` configurado (seção
-    11: "Se não houver PriceTableItem configurado, NÃO bloquear criação
-    da Proposal... Não inventar R$ 0,00 como se fosse preço real" — por
-    isso `None`, nunca `Decimal("0.00")`, quando não há sugestão).
+    Só LEITURA. Sem plano/prazo (uso da V1, inalterado): devolve o
+    `unit_price` configurado na `PriceTable` do `business_type` informado
+    para o `equipment_model` OU `service` dado (exatamente um dos dois —
+    mesma regra XOR de `PriceTableItem`), envelopado em `SuggestedPrice`
+    (`source="item"`), ou `None` se não houver `PriceTable`/
+    `PriceTableItem` configurado (seção 11 da V1: "Se não houver
+    PriceTableItem configurado, NÃO bloquear criação da Proposal... Não
+    inventar R$ 0,00 como se fosse preço real" — por isso `None`, nunca
+    `Decimal("0.00")`).
+
+    Com plano+prazo (RODADA 1, novo): resolve via `PriceTableRate` do
+    `equipment_model` informado (nunca `service` — a matriz de Locação é
+    só de equipamentos) para aquele `commercial_plan`/`commercial_term`
+    EXATOS. Só válido para `business_type=LOCACAO` e para um plano com
+    `pricing_mode=ITEM_TERM` (o único implementado nesta rodada — um
+    plano `BUNDLE` sempre devolve `None` aqui, nunca um erro, já que
+    `BUNDLE` é só um ponto de extensão registrado, sem nenhum dado real
+    ainda).
     """
     if bool(equipment_model) == bool(service):
         raise ValueError("Informe exatamente um: equipment_model OU service.")
+    if bool(commercial_plan) != bool(commercial_term):
+        raise ValueError("Informe os dois — commercial_plan E commercial_term — ou nenhum dos dois.")
+
+    if commercial_plan is not None:
+        if business_type != BusinessType.LOCACAO:
+            raise ValueError("commercial_plan/commercial_term só se aplicam a business_type=LOCACAO.")
+        if service is not None:
+            raise ValueError("commercial_plan/commercial_term não se aplicam a serviços — a matriz é só de equipamentos.")
+        if commercial_term.commercial_plan_id != commercial_plan.pk:
+            raise ValueError("O prazo informado não pertence ao plano comercial informado.")
+        if commercial_plan.pricing_mode != PricingMode.ITEM_TERM:
+            return None
+        rate = (
+            PriceTableRate.objects.filter(
+                price_table_item__price_table__business_type=business_type,
+                price_table_item__equipment_model=equipment_model,
+                commercial_plan=commercial_plan,
+                commercial_term=commercial_term,
+            )
+            .only("amount", "billing_mode")
+            .first()
+        )
+        if rate is None:
+            return None
+        return SuggestedPrice(amount=rate.amount, billing_mode=rate.billing_mode, source="plan_term")
+
     lookup: dict[str, object] = {"price_table__business_type": business_type}
     if equipment_model is not None:
         lookup["equipment_model"] = equipment_model
     else:
         lookup["service"] = service
     item = PriceTableItem.objects.filter(**lookup).only("unit_price").first()
-    return item.unit_price if item else None
+    # `item.unit_price is None` cobre tanto "nunca configurado" quanto a
+    # linha "âncora" que `set_price_table_rate()` cria para a matriz de
+    # Locação (RODADA 1) — nos dois casos, "sem sugestão flat", nunca
+    # R$ 0,00 (ver docstring de `PriceTableItem.unit_price`).
+    if item is None or item.unit_price is None:
+        return None
+    return SuggestedPrice(amount=item.unit_price, billing_mode=None, source="item")
 
 
 @dataclass
@@ -896,7 +976,11 @@ class PriceTableItemData:
     business_type: str
     equipment_model: EquipmentModel | None = None
     service: ServiceCatalogItem | None = None
-    unit_price: Decimal = Decimal("0.00")
+    # RODADA 1: `None` é um valor válido só para a criação INTERNA da
+    # linha "âncora" por `set_price_table_rate()` — o caminho de escrita
+    # PÚBLICO (`PriceTableItemForm`/`PriceTableItemRowView`, V1) sempre
+    # envia um `Decimal` concreto, nunca `None` (o form exige o campo).
+    unit_price: Decimal | None = Decimal("0.00")
 
 
 def _validate_price_table_item_fields(data: PriceTableItemData) -> None:
@@ -904,7 +988,7 @@ def _validate_price_table_item_fields(data: PriceTableItemData) -> None:
         raise ValueError(f"Tipo de negócio inválido: {data.business_type!r}.")
     if bool(data.equipment_model) == bool(data.service):
         raise ValueError("Informe exatamente um: um equipamento OU um serviço.")
-    if data.unit_price is None or data.unit_price < 0:
+    if data.unit_price is not None and data.unit_price < 0:
         raise ValueError("O valor não pode ser negativo.")
 
 
@@ -1044,6 +1128,201 @@ def list_price_table_rows(*, business_type: str, search: str = "", only_missing:
         configured_count=configured_count,
         missing_count=missing_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# RODADA 1 — Planos Comerciais + Prazos + Matriz de Preços de Locação
+# (16/09/2026). `set_price_table_rate()` é o ÚNICO caminho de escrita de
+# `PriceTableRate` — igual ao par `set_price_table_item()`/`PriceTableItem`
+# da V1, nunca `.save()` direto em view/form. `list_price_table_matrix()`
+# monta a matriz (linhas=`EquipmentModel` de TODAS as categorias — seção
+# "nenhuma filtragem por categoria", inclui aquecedores junto dos
+# climatizadores — × colunas=`CommercialTerm` do plano) da aba Locação em
+# NO MÁXIMO 3 queries, independente de quantos equipamentos/prazos
+# existam (mesmo espírito/orçamento de `list_price_table_rows()`, seção
+# 37 "evitar N+1": 1) os `CommercialTerm` ativos do plano; 2) os
+# `PriceTableRate` já configurados para o plano — um único `SELECT`,
+# `select_related` até `PriceTableItem`/`updated_by`, nem precisa de uma
+# query própria de `PriceTableItem`; 3) os `EquipmentModel` ativos).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PriceTableRateData:
+    equipment_model: EquipmentModel
+    commercial_plan: CommercialPlan
+    commercial_term: CommercialTerm
+    amount: Decimal
+    billing_mode: str = BillingMode.TERM_TOTAL
+
+
+def _validate_price_table_rate_fields(data: PriceTableRateData) -> None:
+    if data.commercial_plan.business_type != BusinessType.LOCACAO:
+        raise ValueError("Planos comerciais só existem para Locação nesta versão.")
+    if data.commercial_plan.pricing_mode != PricingMode.ITEM_TERM:
+        raise ValueError("Este plano usa um modo de precificação ainda não suportado (pacote fechado).")
+    if data.commercial_term.commercial_plan_id != data.commercial_plan.pk:
+        raise ValueError("O prazo informado não pertence ao plano comercial informado.")
+    if data.amount is None or data.amount < 0:
+        raise ValueError("O valor não pode ser negativo.")
+    if data.billing_mode not in BillingMode.values:
+        raise ValueError(f"Modo de cobrança inválido: {data.billing_mode!r}.")
+
+
+@transaction.atomic
+def set_price_table_rate(*, data: PriceTableRateData, user: User) -> PriceTableRate:
+    """
+    ÚNICO caminho de escrita de `PriceTableRate`. Reaproveita
+    `set_price_table_item()` (nunca um segundo caminho de escrita de
+    `PriceTableItem`) para obter/criar a linha "âncora" do equipamento na
+    `PriceTable` de Locação na PRIMEIRA vez que uma célula da matriz é
+    editada — com `unit_price=None` (campo legado da V1, nulável desde
+    esta rodada — ver docstring de `PriceTableItem.unit_price` em
+    `apps/crm/models.py`): `None` nunca é confundido com um preço real
+    (`get_suggested_price()` sem plano/prazo trata `None` como "sem
+    sugestão", nunca `R$ 0,00`); edições seguintes da matriz NUNCA voltam
+    a tocar esse `unit_price` (só é lido/gravado aqui na criação — depois
+    disso a linha já existe e é só reaproveitada por `filter().first()`).
+
+    `select_for_update()` na `PriceTableRate` existente — mesmo raciocínio
+    de concorrência já usado em `set_price_table_item()`; a
+    `UniqueConstraint` (`uniq_price_table_rate_item_plan_term`) é a última
+    linha de defesa contra duas linhas criadas ao mesmo tempo para a
+    mesma célula.
+    """
+    _validate_price_table_rate_fields(data)
+
+    price_table, _ = PriceTable.objects.get_or_create(business_type=BusinessType.LOCACAO)
+    price_table_item = PriceTableItem.objects.filter(price_table=price_table, equipment_model=data.equipment_model).first()
+    if price_table_item is None:
+        price_table_item = set_price_table_item(
+            data=PriceTableItemData(
+                business_type=BusinessType.LOCACAO, equipment_model=data.equipment_model, unit_price=None
+            ),
+            user=user,
+        )
+
+    lookup = {
+        "price_table_item": price_table_item,
+        "commercial_plan": data.commercial_plan,
+        "commercial_term": data.commercial_term,
+    }
+    rate = PriceTableRate.objects.select_for_update().filter(**lookup).first()
+    if rate is None:
+        rate = PriceTableRate(amount=data.amount, billing_mode=data.billing_mode, updated_by=user, **lookup)
+    else:
+        rate.amount = data.amount
+        rate.billing_mode = data.billing_mode
+        rate.updated_by = user
+    rate._history_user = user
+    rate.save()
+    return rate
+
+
+@dataclass
+class PriceTableMatrixCell:
+    commercial_term_id: int
+    amount: Decimal | None
+    billing_mode: str | None
+    updated_by_label: str = ""
+
+    @property
+    def has_value(self) -> bool:
+        return self.amount is not None
+
+
+@dataclass
+class PriceTableMatrixRow:
+    equipment_model_id: int
+    label: str
+    category_name: str
+    cells: list[PriceTableMatrixCell]
+
+    @property
+    def has_any_value(self) -> bool:
+        return any(cell.has_value for cell in self.cells)
+
+
+@dataclass
+class PriceTableMatrix:
+    commercial_plan: CommercialPlan
+    terms: list[CommercialTerm]
+    rows: list[PriceTableMatrixRow]
+    total_count: int
+    configured_count: int
+    missing_count: int
+
+
+def list_commercial_plans() -> list[CommercialPlan]:
+    """Planos ATIVOS de Locação, para a sub-navegação de planos da aba Locação — sempre `ITEM_TERM` nesta rodada (nenhum `BUNDLE` real existe ainda)."""
+    return list(CommercialPlan.objects.filter(is_active=True, business_type=BusinessType.LOCACAO).order_by("order", "name"))
+
+
+def list_price_table_matrix(*, commercial_plan: CommercialPlan, search: str = "", only_missing: bool = False) -> PriceTableMatrix:
+    """
+    Monta a matriz EquipmentModel × CommercialTerm de UM `commercial_plan`
+    (seção: linhas incluem TODAS as categorias de equipamento — nenhuma
+    filtragem por categoria na lógica de precificação, aquecedores e
+    climatizadores lado a lado). Só equipamentos ATIVOS (mesmo raciocínio
+    de `list_price_table_rows`). `only_missing` filtra em memória
+    equipamentos SEM NENHUMA célula preenchida para este plano (Python
+    puro, nunca uma query extra).
+    """
+    terms = list(commercial_plan.terms.filter(is_active=True).order_by("order", "duration_value"))
+
+    rate_by_equipment_and_term: dict[tuple[int, int], PriceTableRate] = {}
+    for rate in PriceTableRate.objects.filter(commercial_plan=commercial_plan).select_related(
+        "price_table_item", "updated_by"
+    ):
+        rate_by_equipment_and_term[(rate.price_table_item.equipment_model_id, rate.commercial_term_id)] = rate
+
+    equipment_qs = EquipmentModel.objects.filter(is_active=True).select_related("category").order_by("name")
+    if search:
+        equipment_qs = equipment_qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
+
+    rows = []
+    for model in equipment_qs:
+        cells = []
+        for term in terms:
+            rate = rate_by_equipment_and_term.get((model.pk, term.pk))
+            cells.append(
+                PriceTableMatrixCell(
+                    commercial_term_id=term.pk,
+                    amount=rate.amount if rate else None,
+                    billing_mode=rate.billing_mode if rate else None,
+                    updated_by_label=(_price_table_item_updated_by_label_from_user(rate.updated_by) if rate else ""),
+                )
+            )
+        rows.append(
+            PriceTableMatrixRow(
+                equipment_model_id=model.pk,
+                label=f"{model.name} ({model.code})",
+                category_name=model.category.name,
+                cells=cells,
+            )
+        )
+
+    total_count = len(rows)
+    configured_count = sum(1 for row in rows if row.has_any_value)
+    missing_count = total_count - configured_count
+
+    if only_missing:
+        rows = [row for row in rows if not row.has_any_value]
+
+    return PriceTableMatrix(
+        commercial_plan=commercial_plan,
+        terms=terms,
+        rows=rows,
+        total_count=total_count,
+        configured_count=configured_count,
+        missing_count=missing_count,
+    )
+
+
+def _price_table_item_updated_by_label_from_user(user) -> str:
+    if user is None:
+        return ""
+    return user.get_full_name() or user.username
 
 
 # --- Emissão / versionamento / contrato / aceite ----------------------------

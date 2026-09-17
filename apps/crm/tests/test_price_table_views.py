@@ -138,9 +138,14 @@ class PriceTableUiTest(PriceTableViewsTestBase):
     """Seção 35 — comportamento da tela em si."""
 
     def test_new_active_equipment_model_appears_as_missing_price(self):
+        # RODADA 1 (16/09/2026): a aba Locação passou a mostrar a matriz de
+        # plano×prazo (ver `MatrixUiTest` em `test_commercial_plans.py`)
+        # — o texto "Sem valor" e a lista simples de equipamentos
+        # continuam existindo EXATAMENTE como na V1, só que agora nas
+        # abas Venda/Serviço (nunca alteradas por esta rodada).
         new_model = EquipmentModel.objects.create(code="NOVO01", name="Modelo Novo", category=self.category)
         client = self._login(self.viewer)
-        resp = client.get(reverse("crm:price_table"), {"tipo": BusinessType.LOCACAO})
+        resp = client.get(reverse("crm:price_table"), {"tipo": BusinessType.VENDA})
         self.assertContains(resp, "Modelo Novo")
         self.assertContains(resp, "Sem valor")
 
@@ -156,14 +161,19 @@ class PriceTableUiTest(PriceTableViewsTestBase):
         self.assertContains(resp, "NI23 Big Tank")
 
     def test_only_missing_filter_hides_configured_item(self):
+        # RODADA 1: mesma nota do teste acima — "sem_valor" sobre a lista
+        # simples de equipamentos só existe nas abas Venda/Serviço agora;
+        # o equivalente para a matriz de Locação é testado em
+        # `test_commercial_plans.py` (linha sem NENHUMA célula
+        # preenchida).
         set_price_table_item(
             data=PriceTableItemData(
-                business_type=BusinessType.LOCACAO, equipment_model=self.model, unit_price=Decimal("900.00")
+                business_type=BusinessType.VENDA, equipment_model=self.model, unit_price=Decimal("900.00")
             ),
             user=self.editor,
         )
         client = self._login(self.viewer)
-        resp = client.get(reverse("crm:price_table"), {"tipo": BusinessType.LOCACAO, "sem_valor": "1"})
+        resp = client.get(reverse("crm:price_table"), {"tipo": BusinessType.VENDA, "sem_valor": "1"})
         self.assertNotContains(resp, "NI23 Big Tank")
 
     def test_edit_then_save_updates_row_value(self):

@@ -65,19 +65,24 @@ from apps.crm.forms import (
     OpportunityStageForm,
     OpportunityUpdateForm,
     PriceTableItemForm,
+    PriceTableRateForm,
     ProposalConditionsForm,
     ProposalItemForm,
     ServiceCatalogItemForm,
 )
 from apps.crm.models import (
     ActivityType,
+    BillingMode,
     BusinessType,
+    CommercialPlan,
     CommercialSource,
+    CommercialTerm,
     LossReason,
     Opportunity,
     OpportunityEquipment,
     OpportunityStage,
     PriceTableItem,
+    PriceTableRate,
     ProposalItem,
     ServiceCatalogItem,
 )
@@ -88,6 +93,7 @@ from apps.crm.services import (
     NewOpportunityData,
     OpportunityUpdateData,
     PriceTableItemData,
+    PriceTableRateData,
     ProposalConditionsData,
     ProposalItemData,
     UnlinkEquipmentData,
@@ -109,10 +115,13 @@ from apps.crm.services import (
     hard_delete_opportunity,
     link_equipment_to_opportunity,
     linked_equipment_for,
+    list_commercial_plans,
+    list_price_table_matrix,
     list_price_table_rows,
     preview_opportunity_hard_delete,
     remove_proposal_item,
     set_price_table_item,
+    set_price_table_rate,
     unlink_equipment_from_opportunity,
     update_draft_conditions,
     update_opportunity,
@@ -1301,19 +1310,68 @@ class PriceTableView(LoginRequiredMixin, PermissionRequiredMixin, View):
         search = request.GET.get("q", "").strip()
         only_missing = request.GET.get("sem_valor") == "1"
 
+        # Serviços continuam SEMPRE em lista simples (flat), em qualquer
+        # aba — inclusive Locação (RODADA 1, 16/09/2026): a matriz
+        # plano×prazo é só para equipamentos, nunca pedida para o
+        # catálogo de serviços comerciais. `list_price_table_rows()`
+        # segue sendo a ÚNICA fonte dessa lista — reaproveitada aqui
+        # mesmo quando `business_type=LOCACAO`, sem duplicar a consulta.
         rows = list_price_table_rows(business_type=business_type, search=search, only_missing=only_missing)
         context = {
             "business_type": business_type,
             "business_type_choices": BusinessType.choices,
             "search": search,
             "only_missing": only_missing,
-            "equipment_rows": rows.equipment_rows,
             "service_rows": rows.service_rows,
-            "total_count": rows.total_count,
-            "configured_count": rows.configured_count,
-            "missing_count": rows.missing_count,
             "can_change": request.user.has_perm("crm.change_price_table"),
         }
+
+        if business_type == BusinessType.LOCACAO:
+            # RODADA 1: aba Locação troca a listagem simples de
+            # equipamentos (V1) pela matriz plano×prazo — "Venda"/
+            # "Serviço" continuam com `rows.equipment_rows` inalterado
+            # (seção: "preservar o comportamento atual da aba Venda").
+            #
+            # `rows.equipment_rows` NUNCA entra nos contadores aqui
+            # (`list_price_table_rows()` foi chamada só para obter
+            # `service_rows` — contar `rows.total_count`/etc. junto com os
+            # da matriz DUPLICARIA cada equipamento: uma vez pela matriz,
+            # outra pela lista flat descartada).
+            service_total = len(rows.service_rows)
+            service_configured = sum(1 for row in rows.service_rows if row.has_price)
+            service_missing = service_total - service_configured
+
+            plans = list_commercial_plans()
+            plan_id = request.GET.get("plano")
+            plan = None
+            if plan_id and plan_id.isdigit():
+                plan = next((p for p in plans if p.pk == int(plan_id)), None)
+            if plan is None:
+                plan = plans[0] if plans else None
+
+            context["commercial_plans"] = plans
+            context["commercial_plan"] = plan
+            if plan is not None:
+                matrix = list_price_table_matrix(commercial_plan=plan, search=search, only_missing=only_missing)
+                context["matrix_terms"] = matrix.terms
+                context["matrix_rows"] = matrix.rows
+                context["total_count"] = matrix.total_count + service_total
+                context["configured_count"] = matrix.configured_count + service_configured
+                context["missing_count"] = matrix.missing_count + service_missing
+            else:
+                # Nenhum plano ativo cadastrado — estado vazio (nunca um
+                # erro): mesma tela, só sem matriz para renderizar.
+                context["matrix_terms"] = []
+                context["matrix_rows"] = []
+                context["total_count"] = service_total
+                context["configured_count"] = service_configured
+                context["missing_count"] = service_missing
+        else:
+            context["equipment_rows"] = rows.equipment_rows
+            context["total_count"] = rows.total_count
+            context["configured_count"] = rows.configured_count
+            context["missing_count"] = rows.missing_count
+
         return render(request, "crm/price_table.html", context)
 
 
@@ -1419,6 +1477,121 @@ class PriceTableItemRowView(LoginRequiredMixin, PermissionRequiredMixin, View):
             "updated_by_label": self._updated_by_label(item),
         }
         return render(request, "crm/_price_table_row.html", context)
+
+
+class PriceTableRateCellView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Edição inline de UMA célula da matriz de Preços de Locação
+    (equipamento × plano × prazo) — RODADA 1 (16/09/2026). MESMO padrão de
+    permissão/checagem manual de `PriceTableItemRowView`: `permission_required`
+    da classe só exige `crm.view_price_table` (ver a célula); entrar em
+    modo de edição OU salvar exige `crm.change_price_table`, checado
+    manualmente dentro da view (mesmo raciocínio documentado em
+    `docs/permissions.md`).
+    """
+
+    permission_required = "crm.view_price_table"
+
+    def _resolve_target(self, request, equipment_model_id, commercial_term_id):
+        plan_id = request.GET.get("plano") or request.POST.get("plano")
+        if not (plan_id and plan_id.isdigit()):
+            raise Http404("Plano comercial inválido.")
+        commercial_plan = get_object_or_404(CommercialPlan, pk=plan_id, is_active=True)
+        equipment_model = get_object_or_404(EquipmentModel, pk=equipment_model_id, is_active=True)
+        commercial_term = get_object_or_404(
+            CommercialTerm, pk=commercial_term_id, commercial_plan=commercial_plan, is_active=True
+        )
+        return commercial_plan, equipment_model, commercial_term
+
+    @staticmethod
+    def _updated_by_label(rate):
+        if rate is None:
+            return ""
+        return rate.updated_by.get_full_name() or rate.updated_by.username
+
+    def _current_rate(self, commercial_plan, equipment_model, commercial_term):
+        return (
+            PriceTableRate.objects.select_related("updated_by")
+            .filter(
+                commercial_plan=commercial_plan,
+                commercial_term=commercial_term,
+                price_table_item__equipment_model=equipment_model,
+            )
+            .first()
+        )
+
+    def get(self, request, equipment_model_id, commercial_term_id):
+        commercial_plan, equipment_model, commercial_term = self._resolve_target(
+            request, equipment_model_id, commercial_term_id
+        )
+        can_change = request.user.has_perm("crm.change_price_table")
+        edit_mode = request.GET.get("modo") == "editar"
+        if edit_mode and not can_change:
+            raise PermissionDenied("Você não tem permissão para editar valores da Tabela de Preços.")
+
+        rate = self._current_rate(commercial_plan, equipment_model, commercial_term)
+        context = {
+            "equipment_model_id": equipment_model.pk,
+            "commercial_term_id": commercial_term.pk,
+            "commercial_plan_id": commercial_plan.pk,
+            "amount": rate.amount if rate else None,
+            "billing_mode": rate.billing_mode if rate else None,
+            "updated_by_label": self._updated_by_label(rate),
+            "can_change": can_change,
+        }
+        if edit_mode:
+            context["form"] = PriceTableRateForm(
+                initial={
+                    "amount": rate.amount if rate else None,
+                    "billing_mode": rate.billing_mode if rate else BillingMode.TERM_TOTAL,
+                }
+            )
+            return render(request, "crm/_price_table_matrix_cell_edit.html", context)
+        return render(request, "crm/_price_table_matrix_cell.html", context)
+
+    def post(self, request, equipment_model_id, commercial_term_id):
+        if not request.user.has_perm("crm.change_price_table"):
+            raise PermissionDenied("Você não tem permissão para editar valores da Tabela de Preços.")
+
+        commercial_plan, equipment_model, commercial_term = self._resolve_target(
+            request, equipment_model_id, commercial_term_id
+        )
+        form = PriceTableRateForm(request.POST)
+        base_context = {
+            "equipment_model_id": equipment_model.pk,
+            "commercial_term_id": commercial_term.pk,
+            "commercial_plan_id": commercial_plan.pk,
+            "can_change": True,
+        }
+        if not form.is_valid():
+            base_context["form"] = form
+            return render(request, "crm/_price_table_matrix_cell_edit.html", base_context, status=400)
+
+        try:
+            rate = set_price_table_rate(
+                data=PriceTableRateData(
+                    equipment_model=equipment_model,
+                    commercial_plan=commercial_plan,
+                    commercial_term=commercial_term,
+                    amount=form.cleaned_data["amount"],
+                    billing_mode=form.cleaned_data["billing_mode"],
+                ),
+                user=request.user,
+            )
+        except ValueError as exc:
+            form.add_error(None, str(exc))
+            base_context["form"] = form
+            return render(request, "crm/_price_table_matrix_cell_edit.html", base_context, status=400)
+
+        # Sem `messages.success()` (mesmo raciocínio de `PriceTableItemRowView`
+        # — fragmento htmx, não redirect).
+        context = {
+            **base_context,
+            "amount": rate.amount,
+            "billing_mode": rate.billing_mode,
+            "updated_by_label": self._updated_by_label(rate),
+        }
+        return render(request, "crm/_price_table_matrix_cell.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -1899,14 +2072,14 @@ class SuggestedPriceView(LoginRequiredMixin, PermissionRequiredMixin, View):
         if equipment_model is None and service is None:
             return JsonResponse({"ok": False, "error": "Selecione um produto/modelo ou um serviço."}, status=400)
 
-        unit_price = get_suggested_price(
+        suggestion = get_suggested_price(
             business_type=opportunity.business_type, equipment_model=equipment_model, service=service
         )
         return JsonResponse(
             {
                 "ok": True,
-                "found": unit_price is not None,
-                "unit_price": str(unit_price) if unit_price is not None else None,
+                "found": suggestion is not None,
+                "unit_price": str(suggestion.amount) if suggestion is not None else None,
                 "business_type_display": opportunity.get_business_type_display(),
             }
         )

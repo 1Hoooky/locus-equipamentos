@@ -17,6 +17,15 @@ usado em `templates/equipment/list.html`).
 Nenhum botão "Adicionar linha" (seção 13): os itens vêm 100% de
 `EquipmentModel`/`ServiceCatalogItem` ATIVOS — um modelo/serviço novo
 aparece aqui sozinho, como "Sem valor", assim que fica ativo.
+
+RODADA 1 (16/09/2026, "PLANOS COMERCIAIS + PRAZOS + MATRIZ DE PREÇOS DE
+LOCAÇÃO"): só a aba Locação muda de layout — a lista simples de
+equipamentos vira a matriz EquipmentModel × CommercialTerm do plano
+selecionado (sub-navegação de planos, mesma convenção de querystring,
+`?plano=`). Venda/Serviço continuam EXATAMENTE como na V1 (lista simples,
+`equipment_rows`). A seção "Serviços" nunca muda de layout, em NENHUMA
+aba — o catálogo de serviços comerciais continua com preço único, sem
+plano/prazo.
 {% endcomment %}
 <div class="page-header">
   <h1 class="page-title">Tabela de Preços</h1>
@@ -57,6 +66,28 @@ aparece aqui sozinho, como "Sem valor", assim que fica ativo.
   {{ missing_count }} sem valor
 </p>
 
+{% if business_type == "LOCACAO" %}
+<h2 class="section-heading">{% icon "cube" size="compact" %} Equipamentos — matriz de preços por plano e prazo</h2>
+
+{% if commercial_plans %}
+<div class="flex flex-wrap gap-2 mb-4" role="tablist" aria-label="Plano comercial">
+  {% for plan in commercial_plans %}
+  <a href="?tipo=LOCACAO&plano={{ plan.id }}{% if search %}&q={{ search|urlencode }}{% endif %}{% if only_missing %}&sem_valor=1{% endif %}"
+     class="{% if plan.id == commercial_plan.id %}btn-primary{% else %}btn-neutral{% endif %} btn-sm"
+     role="tab" aria-selected="{% if plan.id == commercial_plan.id %}true{% else %}false{% endif %}">
+    {{ plan.name }}
+  </a>
+  {% endfor %}
+</div>
+
+{% if commercial_plan %}
+{% include "crm/_price_table_matrix.html" %}
+{% endif %}
+{% else %}
+<p class="empty-state">Nenhum plano comercial de Locação ativo cadastrado.</p>
+{% endif %}
+
+{% else %}
 <div class="table-wrap mb-6">
   <h2 class="section-heading">{% icon "cube" size="compact" %} Equipamentos</h2>
   <table class="table-base">
@@ -76,6 +107,7 @@ aparece aqui sozinho, como "Sem valor", assim que fica ativo.
     </tbody>
   </table>
 </div>
+{% endif %}
 
 <div class="table-wrap">
   <h2 class="section-heading">{% icon "tag" size="compact" %} Serviços</h2>

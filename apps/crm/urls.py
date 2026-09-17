@@ -139,4 +139,13 @@ urlpatterns = [
         views.PriceTableItemRowView.as_view(),
         name="price_table_item_row",
     ),
+    # RODADA 1 — Planos Comerciais + Prazos + Matriz de Preços de Locação
+    # (16/09/2026): célula da matriz (equipamento × prazo), plano vem por
+    # querystring (`?plano=`, mesmo raciocínio de `?tipo=` acima — nunca
+    # um segmento de URL por plano).
+    path(
+        "configuracoes/tabela-de-precos/matriz/celula/<int:equipment_model_id>/<int:commercial_term_id>/",
+        views.PriceTableRateCellView.as_view(),
+        name="price_table_rate_cell",
+    ),
 ]

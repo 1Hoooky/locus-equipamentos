@@ -27,6 +27,7 @@ from apps.catalog.models import EquipmentModel
 from apps.clients.models import Client
 from apps.crm.models import (
     ActivityType,
+    BillingMode,
     BusinessType,
     CommercialSource,
     LossReason,
@@ -739,6 +740,31 @@ class DocumentGenerationForm(forms.Form):
     """Dropdown "Gerar documento" (seção 6/64/65)."""
 
     document_type = forms.ChoiceField(label="Tipo de documento", choices=DocumentType.choices)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_input_class(self.fields)
+
+
+class PriceTableRateForm(forms.Form):
+    """
+    Edição inline de UMA célula da matriz de Preços de Locação
+    (`crm:price_table_rate_cell`) — RODADA 1 (16/09/2026). MESMO
+    raciocínio de `PriceTableItemForm` acima: `forms.Form`, a escrita real
+    passa por `apps.crm.services.set_price_table_rate()` (resolve/cria o
+    `PriceTableItem` âncora, `select_for_update()`, histórico) — este
+    form só valida os dois valores digitados na célula (valor e modo de
+    cobrança).
+    """
+
+    amount = forms.DecimalField(
+        label="Valor",
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal("0"),
+        error_messages={"min_value": "O valor não pode ser negativo."},
+    )
+    billing_mode = forms.ChoiceField(label="Cobrança", choices=BillingMode.choices, initial=BillingMode.TERM_TOTAL)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
