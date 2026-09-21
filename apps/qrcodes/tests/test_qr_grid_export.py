@@ -31,7 +31,8 @@ from apps.operations.models import Movement
 from apps.qrcodes.services import (
     LABEL_THEME_DARK,
     LABEL_THEME_LIGHT,
-    QR_GRID_CELL_SIZE_MM,
+    QR_GRID_CELL_HEIGHT_MM,
+    QR_GRID_CELL_WIDTH_MM,
     QR_GRID_COLUMNS,
     QR_GRID_GUTTER_MM,
     QR_GRID_HEIGHT_MM,
@@ -40,6 +41,7 @@ from apps.qrcodes.services import (
     QR_GRID_PAGE_HEIGHT_MM,
     QR_GRID_PAGE_SIZE,
     QR_GRID_PAGE_WIDTH_MM,
+    QR_GRID_QR_SIZE_MM,
     QR_GRID_ROWS,
     QR_GRID_WIDTH_MM,
     equipment_url,
@@ -334,23 +336,41 @@ class ModelQRGridDownloadViewTest(TestCase):
 
 class ModelQRGridPhysicalDimensionsTest(TestCase):
     """
-    Correção de 16/09/2026: a exportação já funcionava, mas a validação
-    visual/física real mostrou a grade deslocada para a esquerda e o QR
-    fora do requisito explícito de 50×50mm exatos (a primeira versão
-    usava célula de ~48mm). Esta classe mede a posição/tamanho de cada
-    imagem embutida DIRETO do conteúdo do PDF (via `pdfplumber`, em
-    milímetros) — nunca só "olhando" um screenshot — para confirmar
-    objetivamente os números pedidos: QR 50×50mm, grade 160×270mm,
-    margens 25mm (horizontal) / 13.5mm (vertical), gutter 5mm.
+    Duas rodadas de correção física medidas aqui, ambas via `pdfplumber`
+    direto no conteúdo do PDF (em milímetros) — nunca só "olhando" um
+    screenshot:
 
-    O bug raiz (para registro): `LANGUAGE_CODE="pt-br"` fazia o Django
-    renderizar os `margin_*_mm` fracionários (13.5) com VÍRGULA decimal
-    ("13,5mm", CSS inválido) no template — corrigido com
-    `{% localize off %}` em `templates/qrcodes/qr_grid.html`. Um teste
-    aqui (`test_grid_is_not_flush_to_the_page_origin`) trava
-    especificamente essa regressão: sem `{% localize off %}`, a margem
-    medida seria 0mm, não 25mm/13.5mm.
+    1. Correção de 16/09/2026 (registro histórico): a exportação já
+       funcionava, mas a validação visual/física real mostrou a grade
+       deslocada para a esquerda e o QR fora do requisito então vigente
+       de 50×50mm exatos (a primeira versão usava célula de ~48mm).
+
+    2. Rodada de padronização física (adesivo real 60×40mm): a CÉLULA da
+       grade deixou de ser do tamanho exato do QR e passou a ser o
+       adesivo inteiro (`QR_GRID_CELL_WIDTH_MM` × `QR_GRID_CELL_HEIGHT_MM`
+       = 60×40mm) — o QR (`QR_GRID_QR_SIZE_MM` = 36mm, sempre quadrado)
+       fica centralizado dentro dela, com folga visível ao redor. Os
+       testes abaixo distinguem explicitamente "posição da CÉLULA" de
+       "posição do QR": como `pdfplumber` só enxerga a imagem do QR (a
+       célula não tem nenhum retângulo desenhado), a margem/gutter
+       medida a partir da imagem é sempre `margem_da_página +
+       folga_da_célula` — nunca só a margem da página sozinha.
+
+    O bug raiz de 16/09/2026 (para registro, ainda relevante — a técnica
+    de `{% localize off %}` continua em uso): `LANGUAGE_CODE="pt-br"`
+    fazia o Django renderizar `margin_*_mm` fracionários com VÍRGULA
+    decimal ("23,5mm", CSS inválido) no template — corrigido com
+    `{% localize off %}` em `templates/qrcodes/qr_grid.html`. Os testes
+    de margem abaixo travam essa regressão: sem `{% localize off %}`, a
+    margem medida seria bem menor que a esperada, não os valores
+    calculados aqui.
     """
+
+    # Folga entre a borda do QR e a borda da célula/adesivo que o contém
+    # — o que sobra da célula (60×40mm) depois do QR (36×36mm),
+    # distribuído igualmente nos dois lados de cada eixo.
+    CELL_MARGIN_HORIZONTAL_MM = (QR_GRID_CELL_WIDTH_MM - QR_GRID_QR_SIZE_MM) / 2  # 12.0
+    CELL_MARGIN_VERTICAL_MM = (QR_GRID_CELL_HEIGHT_MM - QR_GRID_QR_SIZE_MM) / 2  # 2.0
 
     def setUp(self):
         self.category = Category.objects.create(name="Climatizador")
@@ -403,53 +423,88 @@ class ModelQRGridPhysicalDimensionsTest(TestCase):
         self.assertEqual(QR_GRID_PAGE_WIDTH_MM, 210)
         self.assertEqual(QR_GRID_PAGE_HEIGHT_MM, 297)
 
-    # 2 e 3. Cada QR mede EXATAMENTE 50×50mm — nunca mais 48mm (bug
-    # corrigido) nem qualquer outro valor aproximado.
-    def test_each_qr_image_is_exactly_50x50mm(self):
-        self.assertEqual(QR_GRID_CELL_SIZE_MM, 50, "A célula/QR não pode mais ser 48mm nem nenhum valor aproximado — exatamente 50mm.")
-        self.assertNotEqual(QR_GRID_CELL_SIZE_MM, 48)
+    # 2 e 3. Cada QR mede EXATAMENTE 36×36mm — nunca o tamanho da célula
+    # inteira (isso seria a grade ANTES da padronização física) nem
+    # qualquer outro valor aproximado.
+    def test_each_qr_image_is_exactly_36x36mm(self):
+        self.assertEqual(QR_GRID_QR_SIZE_MM, 36, "O QR dentro da célula deve ser exatamente 36mm.")
+        self.assertNotEqual(QR_GRID_QR_SIZE_MM, QR_GRID_CELL_WIDTH_MM, "O QR não pode voltar a ocupar a célula inteira — a célula agora é o adesivo (60×40mm), maior que o QR.")
 
-        self._create_equipment(15)
+        self._create_equipment(QR_GRID_PAGE_SIZE)
         pdf_bytes = self._download()
         pages = self._images_by_page(pdf_bytes)
-        self.assertEqual(len(pages[0]), 15)
+        self.assertEqual(len(pages[0]), QR_GRID_PAGE_SIZE)
         for img in pages[0]:
-            self.assertAlmostEqual(img["x1"] - img["x0"], 50.0, places=1, msg="Largura do QR deve ser exatamente 50mm.")
-            self.assertAlmostEqual(img["bottom"] - img["top"], 50.0, places=1, msg="Altura do QR deve ser exatamente 50mm.")
+            self.assertAlmostEqual(img["x1"] - img["x0"], 36.0, places=1, msg="Largura do QR deve ser exatamente 36mm.")
+            self.assertAlmostEqual(img["bottom"] - img["top"], 36.0, places=1, msg="Altura do QR deve ser exatamente 36mm.")
 
-    # 4, 5 e 6. 3 colunas × 5 linhas = 15 por página.
-    def test_grid_is_three_columns_by_five_rows_of_fifteen(self):
+    # 4, 5 e 6. 3 colunas × 6 linhas = 18 por página — cada célula é 1
+    # adesivo real (60×40mm).
+    def test_grid_is_three_columns_by_six_rows_of_eighteen(self):
         self.assertEqual(QR_GRID_COLUMNS, 3)
-        self.assertEqual(QR_GRID_ROWS, 5)
-        self.assertEqual(QR_GRID_PAGE_SIZE, 15)
+        self.assertEqual(QR_GRID_ROWS, 6)
+        self.assertEqual(QR_GRID_PAGE_SIZE, 18)
+        self.assertEqual(QR_GRID_CELL_WIDTH_MM, 60)
+        self.assertEqual(QR_GRID_CELL_HEIGHT_MM, 40)
 
-    # 7 e 8. Espaçamento (gutter) uniforme de 5mm, tanto entre colunas
-    # quanto entre linhas.
-    def test_gutter_between_columns_and_rows_is_uniform(self):
-        self.assertEqual(QR_GRID_GUTTER_MM, 5)
-        self._create_equipment(15)
+    # 7 e 8. O "passo" da grade (distância entre o início de uma célula e
+    # o início da próxima) é célula + gutter, tanto na horizontal quanto
+    # na vertical — o jeito mais robusto de confirmar o gutter entre
+    # CÉLULAS, já que `pdfplumber` só enxerga o QR (menor que a célula),
+    # não a célula em si.
+    def test_grid_pitch_between_cells_is_cell_size_plus_gutter(self):
+        self.assertEqual(QR_GRID_GUTTER_MM, 2)
+        self._create_equipment(QR_GRID_PAGE_SIZE)
         pdf_bytes = self._download()
         images = self._images_by_page(pdf_bytes)[0]
+        rows = [images[i : i + QR_GRID_COLUMNS] for i in range(0, QR_GRID_PAGE_SIZE, QR_GRID_COLUMNS)]
 
-        rows = [images[0:3], images[3:6], images[6:9], images[9:12], images[12:15]]
+        expected_horizontal_pitch = QR_GRID_CELL_WIDTH_MM + QR_GRID_GUTTER_MM  # 62mm
+        expected_vertical_pitch = QR_GRID_CELL_HEIGHT_MM + QR_GRID_GUTTER_MM  # 42mm
+
         for row in rows:
-            self.assertAlmostEqual(row[1]["x0"] - row[0]["x1"], QR_GRID_GUTTER_MM, places=1, msg="Gutter horizontal (col 1→2) deve ser 5mm.")
-            self.assertAlmostEqual(row[2]["x0"] - row[1]["x1"], QR_GRID_GUTTER_MM, places=1, msg="Gutter horizontal (col 2→3) deve ser 5mm.")
-
-        for col in range(3):
-            for row_index in range(4):
-                current = rows[row_index][col]
-                next_row = rows[row_index + 1][col]
+            for col in range(QR_GRID_COLUMNS - 1):
                 self.assertAlmostEqual(
-                    next_row["top"] - current["bottom"], QR_GRID_GUTTER_MM, places=1, msg="Gutter vertical entre linhas deve ser 5mm."
+                    row[col + 1]["x0"] - row[col]["x0"],
+                    expected_horizontal_pitch,
+                    places=1,
+                    msg="Passo horizontal entre colunas deve ser célula (60mm) + gutter (2mm) = 62mm.",
                 )
+
+        for col in range(QR_GRID_COLUMNS):
+            for row_index in range(QR_GRID_ROWS - 1):
+                self.assertAlmostEqual(
+                    rows[row_index + 1][col]["top"] - rows[row_index][col]["top"],
+                    expected_vertical_pitch,
+                    places=1,
+                    msg="Passo vertical entre linhas deve ser célula (40mm) + gutter (2mm) = 42mm.",
+                )
+
+    # 7b. O espaço visível entre um QR e o próximo (edge a edge, não
+    # célula a célula) é o gutter mais a folga de cada célula ao redor
+    # do QR — reforça o teste de "passo" acima com o número final que
+    # alguém mediria com uma régua na impressão real.
+    def test_visible_gap_between_adjacent_qr_images_matches_gutter_plus_cell_margins(self):
+        self._create_equipment(QR_GRID_PAGE_SIZE)
+        pdf_bytes = self._download()
+        images = self._images_by_page(pdf_bytes)[0]
+        rows = [images[i : i + QR_GRID_COLUMNS] for i in range(0, QR_GRID_PAGE_SIZE, QR_GRID_COLUMNS)]
+
+        expected_horizontal_gap = QR_GRID_GUTTER_MM + 2 * self.CELL_MARGIN_HORIZONTAL_MM  # 2 + 24 = 26mm
+        expected_vertical_gap = QR_GRID_GUTTER_MM + 2 * self.CELL_MARGIN_VERTICAL_MM  # 2 + 4 = 6mm
+
+        self.assertAlmostEqual(rows[0][1]["x0"] - rows[0][0]["x1"], expected_horizontal_gap, places=1)
+        self.assertAlmostEqual(rows[1][0]["top"] - rows[0][0]["bottom"], expected_vertical_gap, places=1)
 
     # 9 e 10. A grade fica centralizada HORIZONTALMENTE na folha — margem
     # esquerda igual à margem direita, calculada matematicamente (não "no
-    # olho"). Este teste também é o que trava a regressão de
-    # `{% localize off %}`: sem ela, x0 seria 0mm, não 25mm.
+    # olho"). A margem medida a partir do QR é a margem da PÁGINA mais a
+    # folga da CÉLULA ao redor do QR (o QR não preenche mais a célula
+    # inteira, ver comentário da classe). Este teste também é o que trava
+    # a regressão de `{% localize off %}`: sem ela, a margem medida seria
+    # bem menor que o esperado.
     def test_grid_is_horizontally_centered_with_equal_margins(self):
-        self._create_equipment(15)
+        self._create_equipment(QR_GRID_PAGE_SIZE)
         pdf_bytes = self._download()
         images = self._images_by_page(pdf_bytes)[0]
 
@@ -457,32 +512,37 @@ class ModelQRGridPhysicalDimensionsTest(TestCase):
         rightmost_x1 = max(img["x1"] for img in images)
         left_margin = leftmost_x0
         right_margin = QR_GRID_PAGE_WIDTH_MM - rightmost_x1
+        expected_margin = QR_GRID_MARGIN_HORIZONTAL_MM + self.CELL_MARGIN_HORIZONTAL_MM  # 13 + 12 = 25mm
 
         self.assertAlmostEqual(left_margin, right_margin, places=1, msg="Margem esquerda e direita devem ser idênticas — grade centralizada.")
-        self.assertAlmostEqual(left_margin, QR_GRID_MARGIN_HORIZONTAL_MM, places=1)
+        self.assertAlmostEqual(left_margin, expected_margin, places=1)
         self.assertAlmostEqual(left_margin, 25.0, places=1)
         self.assertGreater(left_margin, 1.0, "Se a margem for ~0mm, a grade voltou a ficar colada na borda esquerda (bug antigo).")
 
-    # 11. Margem vertical (topo/base) = 13.5mm, grade 160×270mm — os
-    # números do pedido, confirmados direto do PDF.
+    # 11. Margem vertical (topo/base) medida a partir do QR = margem da
+    # página + folga vertical da célula; grade 184×250mm — os números da
+    # padronização física, confirmados direto do PDF.
     def test_grid_and_vertical_margins_match_the_requested_layout(self):
-        self._create_equipment(15)
+        self._create_equipment(QR_GRID_PAGE_SIZE)
         pdf_bytes = self._download()
         images = self._images_by_page(pdf_bytes)[0]
 
         top_margin = min(img["top"] for img in images)
         bottom_margin = QR_GRID_PAGE_HEIGHT_MM - max(img["bottom"] for img in images)
+        expected_margin = QR_GRID_MARGIN_VERTICAL_MM + self.CELL_MARGIN_VERTICAL_MM  # 23.5 + 2 = 25.5mm
 
-        self.assertAlmostEqual(top_margin, QR_GRID_MARGIN_VERTICAL_MM, places=1)
-        self.assertAlmostEqual(top_margin, 13.5, places=1)
-        self.assertAlmostEqual(bottom_margin, 13.5, places=1)
-        self.assertAlmostEqual(QR_GRID_WIDTH_MM, 160.0, places=1)
-        self.assertAlmostEqual(QR_GRID_HEIGHT_MM, 270.0, places=1)
+        self.assertAlmostEqual(top_margin, expected_margin, places=1)
+        self.assertAlmostEqual(top_margin, 25.5, places=1)
+        self.assertAlmostEqual(bottom_margin, 25.5, places=1)
+        self.assertAlmostEqual(QR_GRID_WIDTH_MM, 184.0, places=1)
+        self.assertAlmostEqual(QR_GRID_HEIGHT_MM, 250.0, places=1)
+        self.assertAlmostEqual(QR_GRID_MARGIN_HORIZONTAL_MM, 13.0, places=1)
+        self.assertAlmostEqual(QR_GRID_MARGIN_VERTICAL_MM, 23.5, places=1)
 
     # 12. Nenhuma página extra/branca para um lote que fecha exatamente
-    # em páginas cheias (15, 30).
+    # em páginas cheias (18, 36).
     def test_no_extra_blank_page_for_exact_multiples_of_page_size(self):
-        for quantity, expected_pages in ((15, 1), (30, 2)):
+        for quantity, expected_pages in ((QR_GRID_PAGE_SIZE, 1), (QR_GRID_PAGE_SIZE * 2, 2)):
             with self.subTest(quantity=quantity):
                 model = EquipmentModel.objects.create(category=self.category, name=f"Exato {quantity}", code=f"EXATO{quantity}")
                 for _ in range(quantity):
@@ -493,9 +553,11 @@ class ModelQRGridPhysicalDimensionsTest(TestCase):
                 self.assertEqual(len(reader.pages), expected_pages)
 
     # 13. Múltiplas páginas para lotes que passam de um múltiplo exato —
-    # confirma os exemplos do próprio pedido (16→2 páginas, 31→3 páginas).
+    # mesmo raciocínio dos exemplos originais do pedido (um a mais que
+    # fecha página, outro que passa de duas), reescalados para o novo
+    # tamanho de página (18 por folha, era 15).
     def test_multiple_pages_for_batches_past_a_full_page(self):
-        for quantity, expected_pages in ((16, 2), (31, 3)):
+        for quantity, expected_pages in ((QR_GRID_PAGE_SIZE + 1, 2), (QR_GRID_PAGE_SIZE * 2 + 1, 3)):
             with self.subTest(quantity=quantity):
                 model = EquipmentModel.objects.create(category=self.category, name=f"Passa {quantity}", code=f"PASSA{quantity}")
                 for _ in range(quantity):
@@ -547,9 +609,11 @@ class ModelQRGridPhysicalDimensionsTest(TestCase):
 
         # A origem da grade (margens) é a MESMA da folha cheia — a página
         # incompleta não veio "mais centralizada" nem com margens
-        # diferentes por ter menos itens.
-        self.assertAlmostEqual(row1[0]["x0"], QR_GRID_MARGIN_HORIZONTAL_MM, places=1)
-        self.assertAlmostEqual(row1[0]["top"], QR_GRID_MARGIN_VERTICAL_MM, places=1)
+        # diferentes por ter menos itens. A posição do QR é a margem da
+        # página + a folga da célula ao redor dele (ver comentário da
+        # classe — o QR não preenche mais a célula inteira).
+        self.assertAlmostEqual(row1[0]["x0"], QR_GRID_MARGIN_HORIZONTAL_MM + self.CELL_MARGIN_HORIZONTAL_MM, places=1)
+        self.assertAlmostEqual(row1[0]["top"], QR_GRID_MARGIN_VERTICAL_MM + self.CELL_MARGIN_VERTICAL_MM, places=1)
         # E o 4º item (linha 2, coluna 1) fica na mesma coluna x0 do 1º —
         # preenchimento em ordem de leitura, nunca centralizado sozinho.
         self.assertAlmostEqual(row2[0]["x0"], row1[0]["x0"], places=1)

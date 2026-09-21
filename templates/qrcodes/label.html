@@ -4,13 +4,35 @@
 <meta charset="UTF-8">
 <style>
   /*
-    Tamanho físico da etiqueta: vem do Python (LABEL_WIDTH_MM/
-    LABEL_HEIGHT_MM em apps/qrcodes/services.py), nunca fixo aqui — é o
-    que permite trocar o tamanho no futuro sem reescrever este template.
-    Uma página por etiqueta, no tamanho exato: é o formato que serviços
-    de gráfica/impressão de etiqueta esperam (compare com uma folha A4
-    com várias etiquetas soltas, que não preserva a dimensão física de
-    cada uma isoladamente).
+    Etiqueta "antiga"/completa — REDESENHADA nesta rodada para o padrão
+    físico único de adesivo da Locus: `label_width_mm` × `label_height_mm`
+    (60×40mm, vem de apps/qrcodes/services.py::LABEL_WIDTH_MM/
+    LABEL_HEIGHT_MM — nunca fixo aqui). Antes era 100×50mm; a proporção e
+    o espaço disponível mudaram o bastante para exigir uma reorganização
+    real do conteúdo, não um `transform: scale()`/encolhimento cego do
+    layout antigo (pedido explícito — ver docs/apps/qrcodes.md para a
+    justificativa completa de cada corte).
+
+    Prioridade de legibilidade usada para decidir o que cabe (pedido
+    explícito, da mais para a menos importante):
+      1. QR Code legível         -> mantido grande, metade direita.
+      2. Patrimônio legível      -> mantido, texto grande, metade esquerda.
+      3. Código de barras usável -> mantido, mesma metade esquerda.
+      4. Identidade visual       -> reduzida (só o wordmark "LOCUS"; sem
+                                     subtítulo/linha divisória/tagline).
+      5. Informações secundárias -> CORTADAS: o rodapé com o site
+                                     institucional (`LABEL_FOOTER_TEXT`,
+                                     puramente decorativo/marketing) foi
+                                     removido para devolver aquele espaço
+                                     vertical ao código de barras e ao
+                                     patrimônio, que são funcionais.
+
+    Estrutura preservada: duas metades lado a lado (identidade+patrimônio
+    à esquerda, QR à direita, mesmo espírito do layout de 100×50mm) — o
+    pedido não proíbe duas colunas para ESTE formato (só proíbe para a
+    etiqueta simplificada, ver templates/qrcodes/label_square.html), e é
+    a divisão que melhor preserva "QR grande à direita, identificação à
+    esquerda" com o mínimo de reorganização cega.
   */
   @page {
     size: {{ label_width_mm }}mm {{ label_height_mm }}mm;
@@ -25,7 +47,6 @@
   :root {
     --locus-yellow: #F5C518;
     --locus-black: #111111;
-    --locus-gray: #6B7280;
   }
 
   .label {
@@ -34,18 +55,20 @@
     display: flex;
     page-break-after: always;
     overflow: hidden;
-    border: 0.5mm solid #000;
-    border-radius: 3mm;
+    border: 0.4mm solid #000;
+    border-radius: 1.5mm;
   }
 
   /*
-    Área esquerda (identidade + patrimônio): 52% da largura total — medido
-    pixel a pixel na imagem de referência enviada pelo usuário (~51,5%),
-    dentro da faixa 52%-54% da especificação. A área direita (QR) fica com
-    o restante (48%).
+    Metade esquerda (identidade + patrimônio): 50% da largura — a divisão
+    50/50 (em vez dos 52/48 do layout de 100×50mm) é o que sobra espaço
+    suficiente para o QR ficar quase quadrado (30×40mm) nesta largura
+    menor, sem espremer o código de barras/patrimônio a ponto de ficarem
+    ilegíveis. Medido/ajustado fisicamente no PDF real — ver
+    docs/apps/qrcodes.md.
   */
   .id-half {
-    width: 52%;
+    width: 50%;
     min-width: 0;
     height: 100%;
     display: flex;
@@ -55,97 +78,40 @@
   .brand-block {
     background: var(--locus-black);
     color: #fff;
-    padding: 2.5mm 3mm 2mm 3mm;
+    padding: 1mm 2mm;
     /*
-      Fundo preto dimensionado pelo próprio conteúdo (marca + linha +
-      "IDENTIFICAÇÃO DE EQUIPAMENTO"), não por uma porcentagem fixa da
-      altura: por instrução explícita do usuário, o preto não deve se
-      estender além do necessário para conter essa escrita. O espaço que
-      sobra vai automaticamente para a área de código de barras/
-      patrimônio abaixo (flex: 1 1 auto).
+      Bloco de marca REDUZIDO ao mínimo reconhecível — só o wordmark
+      "LOCUS" (sem subtítulo "Locações", sem linha divisória amarela, sem
+      tagline "IDENTIFICAÇÃO DE EQUIPAMENTO", todos removidos nesta
+      rodada): no canvas de 40mm de altura, cada um desses elementos
+      decorativos competia diretamente por espaço com o código de barras
+      e o patrimônio (prioridades 2 e 3, acima da identidade visual na
+      ordem pedida). Fundo dimensionado pelo próprio conteúdo (flex: 0 0
+      auto), como antes — nunca uma porcentagem fixa da altura.
     */
     flex: 0 0 auto;
     display: flex;
-    flex-direction: column;
+    align-items: center;
     justify-content: center;
-    text-align: center;
-  }
-  /*
-    "Locações" precisa terminar alinhada com o final visual de "LOCUS".
-    Como "LOCUS" (fonte maior, sem quebra) é o elemento mais largo dos
-    dois, este wrapper "encolhe" (inline-block) para a largura exata de
-    "LOCUS" — e "Locações", como bloco dentro dele com text-align:right,
-    encosta sua borda direita exatamente nessa mesma largura. O wrapper
-    inteiro fica centralizado no bloco preto pelo text-align:center do
-    pai acima (LOCUS permanece centralizado; só "Locações" é deslocada
-    para a direita dentro dessa largura, como assinatura da marca).
-  */
-  .brand-wordmark-wrap {
-    display: inline-block;
   }
   .brand-wordmark {
-    font-size: 30pt;
+    font-size: 13pt;
     font-weight: bold;
     color: var(--locus-yellow);
-    letter-spacing: 0.3pt;
+    letter-spacing: 0.2pt;
     line-height: 1;
     margin: 0;
     white-space: nowrap;
   }
-  .brand-subtitle {
-    font-size: 7pt;
-    color: #D1D5DB;
-    margin: 0.3mm 0 0 0;
-    text-align: right;
-  }
-  /*
-    Linha amarela + círculo: usamos flex (linha que cresce + ponto de
-    tamanho fixo) em vez de posicionamento absoluto sobre um <hr>, para
-    evitar depender de suporte a pseudo-elementos/transform no WeasyPrint.
-    Margem interna (herdada do padding do .brand-block) garante que a
-    linha não toque as bordas.
-  */
-  .brand-divider-row {
-    display: flex;
-    align-items: center;
-    margin: 1.2mm 0;
-  }
-  .brand-divider-line {
-    flex: 1 1 auto;
-    height: 0;
-    border-top: 0.4pt solid var(--locus-yellow);
-  }
-  .brand-divider-dot {
-    flex: 0 0 auto;
-    width: 1.3mm;
-    height: 1.3mm;
-    border-radius: 50%;
-    background: var(--locus-yellow);
-    margin-left: 0.8mm;
-  }
-  .brand-tagline {
-    font-size: 5pt;
-    font-weight: bold;
-    letter-spacing: 0.2pt;
-    text-transform: uppercase;
-    text-align: center;
-    white-space: nowrap;
-    margin: 0;
-  }
 
   .identity-block {
-    /*
-      Restante da altura da área esquerda (~39%, medido na referência)
-      depois do bloco de marca (50%) e do rodapé (11%). A referência tem
-      aqui, de cima para baixo: "NÚMERO DE PATRIMÔNIO" (removido por
-      instrução explícita), código de barras e patrimônio — mantivemos o
-      tamanho do código de barras/patrimônio fiéis à referência e
-      centralizamos o conjunto verticalmente no espaço que sobrou.
-    */
+    /* Todo o espaço restante da área esquerda depois do bloco de marca
+       — sem rodapé para disputar espaço (removido, ver comentário do
+       topo), este bloco tem bem mais respiro que no layout de 100×50mm. */
     flex: 1 1 auto;
     width: 100%;
     min-width: 0;
-    padding: 0.75mm 3mm;
+    padding: 0.75mm 2mm;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -155,27 +121,22 @@
   }
   .identity-barcode-wrap {
     /*
-      92% da largura da área de conteúdo — a referência mostra um código
-      de barras que ocupa quase toda a largura da faixa branca (~87%
-      medido na imagem). Isolado num wrapper próprio (em vez de aplicar
-      a largura direto na <img>, como antes) só para que o tema DARK
-      abaixo possa desenhar uma "ilha" branca atrás do código de barras
-      sem mexer no dimensionamento em si — no tema LIGHT este wrapper não
-      tem nenhum estilo próprio, então o resultado visual continua
-      idêntico ao de antes desta mudança.
+      Isolado num wrapper próprio (em vez de aplicar a largura direto na
+      <img>) só para que o tema DARK abaixo possa desenhar uma "ilha"
+      branca atrás do código de barras sem mexer no dimensionamento em
+      si — no tema LIGHT este wrapper não tem nenhum estilo próprio.
     */
     display: block;
-    width: 92%;
+    width: 94%;
     margin: 0 auto;
   }
   .identity-barcode {
     display: block;
     /*
-      A altura vem do aspect ratio do PNG gerado (ajustado em
-      `module_width`, em services.py, para barras mais largas/baixas como
-      na referência), não de um max-height artificial — foi exatamente um
-      max-height pequeno combinado com esse aspect ratio que deixou o
-      código de barras minúsculo na rodada anterior.
+      A altura vem do aspect ratio do PNG gerado (module_width ajustado
+      em services.py), não de um max-height artificial — mesmo raciocínio
+      do layout de 100×50mm, só com o teto (`max-height`) reduzido para
+      caber no canvas mais baixo.
     */
     width: 100%;
     height: auto;
@@ -186,21 +147,18 @@
 
   /*
     Tema DARK (pedido de 04/09/2026 — modal LIGHT/DARK antes do download
-    em lote, ver apps/equipment/admin.py e
-    apps/qrcodes/views.py::LabelBatchDownloadView). Mesma estrutura da
-    etiqueta de sempre — só troca claro↔escuro na área de
-    patrimônio/código de barras (`.identity-block`). Tudo abaixo só se
-    aplica quando `theme == "dark"` (classe `theme-dark` no <body>, ver
-    fim deste arquivo) — sem essa classe, nenhuma regra daqui tem efeito,
-    então o tema LIGHT (padrão) permanece byte-a-byte igual ao que já
-    existia antes desta opção existir.
+    em lote). Mesma estrutura da etiqueta de sempre — só troca claro↔escuro
+    na área de patrimônio/código de barras (`.identity-block`). Tudo
+    abaixo só se aplica quando `theme == "dark"` (classe `theme-dark` no
+    <body>) — sem essa classe, o tema LIGHT (padrão) não sofre nenhuma
+    mudança de aparência por causa desta regra.
 
-    `.brand-block`/`.footer-bar` já são pretos em QUALQUER tema (ver
-    acima) — não precisam de regra extra aqui. `.qr-half` também já é
-    branco fixo em qualquer tema (garantia de leitura do QR, pedido
-    explícito) — também não muda. Só `.identity-barcode-wrap` recebe uma
-    "ilha" branca no tema escuro, pelo mesmo motivo do QR: um código de
-    barras preto sobre fundo escuro perderia contraste para o leitor.
+    `.brand-block` já é preto em QUALQUER tema — não precisa de regra
+    extra aqui. `.qr-half` também já é branco fixo em qualquer tema
+    (garantia de leitura do QR, pedido explícito) — também não muda. Só
+    `.identity-barcode-wrap` recebe uma "ilha" branca no tema escuro,
+    pelo mesmo motivo do QR: um código de barras preto sobre fundo escuro
+    perderia contraste para o leitor.
   */
   body.theme-dark .identity-block {
     background: var(--locus-black);
@@ -210,56 +168,45 @@
   }
   body.theme-dark .identity-barcode-wrap {
     background: #fff;
-    padding: 1mm 1.5mm;
-    border-radius: 1mm;
+    padding: 0.8mm 1.2mm;
+    border-radius: 0.8mm;
   }
   .identity-patrimonio {
+    /*
+      Sem `white-space: nowrap`/`text-overflow: ellipsis` (diferente do
+      layout de 100×50mm, que tinha largura de sobra): nos 30mm de
+      largura da metade esquerda, truncar com reticências cortaria o
+      patrimônio (prioridade 2, precisa continuar legível por inteiro) —
+      como sobra bastante altura nesta área (auditado no PDF real), a
+      quebra em até 2 linhas mantém o texto completo sem espremer a
+      fonte a ponto de ficar ilegível.
+    */
     width: 100%;
     min-width: 0;
-    font-size: 12pt;
-    line-height: 1.1;
+    font-size: 8.5pt;
+    line-height: 1.15;
     font-weight: bold;
     color: #000;
     letter-spacing: 0.1pt;
     text-align: center;
-    margin: 1mm 0 0 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .footer-bar {
-    background: var(--locus-black);
-    color: #fff;
-    font-size: 5.5pt;
-    padding: 1mm 3mm;
-    /* Faixa preta do rodapé = 11% da altura da área esquerda. */
-    flex: 0 0 11%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 1mm;
-  }
-  .footer-icon {
-    width: 2.4mm;
-    height: 2.4mm;
-    flex: 0 0 auto;
+    margin: 0.8mm 0 0 0;
+    overflow-wrap: break-word;
   }
 
   /*
-    Área direita: só o QR Code, fundo branco puro, centralizado nos dois
+    Metade direita: só o QR Code, fundo branco puro, centralizado nos dois
     eixos, com margem (quiet zone visual) garantindo que não encoste nas
     bordas. Nenhum outro texto/elemento aqui.
   */
   .qr-half {
-    width: 48%;
+    width: 50%;
     height: 100%;
     background: #fff;
-    border-left: 0.35mm dashed #9CA3AF;
+    border-left: 0.3mm dashed #9CA3AF;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 4mm;
+    padding: 2mm;
   }
   .qr-image {
     width: 100%;
@@ -274,30 +221,13 @@
   <div class="label">
     <div class="id-half">
       <div class="brand-block">
-        <div class="brand-wordmark-wrap">
-          <p class="brand-wordmark">LOCUS</p>
-          <p class="brand-subtitle">Locações</p>
-        </div>
-        <div class="brand-divider-row">
-          <div class="brand-divider-line"></div>
-          <div class="brand-divider-dot"></div>
-        </div>
-        <p class="brand-tagline">Identificação de equipamento</p>
+        <p class="brand-wordmark">LOCUS</p>
       </div>
       <div class="identity-block">
         <div class="identity-barcode-wrap">
           <img class="identity-barcode" src="{{ label.barcode_data_uri }}" alt="Código de barras {{ label.patrimonio }}">
         </div>
         <p class="identity-patrimonio">{{ label.patrimonio }}</p>
-      </div>
-      <div class="footer-bar">
-        {# Cor amarela como valor literal no atributo `stroke`, não `var(--locus-yellow)`: o WeasyPrint não resolve custom properties CSS dentro de atributos de apresentação de SVG (ficava preto/invisível). #}
-        <svg class="footer-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="12" cy="12" r="9.5" stroke="#F5C518" stroke-width="1.6"/>
-          <ellipse cx="12" cy="12" rx="4" ry="9.5" stroke="#F5C518" stroke-width="1.6"/>
-          <line x1="2.5" y1="12" x2="21.5" y2="12" stroke="#F5C518" stroke-width="1.6"/>
-        </svg>
-        <span>{{ label.footer_text }}</span>
       </div>
     </div>
     <div class="qr-half">

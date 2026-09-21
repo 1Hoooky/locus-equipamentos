@@ -38,7 +38,7 @@ def _validated_theme(request):
     chamador deve devolvê-lo imediatamente (tema inválido, HTTP 400) e
     nunca prosseguir para gerar nada.
 
-    Compartilhado entre as rotas de etiqueta 6x6 (pedido de 08/09/2026)
+    Compartilhado entre as rotas de etiqueta simplificada (pedido de 08/09/2026)
     — mesmo raciocínio de validação já usado por `LabelBatchDownloadView`
     abaixo, só extraído para não repetir o mesmo bloco em cada view nova.
     """
@@ -65,7 +65,7 @@ class QRCodeDownloadView(RoleRequiredMixin, View):
 
 class LabelDownloadView(RoleRequiredMixin, View):
     """
-    Download individual — passou a gerar a etiqueta no padrão novo 6x6
+    Download individual — passou a gerar a etiqueta no padrão novo simplificado
     (`generate_square_label_pdf`, pedido de 08/09/2026: "downloads
     individuais continuam como estão, mas também devem sair no padrão
     6 por 6"). Interação inalterada: mesmo link direto de sempre, sem
@@ -152,7 +152,7 @@ class QRCodeZipExportView(RoleRequiredMixin, View):
 
     Repaginada em 08/09/2026 (correção do requisito de etiquetas): antes
     baixava um .zip de PNGs de QR crus (`generate_qr_zip`); passou a
-    baixar um .zip com as etiquetas no padrão novo 6x6
+    baixar um .zip com as etiquetas no padrão novo simplificado
     (`generate_square_labels_zip`), no tema escolhido no modal
     LIGHT/DARK que agora intercepta este botão — "é o botão que já
     existe", reaproveitado em vez de criar uma tela nova. Mesma
@@ -195,7 +195,7 @@ class QRCodeOnlyZipExportView(RoleRequiredMixin, View):
 
     Deliberadamente uma view/rota separada de `QRCodeZipExportView`
     acima (o botão "Exportar QR Codes" já existente, que desde
-    08/09/2026 baixa as etiquetas 6x6, não QR puro) — o nome antigo já
+    08/09/2026 baixa as etiquetas simplificadas, não QR puro) — o nome antigo já
     estava em uso para outra coisa, então esta função ganhou um botão e
     uma rota próprios em vez de reaproveitar o texto/rota já ocupados
     (ver ajuste de 10/09/2026 para o raciocínio completo).
@@ -221,7 +221,7 @@ class QRCodeOnlyZipExportView(RoleRequiredMixin, View):
 
 class ModelLabelBatchDownloadView(RoleRequiredMixin, View):
     """
-    Etiquetas 6x6 em lote de UM modelo — botão novo no cabeçalho do card
+    Etiquetas simplificadas em lote de UM modelo — botão novo no cabeçalho do card
     de cada modelo na listagem agrupada (pedido de 08/09/2026), ao lado
     das contagens. Abre o mesmo modal LIGHT/DARK dos outros fluxos e
     baixa um único PDF combinado (uma página por equipamento — mesmo
@@ -267,7 +267,7 @@ class ModelQRGridDownloadView(RoleRequiredMixin, View):
 
     Mesmo escopo/permissão/tratamento de 404 de `ModelLabelBatchDownloadView`
     — só muda o conteúdo do PDF (QR puro em grade, via
-    `generate_qr_grid_pdf`, em vez de etiqueta 6x6 por página via
+    `generate_qr_grid_pdf`, em vez de etiqueta simplificada por página via
     `generate_square_labels_pdf`) e o nome do arquivo.
 
     `?tema=light|dark` (pedido de 16/09/2026, mesma rodada da correção de

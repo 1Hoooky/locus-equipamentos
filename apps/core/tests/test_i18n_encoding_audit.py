@@ -297,30 +297,48 @@ class EquipmentPdfLabelAccentedTest(TestCase):
 
     def test_label_pdf_renders_accented_model_and_category_names(self):
         """
-        A etiqueta "antiga" (100x50mm, `generate_label_pdf`) embute
-        `model.name`/`category.name` como texto — diferente do padrão novo
-        6x6 (que só usa o código, sempre ASCII) — é o ponto certo para
-        provar que acentos sobrevivem até o PDF final via WeasyPrint.
+        A etiqueta "antiga" (`generate_label_pdf`) embute o patrimônio
+        (sempre ASCII, gerado a partir de `model.code`) e, na rodada de
+        padronização física para o adesivo 60×40mm, teve TODO texto fixo
+        acentuado ("Locações", "IDENTIFICAÇÃO...") cortado de propósito
+        (prioridade explícita do pedido: identidade visual/decoração cede
+        espaço antes de QR/patrimônio/código de barras) — não sobra mais
+        nenhum texto acentuado fixo nela para provar sobrevivência de
+        acento via WeasyPrint.
+
+        A etiqueta "nova"/simplificada (`generate_square_label_pdf`) já
+        não embute nome de modelo/categoria por design (só código +
+        QR + identificador legado opcional) — mas `legacy_code` é texto
+        livre (`Equipment.legacy_code`, sem validador de charset,
+        "código da planilha antiga"), então É um ponto real do mesmo
+        pipeline (`render_to_string` + WeasyPrint + DejaVu Sans) onde
+        acento de usuário pode aparecer na prática — usado aqui para
+        continuar provando que acentos sobrevivem até o PDF final.
         """
         from pypdf import PdfReader
 
-        from apps.qrcodes.services import generate_label_pdf
+        from apps.qrcodes.services import generate_label_pdf, generate_square_label_pdf
 
         category = Category.objects.create(name="Climatização")
         model = EquipmentModel.objects.create(category=category, name="Refrigeração Compacta", code="RFCP")
         admin = User.objects.create_superuser(username="aud_pdf_admin", password="senha-forte-123", email="f@f.com")
-        equipment = create_equipment(NewEquipmentData(model_id=model.pk, created_by=admin))
+        legacy_code_acentuado = "Instalação São José nº 3"
+        equipment = create_equipment(
+            NewEquipmentData(model_id=model.pk, created_by=admin, legacy_code=legacy_code_acentuado)
+        )
 
         pdf_bytes = generate_label_pdf(equipment)
         reader = PdfReader(__import__("io").BytesIO(pdf_bytes))
-        text = reader.pages[0].extract_text()
+        text = reader.pages[0].extract_text().replace("\n", "")
+        # O patrimônio pode quebrar em até 2 linhas nesse layout (ver
+        # docs/apps/qrcodes.md) — comparação ignora a quebra, não o
+        # conteúdo.
         self.assertIn(equipment.patrimonio, text)
-        # O template não embute o nome do modelo/categoria (só marca
-        # fixa + patrimônio) — o que prova a sobrevivência de acentos até
-        # o PDF final via WeasyPrint é o próprio texto fixo do template
-        # ("Locações", "IDENTIFICAÇÃO").
-        self.assertIn("Locações", text)
-        self.assertIn("IDENTIFICAÇÃO", text)
+
+        square_pdf_bytes = generate_square_label_pdf(equipment)
+        square_reader = PdfReader(__import__("io").BytesIO(square_pdf_bytes))
+        square_text = square_reader.pages[0].extract_text()
+        self.assertIn(legacy_code_acentuado, square_text)
 
 
 @override_settings(DEBUG=False)

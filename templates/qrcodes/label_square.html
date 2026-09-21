@@ -4,26 +4,40 @@
 <meta charset="UTF-8">
 <style>
   /*
-    Etiqueta 6x6 ("padrão novo"): quadrada, `label_size_mm` x
-    `label_size_mm` (60x60mm por padrão, vem do Python —
-    apps/qrcodes/services.py::SQUARE_LABEL_SIZE_MM — nunca fixo aqui).
+    Etiqueta "nova"/simplificada — nome de arquivo/classe "square"
+    herdado de quando o formato era literalmente quadrado (60x60mm,
+    08/09/2026); a partir da rodada de padronização física, o canvas
+    passou a ser o adesivo real da Locus: `label_width_mm` ×
+    `label_height_mm` (60×40mm, vem do Python —
+    apps/qrcodes/services.py::SIMPLE_LABEL_WIDTH_MM/
+    SIMPLE_LABEL_HEIGHT_MM — nunca fixo aqui).
 
-    Conteúdo, de cima para baixo, sem nenhum título/rótulo antes de cada
-    linha (ajuste visual de 08/09/2026 — pedido explícito: "NI23BT",
-    nunca "Código do modelo: NI23BT"):
-      1. QR Code — elemento visual PREDOMINANTE, maior área da etiqueta.
-      2. Código do modelo (`model.code`, ex. "NI23BT") — negrito, grande.
+    Conteúdo, de cima para baixo (ordem trocada nesta rodada — antes o QR
+    vinha primeiro; o pedido de padronização física pede "código do
+    modelo centralizado no topo" antes do QR), sem nenhum título/rótulo
+    antes de cada linha (ajuste visual de 08/09/2026 — "NI23BT", nunca
+    "Código do modelo: NI23BT"):
+      1. Código do modelo (`model.code`, ex. "NI23BT") — negrito.
+      2. QR Code — elemento visual PRINCIPAL, centralizado horizontalmente.
       3. Identificador legado — menor, ainda bem legível; linha omitida
-         por completo quando o equipamento não tem um.
+         por completo quando o equipamento não tem um (nunca um
+         traço/placeholder).
     Sem logo, sem patrimônio, sem código de barras, sem URL escrita.
 
+    Layout SEMPRE em coluna única, vertical, centralizado — nunca duas
+    colunas (isso é próprio da etiqueta ANTIGA/completa, ver
+    templates/qrcodes/label.html, intocada por esta mudança). O bloco
+    inteiro (`.label`) é centralizado verticalmente dentro do canvas
+    (`justify-content: center`) — quando não há identificador legado, o
+    espaço que sobra se redistribui de forma equilibrada ao redor do
+    conjunto código+QR, em vez de deixar uma "sobra" presa embaixo.
+
     Uma página por etiqueta, no tamanho físico exato — mesmo raciocínio
-    de templates/qrcodes/label.html (a etiqueta ANTIGA, intocada por
-    esta mudança): é o formato que serviços de gráfica/impressão de
-    etiqueta esperam.
+    de templates/qrcodes/label.html: é o formato que serviços de
+    gráfica/impressão de etiqueta esperam.
   */
   @page {
-    size: {{ label_size_mm }}mm {{ label_size_mm }}mm;
+    size: {{ label_width_mm }}mm {{ label_height_mm }}mm;
     margin: 0;
   }
   * { box-sizing: border-box; }
@@ -34,15 +48,50 @@
   }
 
   .label {
-    width: {{ label_size_mm }}mm;
-    height: {{ label_size_mm }}mm;
-    padding: 2.5mm 3mm 2mm;
+    width: {{ label_width_mm }}mm;
+    height: {{ label_height_mm }}mm;
+    padding: 1mm 3mm;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
+    /* Centraliza o conjunto verticalmente — é o que absorve a diferença
+       de altura entre "com legado" e "sem legado" sem mudar o tamanho do
+       QR (fixo, ver `.qr-image` abaixo) nem deixar espaço vazio preso
+       numa borda só. */
+    justify-content: center;
     page-break-after: always;
     overflow: hidden;
+  }
+
+  /*
+    Código do modelo — agora a PRIMEIRA linha (pedido de padronização
+    física: "código do modelo centralizado no topo"), nunca o nome
+    comercial/descritivo (ver `_square_label_context` em
+    apps/qrcodes/services.py). Negrito, sem rótulo/título antes.
+  */
+  .model-code {
+    /*
+      `width` explícito (não só `max-width`) — dentro do `.label` em
+      flex column com `align-items: center`, um parágrafo sem largura
+      fixa vira "shrink-to-fit" e o WeasyPrint não aplica
+      `text-overflow: ellipsis` de forma confiável (testado: um
+      `model.code` de 20 caracteres — o máximo permitido pelo cadastro,
+      ver CODE_VALIDATOR em apps/catalog/models.py — extrapolava a
+      largura inteira do adesivo em vez de truncar). `width: 92%` força
+      o cálculo de overflow a acontecer de verdade.
+    */
+    display: block;
+    width: 92%;
+    margin: 0 0 0.8mm 0;
+    font-size: 11pt;
+    font-weight: bold;
+    letter-spacing: 0.2pt;
+    line-height: 1.05;
+    text-align: center;
+    color: #000;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /*
@@ -58,38 +107,26 @@
   */
   .qr-wrap {
     background: #fff;
-    padding: 1.5mm;
+    padding: 0.7mm;
     border-radius: 1mm;
     flex: 0 0 auto;
   }
   .qr-image {
     display: block;
-    /* Maior área da etiqueta, de propósito (pedido explícito: "o QR
-       Code deve ser o elemento visual predominante"). */
-    width: 40mm;
-    height: 40mm;
+    /*
+      Tamanho FIXO (`qr_size_mm`, apps/qrcodes/services.py::
+      SIMPLE_LABEL_QR_SIZE_MM) — o mesmo com ou sem identificador legado,
+      auditado/medido fisicamente no PDF real (WeasyPrint + pdfplumber,
+      não "no olho") como o maior que cabe sem colidir com o texto no
+      cenário mais apertado (com legado). Fixo nos dois casos de
+      propósito: evita que a etiqueta tenha dois "pesos" visuais
+      diferentes para o mesmo formato — só o espaço livre ao redor
+      (`.label { justify-content: center }` acima) se redistribui.
+    */
+    width: {{ qr_size_mm }}mm;
+    height: {{ qr_size_mm }}mm;
     object-fit: contain;
     image-rendering: pixelated;
-  }
-
-  /*
-    Código do modelo — identificação visual principal abaixo do QR
-    (nunca o nome comercial/descritivo, ver `_square_label_context` em
-    apps/qrcodes/services.py). Negrito, tamanho grande "para leitura
-    rápida" (pedido explícito), sem rótulo/título antes.
-  */
-  .model-code {
-    margin: 1.5mm 0 0 0;
-    font-size: 16pt;
-    font-weight: bold;
-    letter-spacing: 0.2pt;
-    line-height: 1.1;
-    text-align: center;
-    color: #000;
-    max-width: 92%;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   /*
@@ -99,12 +136,16 @@
     vazio — nunca um traço/placeholder.
   */
   .legacy-code {
-    margin: 1mm 0 0 0;
-    font-size: 9.5pt;
-    line-height: 1.1;
+    /* Mesmo raciocínio de `.model-code` acima: `width` explícito, não
+       só `max-width`, para o truncamento por reticências funcionar de
+       verdade dentro do flex column. */
+    display: block;
+    width: 92%;
+    margin: 0.8mm 0 0 0;
+    font-size: 7.5pt;
+    line-height: 1.05;
     text-align: center;
     color: #000;
-    max-width: 92%;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -129,10 +170,10 @@
 <body{% if theme == "dark" %} class="theme-dark"{% endif %}>
   {% for label in labels %}
   <div class="label">
+    <p class="model-code">{{ label.model_code }}</p>
     <div class="qr-wrap">
       <img class="qr-image" src="{{ label.qr_data_uri }}" alt="QR Code {{ label.model_code }}">
     </div>
-    <p class="model-code">{{ label.model_code }}</p>
     {% if label.legacy_code %}<p class="legacy-code">{{ label.legacy_code }}</p>{% endif %}
   </div>
   {% endfor %}

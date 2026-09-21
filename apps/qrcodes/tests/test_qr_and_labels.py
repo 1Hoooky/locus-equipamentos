@@ -25,7 +25,9 @@ from apps.equipment.services import NewEquipmentData, create_equipment
 from apps.qrcodes.services import (
     LABEL_HEIGHT_MM,
     LABEL_WIDTH_MM,
-    SQUARE_LABEL_SIZE_MM,
+    SIMPLE_LABEL_HEIGHT_MM,
+    SIMPLE_LABEL_QR_SIZE_MM,
+    SIMPLE_LABEL_WIDTH_MM,
     _label_context,
     _sanitize_path_segment,
     _square_label_context,
@@ -44,6 +46,22 @@ from apps.qrcodes.services import (
 User = get_user_model()
 
 MM_TO_PT = 2.834645669
+
+
+def _assert_patrimonio_legible(testcase, patrimonio: str, extracted_text: str):
+    """
+    Confirma que o patrimônio aparece por inteiro no texto extraído do
+    PDF, tolerando a quebra em até 2 linhas introduzida na rodada de
+    padronização física (canvas de 60×40mm — largura menor que a
+    etiqueta antiga de 100×50mm, sem espaço para o patrimônio inteiro
+    numa linha só sem truncar; ver templates/qrcodes/label.html,
+    `.identity-patrimonio`). O WeasyPrint/pypdf insere uma quebra de
+    linha real no texto extraído nesse ponto — comparamos ignorando
+    quebras de linha, não os bytes crus, porque o requisito é o
+    patrimônio estar LEGÍVEL por inteiro (seção 1: "escrito em destaque,
+    legível"), não necessariamente numa única linha.
+    """
+    testcase.assertIn(patrimonio, extracted_text.replace("\n", ""))
 
 
 class QRServiceTest(TestCase):
@@ -138,13 +156,16 @@ class LabelPdfContentTest(TestCase):
         pdf_bytes = generate_label_pdf(self.equipment)
         reader = self._read_pdf(pdf_bytes)
         text = reader.pages[0].extract_text()
-        self.assertIn(self.equipment.patrimonio, text)
+        _assert_patrimonio_legible(self, self.equipment.patrimonio, text)
 
     def test_label_pdf_has_the_configured_physical_dimensions(self):
         """
-        100×50mm por padrão, mas lido de `LABEL_WIDTH_MM`/`LABEL_HEIGHT_MM`
-        (não um número mágico duplicado aqui) — é exatamente essa
-        configurabilidade centralizada que a seção 1 do pedido exige.
+        Padrão físico único de adesivo (60×40mm, rodada de padronização
+        física), mas lido de `LABEL_WIDTH_MM`/`LABEL_HEIGHT_MM` (não um
+        número mágico duplicado aqui) — é exatamente essa
+        configurabilidade centralizada que a seção 1 do pedido original
+        exige, e que permitiu a mudança de tamanho sem tocar em nenhum
+        teste que usa as constantes em vez de números fixos.
         """
         pdf_bytes = generate_label_pdf(self.equipment)
         reader = self._read_pdf(pdf_bytes)
@@ -241,7 +262,7 @@ class LabelThemeServiceTest(TestCase):
             with self.subTest(theme=theme):
                 pdf_bytes = generate_label_pdf(self.equipment, theme=theme)
                 text = self._read_pdf(pdf_bytes).pages[0].extract_text()
-                self.assertIn(self.equipment.patrimonio, text)
+                _assert_patrimonio_legible(self, self.equipment.patrimonio, text)
 
     def test_qr_content_is_identical_regardless_of_theme(self):
         """
@@ -270,20 +291,24 @@ class LabelThemeServiceTest(TestCase):
         reader = self._read_pdf(pdf_bytes)
         self.assertEqual(len(reader.pages), 2)
         full_text = "".join(page.extract_text() for page in reader.pages)
-        self.assertIn(self.equipment.patrimonio, full_text)
-        self.assertIn(second_equipment.patrimonio, full_text)
+        _assert_patrimonio_legible(self, self.equipment.patrimonio, full_text)
+        _assert_patrimonio_legible(self, second_equipment.patrimonio, full_text)
 
 
 class SquareLabelServiceTest(TestCase):
     """
-    Etiqueta 6x6 ("padrão novo" — correção de requisito de 08/09/2026,
-    ajuste visual de conteúdo também em 08/09/2026): template/funções
-    SEPARADOS de `generate_label_pdf`/`label.html` (a etiqueta antiga,
-    100x50mm — ver `LabelThemeServiceTest` acima, que continua intacta).
-    Conteúdo esperado: só QR, CÓDIGO DO MODELO (`model.code`, ex.
-    "NI23BT" — nunca `model.name`, o nome comercial/descritivo, ex.
-    "NI23 Big Tank") e identificador legado (omitido quando vazio) —
-    nada de logo, patrimônio, código de barras, URL ou título.
+    Etiqueta "nova"/simplificada (nome de classe/função "Square" herdado
+    de quando o formato era literalmente quadrado, 60x60mm — correção de
+    requisito de 08/09/2026, ajuste visual de conteúdo também em
+    08/09/2026; canvas físico passou a ser 60×40mm na rodada de
+    padronização física, mesmo padrão único de adesivo de
+    `LabelThemeServiceTest` acima): template/funções SEPARADOS de
+    `generate_label_pdf`/`label.html` (a etiqueta antiga/completa — ver
+    `LabelThemeServiceTest` acima, que continua intacta). Conteúdo
+    esperado: só QR, CÓDIGO DO MODELO (`model.code`, ex. "NI23BT" —
+    nunca `model.name`, o nome comercial/descritivo, ex. "NI23 Big
+    Tank") e identificador legado (omitido quando vazio) — nada de logo,
+    patrimônio, código de barras, URL ou título.
     """
 
     def setUp(self):
@@ -301,20 +326,39 @@ class SquareLabelServiceTest(TestCase):
 
         return PdfReader(io.BytesIO(pdf_bytes))
 
-    def test_light_theme_is_a_valid_pdf_at_the_configured_square_size(self):
+    def test_light_theme_is_a_valid_pdf_at_the_configured_sticker_size(self):
         pdf_bytes = generate_square_label_pdf(self.equipment)
         reader = self._read_pdf(pdf_bytes)
         self.assertEqual(len(reader.pages), 1)
         box = reader.pages[0].mediabox
-        self.assertAlmostEqual(float(box.width) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
-        self.assertAlmostEqual(float(box.height) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
+        self.assertAlmostEqual(float(box.width) / MM_TO_PT, SIMPLE_LABEL_WIDTH_MM, places=1)
+        self.assertAlmostEqual(float(box.height) / MM_TO_PT, SIMPLE_LABEL_HEIGHT_MM, places=1)
 
-    def test_dark_theme_is_a_valid_pdf_at_the_same_square_size(self):
+    def test_dark_theme_is_a_valid_pdf_at_the_same_sticker_size(self):
         pdf_bytes = generate_square_label_pdf(self.equipment, theme="dark")
         reader = self._read_pdf(pdf_bytes)
         box = reader.pages[0].mediabox
-        self.assertAlmostEqual(float(box.width) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
-        self.assertAlmostEqual(float(box.height) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
+        self.assertAlmostEqual(float(box.width) / MM_TO_PT, SIMPLE_LABEL_WIDTH_MM, places=1)
+        self.assertAlmostEqual(float(box.height) / MM_TO_PT, SIMPLE_LABEL_HEIGHT_MM, places=1)
+
+    def test_qr_inside_the_sticker_is_square_and_uses_the_configured_size(self):
+        """
+        O CANVAS do adesivo não é mais quadrado (60×40mm), mas o QR em si
+        continua sendo — medido fisicamente no PDF real (pdfplumber),
+        não só confiando que o CSS declara os valores certos.
+        """
+        import pdfplumber
+
+        pdf_bytes = generate_square_label_pdf(self.equipment)
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            images = pdf.pages[0].images
+            self.assertEqual(len(images), 1)
+            pt_per_mm = 72 / 25.4
+            width_mm = (images[0]["x1"] - images[0]["x0"]) / pt_per_mm
+            height_mm = (images[0]["bottom"] - images[0]["top"]) / pt_per_mm
+            self.assertAlmostEqual(width_mm, SIMPLE_LABEL_QR_SIZE_MM, places=1)
+            self.assertAlmostEqual(height_mm, SIMPLE_LABEL_QR_SIZE_MM, places=1)
+            self.assertAlmostEqual(width_mm, height_mm, places=2, msg="QR precisa continuar quadrado mesmo num canvas retangular.")
 
     def test_default_theme_matches_explicit_light_theme(self):
         """Mesmo raciocínio de `LabelThemeServiceTest`: comparar texto/dimensões, nunca bytes brutos (metadata do WeasyPrint não é determinística)."""
@@ -555,12 +599,12 @@ class QRDownloadPermissionTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/pdf")
 
-    def test_label_pdf_download_uses_the_new_square_format(self):
+    def test_label_pdf_download_uses_the_new_simplified_format(self):
         """
         Download individual (pedido de 08/09/2026: "downloads
         individuais continuam como estão, mas também devem sair no
-        padrão 6 por 6") — mesma interação/URL de sempre, conteúdo no
-        novo tamanho quadrado.
+        padrão simplificado") — mesma interação/URL de sempre, conteúdo
+        no padrão físico único de adesivo (60×40mm).
         """
         from pypdf import PdfReader
 
@@ -568,8 +612,8 @@ class QRDownloadPermissionTest(TestCase):
         response = self.client.get(self._label_url())
         reader = PdfReader(io.BytesIO(response.content))
         box = reader.pages[0].mediabox
-        self.assertAlmostEqual(float(box.width) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
-        self.assertAlmostEqual(float(box.height) / MM_TO_PT, SQUARE_LABEL_SIZE_MM, places=1)
+        self.assertAlmostEqual(float(box.width) / MM_TO_PT, SIMPLE_LABEL_WIDTH_MM, places=1)
+        self.assertAlmostEqual(float(box.height) / MM_TO_PT, SIMPLE_LABEL_HEIGHT_MM, places=1)
         self.assertIn(self.equipment.model.code, reader.pages[0].extract_text())
 
 

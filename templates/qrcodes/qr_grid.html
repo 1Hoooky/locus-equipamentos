@@ -50,9 +50,13 @@ não só defensivo.
     hoje sempre inativo) também ganha a variante clara para continuar
     legível se um dia for usado.
 
-    DIMENSIONAMENTO FÍSICO (correção de 16/09/2026): o requisito agora é
-    que cada QR impresso meça EXATAMENTE 50×50mm e que a grade inteira
-    fique centralizada na folha A4 — não "no olho", calculado. Por isso:
+    DIMENSIONAMENTO FÍSICO (rodada de padronização física — adesivo real
+    60×40mm): cada CÉLULA da grade passou a ser, literalmente, 1 adesivo
+    (`cell_width_mm` × `cell_height_mm`, retangular), com o QR (sempre
+    quadrado, `qr_size_mm`) centralizado dentro dela — diferente da
+    versão anterior (célula quadrada do mesmo tamanho do QR, sem sobra).
+    A técnica de cálculo da correção de 16/09/2026 continua valendo,
+    só reaplicada às novas medidas:
 
     - `@page { margin: 0 }`: nenhuma margem "de fábrica" do WeasyPrint
       participa do cálculo — toda margem visível vem do `padding` do
@@ -69,12 +73,11 @@ não só defensivo.
       exatamente — os números batem porque o Python já garante isso
       (`QR_GRID_WIDTH_MM`/`QR_GRID_MARGIN_HORIZONTAL_MM` derivados uns
       dos outros, nunca hardcoded em paralelo).
-    - `.qr-image` é `cell_size_mm × cell_size_mm` SEM nenhum
-      padding/wrapper/borda por cima — a imagem do QR (que já embute a
-      própria quiet zone, gerada pela biblioteca `qrcode`) ocupa o
-      quadrado físico inteiro, exatamente como pedido ("a área
-      preta/branca completa da imagem QR... deve ocupar o quadrado
-      físico de 50×50mm").
+    - `.qr-cell` é `cell_width_mm × cell_height_mm` (o adesivo inteiro);
+      `.qr-image`, dentro dela, é `qr_size_mm × qr_size_mm` (sempre
+      quadrada) e fica centralizada pelo `display:flex` da célula — a
+      folga ao redor do QR (margem do adesivo) é o que sobra da célula
+      menos o QR, nunca um valor calculado em paralelo no CSS.
 
     Página incompleta (menos de `QR_GRID_COLUMNS*QR_GRID_ROWS` itens):
     o `.qr-page` continua com o tamanho/padding da folha cheia — só o
@@ -127,8 +130,8 @@ não só defensivo.
   }
 
   .qr-cell {
-    width: {{ cell_size_mm }}mm;
-    height: {{ cell_size_mm }}mm;
+    width: {{ cell_width_mm }}mm;
+    height: {{ cell_height_mm }}mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -137,27 +140,28 @@ não só defensivo.
 
   .qr-image {
     display: block;
-    /* Sem margem/padding/borda ao redor — o QR (já com sua própria
-       quiet zone embutida) preenche o quadrado físico inteiro de
-       `cell_size_mm`. `object-fit: contain` é só defensivo (a imagem já
-       nasce quadrada do gerador — apps/qrcodes/services.py::
-       generate_qr_png — então isto nunca corta/distorce, só garante que
-       um PNG não-quadrado nunca seria esticado). */
-    width: {{ cell_size_mm }}mm;
-    height: {{ cell_size_mm }}mm;
+    /* QR sempre quadrado (`qr_size_mm × qr_size_mm`), centralizado pelo
+       flex da célula — a folga entre o QR e a borda do adesivo
+       (`cell_width_mm`/`cell_height_mm`) é a margem física do adesivo em
+       si, calculada em Python (ver comentário de dimensionamento acima),
+       nunca um padding paralelo escrito aqui. `object-fit: contain` é só
+       defensivo (a imagem já nasce quadrada do gerador —
+       apps/qrcodes/services.py::generate_qr_png — então isto nunca
+       corta/distorce, só garante que um PNG não-quadrado nunca seria
+       esticado). */
+    width: {{ qr_size_mm }}mm;
+    height: {{ qr_size_mm }}mm;
     object-fit: contain;
     image-rendering: pixelated;
   }
 
   /*
     Ponto de extensão futuro, hoje sempre inativo (`label.caption` é
-    sempre `None` — nenhuma opção de UI o preenche). AVISO caso isso
-    mude um dia: `.qr-cell` agora é `cell_size_mm × cell_size_mm` exato
-    e `overflow: hidden` (exigência de 16/09/2026 — o QR precisa ocupar
-    o quadrado inteiro, sem sobra), então uma legenda ativada aqui seria
-    cortada — layout precisaria ser revisto (ex.: reservar altura extra
-    fora do quadrado do QR) antes de qualquer UI passar a preencher
-    `caption`.
+    sempre `None` — nenhuma opção de UI o preenche). Diferente da versão
+    anterior (célula quadrada = tamanho do QR, sem sobra nenhuma), a
+    célula agora é o adesivo inteiro (`cell_width_mm × cell_height_mm`)
+    e o QR ocupa só parte dela — já existe margem real ao redor para uma
+    legenda futura, sem precisar revisar o layout.
   */
   .qr-caption {
     margin: 0.5mm 0 0 0;

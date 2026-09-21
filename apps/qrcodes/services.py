@@ -34,21 +34,34 @@ from weasyprint import HTML
 
 from apps.equipment.models import Equipment
 
-# Tamanho físico da etiqueta (seção 1 do pedido): centralizado aqui, não
-# espalhado pelo template/CSS, para que uma alteração futura de tamanho
-# (ex.: passar para 80×40mm) seja só trocar estes dois números — o
-# gerador (`generate_labels_pdf` abaixo) e o template
-# (`templates/qrcodes/label.html`) leem o tamanho daqui, nunca com um
-# valor fixo escrito em outro lugar.
-LABEL_WIDTH_MM = 100
-LABEL_HEIGHT_MM = 50
+# --------------------------------------------------------------------------
+# PADRÃO FÍSICO DO ADESIVO — fonte ÚNICA de verdade para o tamanho do
+# CANVAS impresso (rodada de padronização física, pedido explícito: o
+# adesivo real disponível para uso da Locus é 60×40mm). Tanto a etiqueta
+# "antiga"/completa quanto a "nova"/simplificada abaixo imprimem nesse
+# MESMO canvas — só a composição (o que é desenhado dentro dele) muda
+# entre as duas. É esta constante única que evita o problema que motivou
+# a mudança: um renderer futuro "esquecido" num tamanho antigo (ex.:
+# Admin ainda em 100×50) enquanto os demais já usam o padrão novo — todo
+# fluxo físico deste app (individual, lote, admin, cadastro em lote) lê
+# o tamanho daqui, nunca de um valor duplicado em paralelo.
+#
+# IMPORTANTE: isto é o tamanho do ADESIVO/CANVAS físico, não do QR Code.
+# O QR em si (`generate_qr_png` acima) é e continua sendo SEMPRE
+# quadrado, gerado sem nenhuma noção de "60×40" — cada renderer abaixo
+# decide, por conta própria, que fração quadrada desse canvas retangular
+# o QR ocupa (ver `SIMPLE_LABEL_QR_SIZE_MM`/`QR_GRID_QR_SIZE_MM` abaixo).
+STICKER_WIDTH_MM = 60
+STICKER_HEIGHT_MM = 40
 
-# Texto fixo do rodapé da etiqueta — deliberadamente uma constante, não
-# derivado de `settings.SITE_BASE_URL`: em ambiente de desenvolvimento/
-# validação isso mostraria "localhost:8000" (ou o domínio de staging) na
-# etiqueta impressa, o que é informação técnica/de debug, não uma marca
-# adequada para uma etiqueta física aprovada pelo layout de referência.
-LABEL_FOOTER_TEXT = "www.locuslocacoes.com.br"
+# Etiqueta "antiga"/completa (seção 1 da especificação original) — nomes
+# mantidos por compatibilidade com o resto do código/testes que já os
+# importava; só o VALOR passou a vir do padrão único de adesivo acima
+# (antes: 100×50, fixo aqui mesmo). `generate_labels_pdf` abaixo e
+# `templates/qrcodes/label.html` continuam lendo o tamanho só daqui,
+# nunca com um valor fixo escrito em outro lugar.
+LABEL_WIDTH_MM = STICKER_WIDTH_MM
+LABEL_HEIGHT_MM = STICKER_HEIGHT_MM
 
 # Tema visual da etiqueta (pedido de 04/09/2026: modal LIGHT/DARK antes
 # do download em lote — ver apps/equipment/admin.py e
@@ -122,7 +135,6 @@ def _label_context(equipment: Equipment) -> dict:
         "category_name": equipment.category.name,
         "qr_data_uri": _qr_data_uri(equipment),
         "barcode_data_uri": _barcode_data_uri(equipment),
-        "footer_text": LABEL_FOOTER_TEXT,
     }
 
 
@@ -242,7 +254,7 @@ def generate_labels_zip(equipment_list: list[Equipment]) -> bytes:
     Patrimônio.pdf usada por `generate_qr_zip` (seção 4 do pedido: "manter
     a mesma organização por categoria/modelo"). Também só em memória.
 
-    Continua gerando a etiqueta ANTIGA (100x50mm, `generate_label_pdf`/
+    Continua gerando a etiqueta ANTIGA/completa (`generate_label_pdf`/
     `templates/qrcodes/label.html`) de propósito: é a função por trás do
     botão "Exportar Etiquetas", que o pedido de 08/09/2026 (correção do
     requisito de etiquetas) explicitamente decidiu manter como está,
@@ -258,14 +270,18 @@ def generate_labels_zip(equipment_list: list[Equipment]) -> bytes:
 
 
 # --------------------------------------------------------------------------
-# Etiqueta 6x6 ("padrão novo" — correção de requisito de 08/09/2026,
-# ajuste visual de conteúdo também em 08/09/2026): etiqueta quadrada de
-# 60x60mm com SÓ QR Code, código do modelo (`model.code`, ex. "NI23BT"
-# — NUNCA o nome comercial/descritivo, ex. "Big Tank") e identificador
-# legado, nesta ordem, de cima para baixo, sem título/rótulo antes de
-# cada linha. Sem logo, sem patrimônio novo, sem código de barras, sem
-# URL escrita — tudo isso é próprio da etiqueta ANTIGA (100x50mm,
-# `generate_label_pdf` acima) e permanece intocado lá.
+# Etiqueta "nova"/simplificada — nome de função/variável "square" herdado
+# de quando este formato era literalmente quadrado (60x60mm, correção de
+# requisito de 08/09/2026); mantido por compatibilidade com o resto do
+# código/testes mesmo agora que o canvas não é mais quadrado — é o MESMO
+# padrão único de adesivo (`STICKER_WIDTH_MM`/`STICKER_HEIGHT_MM`) da
+# etiqueta antiga acima, só a composição interna que é diferente: SÓ QR
+# Code, código do modelo (`model.code`, ex. "NI23BT" — NUNCA o nome
+# comercial/descritivo, ex. "Big Tank") e identificador legado, nesta
+# ordem, de cima para baixo, sem título/rótulo antes de cada linha. Sem
+# logo, sem patrimônio novo, sem código de barras, sem URL escrita — tudo
+# isso é próprio da etiqueta ANTIGA (`generate_label_pdf` acima) e
+# permanece intocado lá.
 #
 # Deliberadamente um conjunto de funções/template SEPARADO (nunca uma
 # alteração de `generate_label_pdf`/`generate_labels_pdf`/`label.html`):
@@ -282,7 +298,24 @@ def generate_labels_zip(equipment_list: list[Equipment]) -> bytes:
 # central" no topo deste arquivo).
 # --------------------------------------------------------------------------
 
-SQUARE_LABEL_SIZE_MM = 60
+SIMPLE_LABEL_WIDTH_MM = STICKER_WIDTH_MM
+SIMPLE_LABEL_HEIGHT_MM = STICKER_HEIGHT_MM
+
+# Tamanho do QR dentro da etiqueta simplificada — FIXO nos dois casos
+# (com ou sem identificador legado): o pedido de padronização física
+# permite "redistribuir discretamente o espaço vertical para favorecer o
+# QR" quando a linha do legado não existe, mas manter um único valor de
+# QR nos dois casos evita dois "pesos" visuais diferentes para o mesmo
+# formato de etiqueta — a diferença fica só no espaço livre ao redor
+# (centralizado verticalmente pelo template), nunca no tamanho do QR em
+# si. 27mm foi o valor auditado/medido fisicamente no PDF real (via
+# WeasyPrint + pdfplumber, não "no olho"): o maior que cabe, no cenário
+# mais apertado (COM identificador legado — 3 linhas de conteúdo no
+# canvas de 40mm de altura), sem cortar nenhum texto — uma primeira
+# tentativa em 30mm estourava a altura disponível e cortava a linha do
+# legado inteira (`overflow: hidden` no `.label`); ver
+# docs/apps/qrcodes.md.
+SIMPLE_LABEL_QR_SIZE_MM = 27
 
 
 def _square_label_context(equipment: Equipment) -> dict:
@@ -331,7 +364,9 @@ def generate_square_labels_pdf(equipment_list: list[Equipment], theme: str = LAB
         "qrcodes/label_square.html",
         {
             "labels": labels,
-            "label_size_mm": SQUARE_LABEL_SIZE_MM,
+            "label_width_mm": SIMPLE_LABEL_WIDTH_MM,
+            "label_height_mm": SIMPLE_LABEL_HEIGHT_MM,
+            "qr_size_mm": SIMPLE_LABEL_QR_SIZE_MM,
             "theme": theme,
         },
     )
@@ -372,40 +407,49 @@ def generate_square_labels_zip(equipment_list: list[Equipment], theme: str = LAB
 # template (`templates/qrcodes/qr_grid.html`) só lê estes números, nunca
 # um valor fixo escrito lá.
 #
-# CORREÇÃO de 16/09/2026: a primeira versão usava célula de ~48mm e
-# margem uniforme de 10mm — a validação visual/física mostrou a grade
-# deslocada para a esquerda (a margem direita sobrando não era
-# compensada) e o QR impresso não batia com o requisito explícito de
-# 50×50mm exatos. Agora as medidas garantem os dois:
+# RODADA DE PADRONIZAÇÃO FÍSICA (adesivo real 60×40mm): cada CÉLULA da
+# grade passou a ser, literalmente, 1 adesivo (`STICKER_WIDTH_MM` ×
+# `STICKER_HEIGHT_MM` — o mesmo canvas das etiquetas antiga/simplificada
+# acima), não mais um quadrado do tamanho exato do QR. Isso muda a
+# composição: o QR (sempre quadrado) fica CENTRALIZADO dentro da célula
+# retangular, com uma margem visível ao redor — antes (célula quadrada de
+# 50×50mm) o QR preenchia a célula inteira, sem sobra nenhuma.
 #
-# 1. QR_GRID_CELL_SIZE_MM = 50 — o QR (imagem inteira, incluindo a
-#    quiet zone que a própria biblioteca `qrcode` já embute) ocupa a
-#    célula INTEIRA, sem nenhum padding/wrapper/borda reduzindo o
-#    tamanho visível (ver `qr_grid.html`: `.qr-image` é exatamente
-#    `cell_size_mm × cell_size_mm`, nada por cima).
-# 2. A grade INTEIRA (não a página) é centralizada em A4 — calculado
-#    aqui em Python, nunca deixado para margem default de navegador/
-#    WeasyPrint:
-#      largura da grade  = 3×50 + 2×5 (gutter) = 160mm
-#      altura da grade    = 5×50 + 4×5 (gutter) = 270mm
-#      margem horizontal = (210 - 160) / 2 = 25mm de cada lado
-#      margem vertical    = (297 - 270) / 2 = 13.5mm de cada lado
+# CORREÇÃO de 16/09/2026 (registro histórico, ainda válida): a primeira
+# versão usava célula de ~48mm e margem uniforme de 10mm — a validação
+# visual/física mostrou a grade deslocada para a esquerda (a margem
+# direita sobrando não era compensada). A técnica de cálculo desta seção
+# (margens derivadas matematicamente, nunca auto-centralização de
+# flex/margin:auto) é a mesma daquela correção, só reaplicada às novas
+# medidas:
+#
+#      largura da grade  = 3×60 + 2×2 (gutter) = 184mm
+#      altura da grade    = 6×40 + 5×2 (gutter) = 250mm
+#      margem horizontal = (210 - 184) / 2 = 13mm de cada lado
+#      margem vertical    = (297 - 250) / 2 = 23.5mm de cada lado
 #    Essas margens são o `padding` do `.qr-page` no template (`@page`
 #    fica com `margin: 0`, controle 100% explícito em mm) — nunca
 #    resultado de auto-centralização/flex `justify-content: center`,
 #    que dependeria do render engine para não introduzir arredondamento.
 QR_GRID_PAGE_WIDTH_MM = 210  # A4 retrato
 QR_GRID_PAGE_HEIGHT_MM = 297  # A4 retrato
-QR_GRID_CELL_SIZE_MM = 50  # tamanho FÍSICO exigido do QR impresso — não aproximado
-QR_GRID_GUTTER_MM = 5
+QR_GRID_CELL_WIDTH_MM = STICKER_WIDTH_MM  # cada célula = 1 adesivo real (60mm)
+QR_GRID_CELL_HEIGHT_MM = STICKER_HEIGHT_MM  # (40mm)
+# Tamanho do QR dentro de cada célula — auditado/medido fisicamente no
+# PDF real (mesma técnica de `SIMPLE_LABEL_QR_SIZE_MM` acima): o maior
+# quadrado que cabe com folga simétrica nos dois eixos da célula 60×40
+# (2mm de margem vertical, ~12mm de margem horizontal) sem encostar nas
+# bordas — ver docs/apps/qrcodes.md.
+QR_GRID_QR_SIZE_MM = 36
+QR_GRID_GUTTER_MM = 2
 QR_GRID_COLUMNS = 3
-QR_GRID_ROWS = 5
-QR_GRID_PAGE_SIZE = QR_GRID_COLUMNS * QR_GRID_ROWS
+QR_GRID_ROWS = 6
+QR_GRID_PAGE_SIZE = QR_GRID_COLUMNS * QR_GRID_ROWS  # 18
 
-QR_GRID_WIDTH_MM = QR_GRID_COLUMNS * QR_GRID_CELL_SIZE_MM + (QR_GRID_COLUMNS - 1) * QR_GRID_GUTTER_MM  # 160
-QR_GRID_HEIGHT_MM = QR_GRID_ROWS * QR_GRID_CELL_SIZE_MM + (QR_GRID_ROWS - 1) * QR_GRID_GUTTER_MM  # 270
-QR_GRID_MARGIN_HORIZONTAL_MM = (QR_GRID_PAGE_WIDTH_MM - QR_GRID_WIDTH_MM) / 2  # 25.0
-QR_GRID_MARGIN_VERTICAL_MM = (QR_GRID_PAGE_HEIGHT_MM - QR_GRID_HEIGHT_MM) / 2  # 13.5
+QR_GRID_WIDTH_MM = QR_GRID_COLUMNS * QR_GRID_CELL_WIDTH_MM + (QR_GRID_COLUMNS - 1) * QR_GRID_GUTTER_MM  # 184
+QR_GRID_HEIGHT_MM = QR_GRID_ROWS * QR_GRID_CELL_HEIGHT_MM + (QR_GRID_ROWS - 1) * QR_GRID_GUTTER_MM  # 250
+QR_GRID_MARGIN_HORIZONTAL_MM = (QR_GRID_PAGE_WIDTH_MM - QR_GRID_WIDTH_MM) / 2  # 13.0
+QR_GRID_MARGIN_VERTICAL_MM = (QR_GRID_PAGE_HEIGHT_MM - QR_GRID_HEIGHT_MM) / 2  # 23.5
 
 
 def _qr_grid_cell_context(equipment: Equipment) -> dict:
@@ -459,7 +503,9 @@ def generate_qr_grid_pdf(equipment_list: list[Equipment], theme: str = LABEL_THE
             "pages": pages,
             "page_width_mm": QR_GRID_PAGE_WIDTH_MM,
             "page_height_mm": QR_GRID_PAGE_HEIGHT_MM,
-            "cell_size_mm": QR_GRID_CELL_SIZE_MM,
+            "cell_width_mm": QR_GRID_CELL_WIDTH_MM,
+            "cell_height_mm": QR_GRID_CELL_HEIGHT_MM,
+            "qr_size_mm": QR_GRID_QR_SIZE_MM,
             "gutter_mm": QR_GRID_GUTTER_MM,
             "margin_horizontal_mm": QR_GRID_MARGIN_HORIZONTAL_MM,
             "margin_vertical_mm": QR_GRID_MARGIN_VERTICAL_MM,
