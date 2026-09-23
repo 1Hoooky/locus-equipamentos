@@ -1,7 +1,22 @@
 """
-Testes da exportação em lote de QR Codes PUROS em PDF (pedido de
-16/09/2026) — `qrcodes:model_qr_grid` / `ModelQRGridDownloadView` /
-`generate_qr_grid_pdf`.
+Testes da exportação em lote de QR Codes PUROS em PDF —
+`qrcodes:model_qr_grid` / `ModelQRGridDownloadView`.
+
+CORREÇÃO de 23/09/2026 (a mais recente, a que este arquivo documenta com
+mais detalhe): a grade A4 (`generate_qr_grid_pdf`, 3×6 QRs por folha)
+imprimia errado na prática — adesivo alimentado folha a folha, sem o
+operador desabilitar "ajustar à página" no driver, saía cortado. A view
+passou a entregar um PDF MULTIPÁGINA (`generate_qr_batch_pdf`) onde CADA
+página é 1 adesivo físico inteiro (60×40mm) com 1 QR centralizado — o
+mesmo conceito de impressão que já funciona em `generate_labels_pdf`/
+`generate_square_labels_pdf`. Nome da URL/view/arquivo (`model_qr_grid`/
+`ModelQRGridDownloadView`/`qrcodes-{code}.pdf`) mantido de propósito (ver
+`apps/qrcodes/services.py` para o raciocínio completo).
+
+`generate_qr_grid_pdf`/`templates/qrcodes/qr_grid.html` continuam no
+código (não foram removidos, só deixaram de ser o que esta view entrega)
+— cobertos diretamente, sem passar por nenhuma view/URL, em
+`LegacyQrGridServiceStillWorksTest` no fim deste arquivo.
 
 O ponto mais importante aqui, igual ao resto da suíte de qrcodes: não é
 só "o PDF foi gerado" — é que cada QR aponta para a MESMA URL permanente
@@ -31,20 +46,20 @@ from apps.operations.models import Movement
 from apps.qrcodes.services import (
     LABEL_THEME_DARK,
     LABEL_THEME_LIGHT,
+    QR_BATCH_HEIGHT_MM,
+    QR_BATCH_QR_SIZE_MM,
+    QR_BATCH_WIDTH_MM,
     QR_GRID_CELL_HEIGHT_MM,
     QR_GRID_CELL_WIDTH_MM,
     QR_GRID_COLUMNS,
     QR_GRID_GUTTER_MM,
-    QR_GRID_HEIGHT_MM,
-    QR_GRID_MARGIN_HORIZONTAL_MM,
-    QR_GRID_MARGIN_VERTICAL_MM,
     QR_GRID_PAGE_HEIGHT_MM,
     QR_GRID_PAGE_SIZE,
     QR_GRID_PAGE_WIDTH_MM,
     QR_GRID_QR_SIZE_MM,
     QR_GRID_ROWS,
-    QR_GRID_WIDTH_MM,
     equipment_url,
+    generate_qr_batch_pdf,
     generate_qr_grid_pdf,
     generate_qr_png,
 )
@@ -53,7 +68,7 @@ User = get_user_model()
 
 # Pontos por milímetro (1 polegada = 72pt = 25.4mm) — usado para converter
 # as coordenadas em pontos que pdfplumber/pypdf reportam para milímetros,
-# a mesma unidade em que o requisito físico (50x50mm, margens, gutter) foi
+# a mesma unidade em que o requisito físico (60×40mm, margens) foi
 # especificado. Medir em mm direto do PDF (não do screenshot rasterizado)
 # é o que garante que a confirmação é objetiva, não visual/"a olho".
 PT_PER_MM = 72 / 25.4
@@ -61,9 +76,10 @@ PT_PER_MM = 72 / 25.4
 
 class ModelQRGridDownloadViewTest(TestCase):
     """
-    QR Codes puros em lote por modelo, um único PDF A4 em grade — mesmo
-    escopo/permissão de `qrcodes:model_label_batch` (`ModelLabelBatchDownloadView`),
-    reaproveitados sem duplicação de lógica.
+    QR Codes puros em lote por modelo, um PDF multipágina (1 página = 1
+    adesivo) — mesmo escopo/permissão de `qrcodes:model_label_batch`
+    (`ModelLabelBatchDownloadView`), reaproveitados sem duplicação de
+    lógica.
     """
 
     def setUp(self):
@@ -175,22 +191,25 @@ class ModelQRGridDownloadViewTest(TestCase):
             "Só os 2 equipamentos ATIVOS do modelo A entram — nunca o inativo, nunca os do modelo B.",
         )
 
-    # 8. Lote grande (mais que uma página) continua um PDF válido,
-    # multi-página, com exatamente 1 QR por equipamento no total.
-    def test_large_batch_spans_multiple_pages_and_stays_a_valid_pdf(self):
+    # 8. N equipamentos SEMPRE geram um PDF de EXATAMENTE N páginas — o
+    # exemplo literal do pedido de correção ("se forem 26 equipamentos, o
+    # PDF deve ter 26 páginas"). Diferente da grade antiga (que só
+    # cresceria de página a cada 18 itens), aqui não existe "página
+    # cheia": cada equipamento é sempre a sua própria página.
+    def test_n_equipment_produces_a_pdf_with_exactly_n_pages(self):
         big_model = EquipmentModel.objects.create(category=self.category, name="Grande", code="GRANDE1")
         creator = User.objects.first()
-        total = QR_GRID_PAGE_SIZE + 5  # força pelo menos 2 páginas
+        total = 26  # o próprio exemplo numérico do pedido de correção
         equipments = [create_equipment(NewEquipmentData(model_id=big_model.pk, created_by=creator)) for _ in range(total)]
 
         self.client.login(username="qrgrid_admin", password="senha-forte-123")
         response = self.client.get(self._url(big_model.pk))
         self.assertEqual(response.status_code, 200)
         reader = PdfReader(io.BytesIO(response.content))
-        self.assertGreaterEqual(len(reader.pages), 2, "Lote maior que uma página cheia deve gerar múltiplas páginas.")
+        self.assertEqual(len(reader.pages), total, "26 equipamentos devem gerar um PDF de exatamente 26 páginas.")
         total_images = self._unique_image_count(response.content)
         self.assertEqual(total_images, total, "1 QR por equipamento, nenhum a mais nem a menos.")
-        self.assertEqual(QR_GRID_COLUMNS * QR_GRID_ROWS, QR_GRID_PAGE_SIZE)
+        self.assertEqual(len(equipments), total)
 
     # 9. Exatamente 1 QR por Equipment — reforça 7/8 de forma direta,
     # comparando contagem de QR decodificado com a queryset esperada.
@@ -231,7 +250,16 @@ class ModelQRGridDownloadViewTest(TestCase):
         self.assertNotIn(equipment_url(self.inactive_a), decoded_urls, "Equipamento inativo não pode aparecer.")
 
     # 12. Ordem determinística — por `patrimonio`, igual à ordenação
-    # explícita da view (`order_by("patrimonio")`).
+    # explícita da view (`order_by("patrimonio")`); com o PDF multipágina,
+    # a ordem de leitura é literalmente a ordem das páginas (página 1 =
+    # 1º patrimônio, página 2 = 2º, etc.).
+    #
+    # Usa `pdfplumber` (não `pypdf.page.images`) para decidir qual imagem
+    # pertence a qual página: o WeasyPrint compartilha o `/Resources`
+    # entre páginas, então `pypdf` pode listar a MESMA imagem em várias
+    # páginas mesmo quando ela só é desenhada numa (mesma ressalva já
+    # documentada em `_decode_all_qrs` acima) — `pdfplumber` lê o que
+    # realmente foi desenhado no content stream de cada página.
     def test_deterministic_order_by_patrimonio(self):
         ordered_model = EquipmentModel.objects.create(category=self.category, name="Ordenado", code="ORD1")
         creator = User.objects.first()
@@ -240,9 +268,23 @@ class ModelQRGridDownloadViewTest(TestCase):
 
         self.client.login(username="qrgrid_admin", password="senha-forte-123")
         response = self.client.get(self._url(ordered_model.pk))
-        decoded_urls = self._decode_all_qrs(response.content)
-        decoded_patrimonios = [url.rstrip("/").rsplit("/", 1)[-1] for url in decoded_urls]
-        self.assertEqual(decoded_patrimonios, expected_order)
+        reader = PdfReader(io.BytesIO(response.content))
+        self.assertEqual(len(reader.pages), 4, "1 página por equipamento — ordem = ordem das páginas.")
+
+        # `pypdf` nomeia cada imagem com sufixo de extensão (ex.:
+        # "i0f5....png"), `pdfplumber` reporta o mesmo nome sem ele —
+        # normaliza removendo o sufixo antes de cruzar os dois.
+        all_images = {img.name.rsplit(".", 1)[0]: img.data for page in reader.pages for img in page.images}
+        page_order = []
+        with pdfplumber.open(io.BytesIO(response.content)) as pdf:
+            for page in pdf.pages:
+                self.assertEqual(len(page.images), 1, "Cada página deve conter exatamente 1 QR.")
+                image_name = page.images[0]["name"]
+                decoded = decode(Image.open(io.BytesIO(all_images[image_name])))
+                self.assertEqual(len(decoded), 1)
+                url = decoded[0].data.decode()
+                page_order.append(url.rstrip("/").rsplit("/", 1)[-1])
+        self.assertEqual(page_order, expected_order, "A página N deve corresponder ao N-ésimo patrimônio na ordenação.")
 
     # 13a. Exportar não altera nenhum registro de Equipment.
     def test_exporting_does_not_alter_any_equipment_record(self):
@@ -280,9 +322,9 @@ class ModelQRGridDownloadViewTest(TestCase):
         self.assertEqual(ConditionHistory.objects.count(), condition_history_before)
         self.assertEqual(Attachment.objects.count(), attachment_count_before)
 
-    # 14. Nome de arquivo amigável, seguindo a convenção já usada por
-    # `model_label_batch` (`etiquetas-{code}.pdf`), trocando só o
-    # prefixo (pedido explícito: exemplo "qrcodes-aqcp.pdf").
+    # 14. Nome de arquivo amigável, mantido igual à convenção já usada
+    # antes da correção (`qrcodes-{code}.pdf`) — só o CONTEÚDO do PDF
+    # mudou, nunca o nome do arquivo entregue.
     def test_filename_follows_the_existing_naming_convention(self):
         self.client.login(username="qrgrid_admin", password="senha-forte-123")
         response = self.client.get(self._url(self.model_a.pk))
@@ -334,243 +376,142 @@ class ModelQRGridDownloadViewTest(TestCase):
         self.assertEqual(actual_decoded[0].data, expected_decoded[0].data)
 
 
-class ModelQRGridPhysicalDimensionsTest(TestCase):
+class ModelQRBatchPhysicalDimensionsTest(TestCase):
     """
-    Duas rodadas de correção física medidas aqui, ambas via `pdfplumber`
-    direto no conteúdo do PDF (em milímetros) — nunca só "olhando" um
-    screenshot:
+    Validação física (via `pdfplumber` direto no conteúdo do PDF, em
+    milímetros — nunca só "olhando" um screenshot) do formato adotado na
+    CORREÇÃO de 23/09/2026: cada página do PDF passou a ser, literalmente,
+    1 adesivo (`QR_BATCH_WIDTH_MM` × `QR_BATCH_HEIGHT_MM` = 60×40mm, o
+    MESMO canvas físico único das etiquetas), com o QR
+    (`QR_BATCH_QR_SIZE_MM` = 36mm, sempre quadrado) centralizado dentro
+    dela — nunca mais uma folha A4 com várias colunas.
 
-    1. Correção de 16/09/2026 (registro histórico): a exportação já
-       funcionava, mas a validação visual/física real mostrou a grade
-       deslocada para a esquerda e o QR fora do requisito então vigente
-       de 50×50mm exatos (a primeira versão usava célula de ~48mm).
-
-    2. Rodada de padronização física (adesivo real 60×40mm): a CÉLULA da
-       grade deixou de ser do tamanho exato do QR e passou a ser o
-       adesivo inteiro (`QR_GRID_CELL_WIDTH_MM` × `QR_GRID_CELL_HEIGHT_MM`
-       = 60×40mm) — o QR (`QR_GRID_QR_SIZE_MM` = 36mm, sempre quadrado)
-       fica centralizado dentro dela, com folga visível ao redor. Os
-       testes abaixo distinguem explicitamente "posição da CÉLULA" de
-       "posição do QR": como `pdfplumber` só enxerga a imagem do QR (a
-       célula não tem nenhum retângulo desenhado), a margem/gutter
-       medida a partir da imagem é sempre `margem_da_página +
-       folga_da_célula` — nunca só a margem da página sozinha.
-
-    O bug raiz de 16/09/2026 (para registro, ainda relevante — a técnica
-    de `{% localize off %}` continua em uso): `LANGUAGE_CODE="pt-br"`
-    fazia o Django renderizar `margin_*_mm` fracionários com VÍRGULA
-    decimal ("23,5mm", CSS inválido) no template — corrigido com
-    `{% localize off %}` em `templates/qrcodes/qr_grid.html`. Os testes
-    de margem abaixo travam essa regressão: sem `{% localize off %}`, a
-    margem medida seria bem menor que a esperada, não os valores
-    calculados aqui.
+    Substitui a antiga `ModelQRGridPhysicalDimensionsTest`: os conceitos
+    de "grade" (colunas/linhas, gutter entre células, página cheia de 18
+    itens, página parcial preenchendo em ordem de leitura) deixaram de
+    existir no formato entregue por esta view — não fazem mais sentido
+    como asserção, porque o objeto que eles mediam (uma folha A4 com
+    várias células) não é mais o que é gerado aqui. O requisito físico
+    real que eles protegiam (QR centralizado, com folga simétrica,
+    tamanho exato, sem corte) continua coberto abaixo, só que por página
+    individual em vez de por célula de grade. A cobertura equivalente
+    para a grade A4 antiga (ainda no código, só não usada por esta view)
+    está em `LegacyQrGridServiceStillWorksTest`, no fim deste arquivo.
     """
 
-    # Folga entre a borda do QR e a borda da célula/adesivo que o contém
-    # — o que sobra da célula (60×40mm) depois do QR (36×36mm),
-    # distribuído igualmente nos dois lados de cada eixo.
-    CELL_MARGIN_HORIZONTAL_MM = (QR_GRID_CELL_WIDTH_MM - QR_GRID_QR_SIZE_MM) / 2  # 12.0
-    CELL_MARGIN_VERTICAL_MM = (QR_GRID_CELL_HEIGHT_MM - QR_GRID_QR_SIZE_MM) / 2  # 2.0
+    # Folga entre a borda do QR e a borda da página/adesivo que o contém
+    # — o que sobra da página (60×40mm) depois do QR (36×36mm),
+    # distribuído igualmente nos dois lados de cada eixo. Mesma conta da
+    # grade antiga (por isso QR_BATCH_QR_SIZE_MM == QR_GRID_QR_SIZE_MM de
+    # propósito, ver apps/qrcodes/services.py).
+    MARGIN_HORIZONTAL_MM = (QR_BATCH_WIDTH_MM - QR_BATCH_QR_SIZE_MM) / 2  # 12.0
+    MARGIN_VERTICAL_MM = (QR_BATCH_HEIGHT_MM - QR_BATCH_QR_SIZE_MM) / 2  # 2.0
 
     def setUp(self):
         self.category = Category.objects.create(name="Climatizador")
         self.model = EquipmentModel.objects.create(category=self.category, name="NI23 Big Tank", code="NI23BT")
-        creator = User.objects.create_user(username="cadastrador_qrgrid_fisico", password="senha-forte-123")
+        creator = User.objects.create_user(username="cadastrador_qrbatch_fisico", password="senha-forte-123")
         self.creator = creator
-        User.objects.create_user(username="qrgridfisico_admin", password="senha-forte-123", role=Role.ADMIN)
+        User.objects.create_user(username="qrbatchfisico_admin", password="senha-forte-123", role=Role.ADMIN)
 
     def _create_equipment(self, quantity):
         return [create_equipment(NewEquipmentData(model_id=self.model.pk, created_by=self.creator)) for _ in range(quantity)]
 
     def _download(self):
-        self.client.login(username="qrgridfisico_admin", password="senha-forte-123")
+        self.client.login(username="qrbatchfisico_admin", password="senha-forte-123")
         response = self.client.get(f"/qrcodes/modelo/{self.model.pk}/qrcodes.pdf")
         self.assertEqual(response.status_code, 200)
         return response.content
 
-    def _images_by_page(self, pdf_bytes):
+    def _measure_pages(self, pdf_bytes):
         """
-        Lista, por página, as imagens embutidas com posição/tamanho em mm
-        (x0/x1/top/bottom relativos ao canto superior esquerdo da
-        página), ordenadas em ordem de leitura (linha, depois coluna) —
-        mesma ordem em que a grade é preenchida.
+        Para cada página: dimensão da própria página e posição/tamanho
+        (em mm) da única imagem de QR nela — assume 1 imagem por página,
+        confirmado por outro teste (`test_each_page_has_exactly_one_qr`).
         """
-        pages_images = []
+        measurements = []
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
-                images = []
-                for im in page.images:
-                    images.append(
-                        {
-                            "x0": im["x0"] / PT_PER_MM,
-                            "x1": im["x1"] / PT_PER_MM,
-                            "top": im["top"] / PT_PER_MM,
-                            "bottom": im["bottom"] / PT_PER_MM,
-                        }
-                    )
-                images.sort(key=lambda im: (round(im["top"], 1), round(im["x0"], 1)))
-                pages_images.append(images)
-        return pages_images
+                images = page.images
+                self.assertEqual(len(images), 1, "Cada página deve conter exatamente 1 imagem (o QR).")
+                im = images[0]
+                measurements.append(
+                    {
+                        "page_width": page.width / PT_PER_MM,
+                        "page_height": page.height / PT_PER_MM,
+                        "x0": im["x0"] / PT_PER_MM,
+                        "x1": im["x1"] / PT_PER_MM,
+                        "top": im["top"] / PT_PER_MM,
+                        "bottom": im["bottom"] / PT_PER_MM,
+                    }
+                )
+        return measurements
 
-    # 1. A4 = 210 × 297mm.
-    def test_page_size_is_a4(self):
-        equipment = self._create_equipment(1)
-        pdf_bytes = self._download()
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            page = pdf.pages[0]
-            self.assertAlmostEqual(page.width / PT_PER_MM, QR_GRID_PAGE_WIDTH_MM, places=1)
-            self.assertAlmostEqual(page.height / PT_PER_MM, QR_GRID_PAGE_HEIGHT_MM, places=1)
-        self.assertEqual(QR_GRID_PAGE_WIDTH_MM, 210)
-        self.assertEqual(QR_GRID_PAGE_HEIGHT_MM, 297)
+    # 1. Cada página mede exatamente 60×40mm — nunca A4, em nenhuma
+    # página do lote (testado com várias páginas, não só a primeira).
+    def test_every_page_measures_60x40mm(self):
+        self.assertEqual(QR_BATCH_WIDTH_MM, 60)
+        self.assertEqual(QR_BATCH_HEIGHT_MM, 40)
+        self._create_equipment(5)
+        pages = self._measure_pages(self._download())
+        self.assertEqual(len(pages), 5)
+        for page in pages:
+            self.assertAlmostEqual(page["page_width"], 60.0, places=1)
+            self.assertAlmostEqual(page["page_height"], 40.0, places=1)
 
-    # 2 e 3. Cada QR mede EXATAMENTE 36×36mm — nunca o tamanho da célula
-    # inteira (isso seria a grade ANTES da padronização física) nem
-    # qualquer outro valor aproximado.
+    # 2. Cada página contém exatamente 1 imagem — reforça a suposição de
+    # `_measure_pages` de forma independente/explícita.
+    def test_each_page_has_exactly_one_qr(self):
+        self._create_equipment(3)
+        with pdfplumber.open(io.BytesIO(self._download())) as pdf:
+            self.assertEqual(len(pdf.pages), 3)
+            for page in pdf.pages:
+                self.assertEqual(len(page.images), 1)
+
+    # 3. Cada QR mede EXATAMENTE 36×36mm, em toda página — nunca a
+    # página inteira, nunca deformado.
     def test_each_qr_image_is_exactly_36x36mm(self):
-        self.assertEqual(QR_GRID_QR_SIZE_MM, 36, "O QR dentro da célula deve ser exatamente 36mm.")
-        self.assertNotEqual(QR_GRID_QR_SIZE_MM, QR_GRID_CELL_WIDTH_MM, "O QR não pode voltar a ocupar a célula inteira — a célula agora é o adesivo (60×40mm), maior que o QR.")
+        self.assertEqual(QR_BATCH_QR_SIZE_MM, 36, "O QR de cada página deve ser exatamente 36mm.")
+        self._create_equipment(5)
+        pages = self._measure_pages(self._download())
+        for page in pages:
+            self.assertAlmostEqual(page["x1"] - page["x0"], 36.0, places=1, msg="Largura do QR deve ser exatamente 36mm.")
+            self.assertAlmostEqual(page["bottom"] - page["top"], 36.0, places=1, msg="Altura do QR deve ser exatamente 36mm.")
 
-        self._create_equipment(QR_GRID_PAGE_SIZE)
-        pdf_bytes = self._download()
-        pages = self._images_by_page(pdf_bytes)
-        self.assertEqual(len(pages[0]), QR_GRID_PAGE_SIZE)
-        for img in pages[0]:
-            self.assertAlmostEqual(img["x1"] - img["x0"], 36.0, places=1, msg="Largura do QR deve ser exatamente 36mm.")
-            self.assertAlmostEqual(img["bottom"] - img["top"], 36.0, places=1, msg="Altura do QR deve ser exatamente 36mm.")
+    # 4. O QR fica CENTRALIZADO em cada página — margem esquerda = margem
+    # direita = 12mm, margem superior = margem inferior = 2mm — calculado
+    # matematicamente (nunca "no olho"), em toda página do lote.
+    def test_qr_is_centered_on_every_page_with_symmetric_margins(self):
+        self._create_equipment(5)
+        pages = self._measure_pages(self._download())
+        for page in pages:
+            left_margin = page["x0"]
+            right_margin = page["page_width"] - page["x1"]
+            top_margin = page["top"]
+            bottom_margin = page["page_height"] - page["bottom"]
 
-    # 4, 5 e 6. 3 colunas × 6 linhas = 18 por página — cada célula é 1
-    # adesivo real (60×40mm).
-    def test_grid_is_three_columns_by_six_rows_of_eighteen(self):
-        self.assertEqual(QR_GRID_COLUMNS, 3)
-        self.assertEqual(QR_GRID_ROWS, 6)
-        self.assertEqual(QR_GRID_PAGE_SIZE, 18)
-        self.assertEqual(QR_GRID_CELL_WIDTH_MM, 60)
-        self.assertEqual(QR_GRID_CELL_HEIGHT_MM, 40)
+            self.assertAlmostEqual(left_margin, right_margin, places=1, msg="Margem esquerda e direita devem ser idênticas — QR centralizado.")
+            self.assertAlmostEqual(top_margin, bottom_margin, places=1, msg="Margem superior e inferior devem ser idênticas — QR centralizado.")
+            self.assertAlmostEqual(left_margin, self.MARGIN_HORIZONTAL_MM, places=1)
+            self.assertAlmostEqual(top_margin, self.MARGIN_VERTICAL_MM, places=1)
 
-    # 7 e 8. O "passo" da grade (distância entre o início de uma célula e
-    # o início da próxima) é célula + gutter, tanto na horizontal quanto
-    # na vertical — o jeito mais robusto de confirmar o gutter entre
-    # CÉLULAS, já que `pdfplumber` só enxerga o QR (menor que a célula),
-    # não a célula em si.
-    def test_grid_pitch_between_cells_is_cell_size_plus_gutter(self):
-        self.assertEqual(QR_GRID_GUTTER_MM, 2)
-        self._create_equipment(QR_GRID_PAGE_SIZE)
-        pdf_bytes = self._download()
-        images = self._images_by_page(pdf_bytes)[0]
-        rows = [images[i : i + QR_GRID_COLUMNS] for i in range(0, QR_GRID_PAGE_SIZE, QR_GRID_COLUMNS)]
-
-        expected_horizontal_pitch = QR_GRID_CELL_WIDTH_MM + QR_GRID_GUTTER_MM  # 62mm
-        expected_vertical_pitch = QR_GRID_CELL_HEIGHT_MM + QR_GRID_GUTTER_MM  # 42mm
-
-        for row in rows:
-            for col in range(QR_GRID_COLUMNS - 1):
-                self.assertAlmostEqual(
-                    row[col + 1]["x0"] - row[col]["x0"],
-                    expected_horizontal_pitch,
-                    places=1,
-                    msg="Passo horizontal entre colunas deve ser célula (60mm) + gutter (2mm) = 62mm.",
-                )
-
-        for col in range(QR_GRID_COLUMNS):
-            for row_index in range(QR_GRID_ROWS - 1):
-                self.assertAlmostEqual(
-                    rows[row_index + 1][col]["top"] - rows[row_index][col]["top"],
-                    expected_vertical_pitch,
-                    places=1,
-                    msg="Passo vertical entre linhas deve ser célula (40mm) + gutter (2mm) = 42mm.",
-                )
-
-    # 7b. O espaço visível entre um QR e o próximo (edge a edge, não
-    # célula a célula) é o gutter mais a folga de cada célula ao redor
-    # do QR — reforça o teste de "passo" acima com o número final que
-    # alguém mediria com uma régua na impressão real.
-    def test_visible_gap_between_adjacent_qr_images_matches_gutter_plus_cell_margins(self):
-        self._create_equipment(QR_GRID_PAGE_SIZE)
-        pdf_bytes = self._download()
-        images = self._images_by_page(pdf_bytes)[0]
-        rows = [images[i : i + QR_GRID_COLUMNS] for i in range(0, QR_GRID_PAGE_SIZE, QR_GRID_COLUMNS)]
-
-        expected_horizontal_gap = QR_GRID_GUTTER_MM + 2 * self.CELL_MARGIN_HORIZONTAL_MM  # 2 + 24 = 26mm
-        expected_vertical_gap = QR_GRID_GUTTER_MM + 2 * self.CELL_MARGIN_VERTICAL_MM  # 2 + 4 = 6mm
-
-        self.assertAlmostEqual(rows[0][1]["x0"] - rows[0][0]["x1"], expected_horizontal_gap, places=1)
-        self.assertAlmostEqual(rows[1][0]["top"] - rows[0][0]["bottom"], expected_vertical_gap, places=1)
-
-    # 9 e 10. A grade fica centralizada HORIZONTALMENTE na folha — margem
-    # esquerda igual à margem direita, calculada matematicamente (não "no
-    # olho"). A margem medida a partir do QR é a margem da PÁGINA mais a
-    # folga da CÉLULA ao redor do QR (o QR não preenche mais a célula
-    # inteira, ver comentário da classe). Este teste também é o que trava
-    # a regressão de `{% localize off %}`: sem ela, a margem medida seria
-    # bem menor que o esperado.
-    def test_grid_is_horizontally_centered_with_equal_margins(self):
-        self._create_equipment(QR_GRID_PAGE_SIZE)
-        pdf_bytes = self._download()
-        images = self._images_by_page(pdf_bytes)[0]
-
-        leftmost_x0 = min(img["x0"] for img in images)
-        rightmost_x1 = max(img["x1"] for img in images)
-        left_margin = leftmost_x0
-        right_margin = QR_GRID_PAGE_WIDTH_MM - rightmost_x1
-        expected_margin = QR_GRID_MARGIN_HORIZONTAL_MM + self.CELL_MARGIN_HORIZONTAL_MM  # 13 + 12 = 25mm
-
-        self.assertAlmostEqual(left_margin, right_margin, places=1, msg="Margem esquerda e direita devem ser idênticas — grade centralizada.")
-        self.assertAlmostEqual(left_margin, expected_margin, places=1)
-        self.assertAlmostEqual(left_margin, 25.0, places=1)
-        self.assertGreater(left_margin, 1.0, "Se a margem for ~0mm, a grade voltou a ficar colada na borda esquerda (bug antigo).")
-
-    # 11. Margem vertical (topo/base) medida a partir do QR = margem da
-    # página + folga vertical da célula; grade 184×250mm — os números da
-    # padronização física, confirmados direto do PDF.
-    def test_grid_and_vertical_margins_match_the_requested_layout(self):
-        self._create_equipment(QR_GRID_PAGE_SIZE)
-        pdf_bytes = self._download()
-        images = self._images_by_page(pdf_bytes)[0]
-
-        top_margin = min(img["top"] for img in images)
-        bottom_margin = QR_GRID_PAGE_HEIGHT_MM - max(img["bottom"] for img in images)
-        expected_margin = QR_GRID_MARGIN_VERTICAL_MM + self.CELL_MARGIN_VERTICAL_MM  # 23.5 + 2 = 25.5mm
-
-        self.assertAlmostEqual(top_margin, expected_margin, places=1)
-        self.assertAlmostEqual(top_margin, 25.5, places=1)
-        self.assertAlmostEqual(bottom_margin, 25.5, places=1)
-        self.assertAlmostEqual(QR_GRID_WIDTH_MM, 184.0, places=1)
-        self.assertAlmostEqual(QR_GRID_HEIGHT_MM, 250.0, places=1)
-        self.assertAlmostEqual(QR_GRID_MARGIN_HORIZONTAL_MM, 13.0, places=1)
-        self.assertAlmostEqual(QR_GRID_MARGIN_VERTICAL_MM, 23.5, places=1)
-
-    # 12. Nenhuma página extra/branca para um lote que fecha exatamente
-    # em páginas cheias (18, 36).
-    def test_no_extra_blank_page_for_exact_multiples_of_page_size(self):
-        for quantity, expected_pages in ((QR_GRID_PAGE_SIZE, 1), (QR_GRID_PAGE_SIZE * 2, 2)):
+    # 5. N equipamentos => N páginas, sempre — testado com um N que não é
+    # múltiplo de nada "especial" (nem 18, nem 15), porque essa noção de
+    # "página cheia" não existe mais neste formato.
+    def test_n_equipment_produces_n_pages(self):
+        for quantity in (1, 4, 26):
             with self.subTest(quantity=quantity):
-                model = EquipmentModel.objects.create(category=self.category, name=f"Exato {quantity}", code=f"EXATO{quantity}")
+                model = EquipmentModel.objects.create(category=self.category, name=f"Qtd {quantity}", code=f"QTD{quantity}")
                 for _ in range(quantity):
                     create_equipment(NewEquipmentData(model_id=model.pk, created_by=self.creator))
-                self.client.login(username="qrgridfisico_admin", password="senha-forte-123")
+                self.client.login(username="qrbatchfisico_admin", password="senha-forte-123")
                 response = self.client.get(f"/qrcodes/modelo/{model.pk}/qrcodes.pdf")
                 reader = PdfReader(io.BytesIO(response.content))
-                self.assertEqual(len(reader.pages), expected_pages)
+                self.assertEqual(len(reader.pages), quantity)
 
-    # 13. Múltiplas páginas para lotes que passam de um múltiplo exato —
-    # mesmo raciocínio dos exemplos originais do pedido (um a mais que
-    # fecha página, outro que passa de duas), reescalados para o novo
-    # tamanho de página (18 por folha, era 15).
-    def test_multiple_pages_for_batches_past_a_full_page(self):
-        for quantity, expected_pages in ((QR_GRID_PAGE_SIZE + 1, 2), (QR_GRID_PAGE_SIZE * 2 + 1, 3)):
-            with self.subTest(quantity=quantity):
-                model = EquipmentModel.objects.create(category=self.category, name=f"Passa {quantity}", code=f"PASSA{quantity}")
-                for _ in range(quantity):
-                    create_equipment(NewEquipmentData(model_id=model.pk, created_by=self.creator))
-                self.client.login(username="qrgridfisico_admin", password="senha-forte-123")
-                response = self.client.get(f"/qrcodes/modelo/{model.pk}/qrcodes.pdf")
-                reader = PdfReader(io.BytesIO(response.content))
-                self.assertEqual(len(reader.pages), expected_pages)
-
-    # 14 e 15. O QR continua decodificando corretamente para a URL certa
-    # — a correção de layout não pode ter afetado o conteúdo/leitura do
-    # QR.
-    def test_qr_still_decodes_to_the_correct_url_after_the_layout_fix(self):
+    # 6. O QR continua decodificando corretamente para a URL certa — a
+    # correção de formato não pode ter afetado o conteúdo/leitura do QR.
+    def test_qr_still_decodes_to_the_correct_url_after_the_fix(self):
         equipment = self._create_equipment(1)[0]
         pdf_bytes = self._download()
         reader = PdfReader(io.BytesIO(pdf_bytes))
@@ -580,47 +521,18 @@ class ModelQRGridPhysicalDimensionsTest(TestCase):
         self.assertEqual(len(decoded), 1)
         self.assertEqual(decoded[0].data.decode(), equipment_url(equipment))
 
-    # 16. Continua sem nenhum texto — QR puro, mesmo depois da correção
-    # de layout (nenhuma legenda/borda/patrimônio foi introduzido).
-    def test_still_no_text_content_after_the_layout_fix(self):
+    # 7. Continua sem nenhum texto — QR puro, mesmo depois da correção de
+    # formato (nenhuma legenda/borda/patrimônio foi introduzido).
+    def test_still_no_text_content_after_the_fix(self):
         self._create_equipment(3)
         pdf_bytes = self._download()
         reader = PdfReader(io.BytesIO(pdf_bytes))
         full_text = "".join(page.extract_text() for page in reader.pages).strip()
         self.assertEqual(full_text, "")
 
-    # 9 (reforço). Página incompleta: os itens continuam preenchendo
-    # esquerda→direita/cima→baixo nas MESMAS posições de grade da folha
-    # cheia — nunca redistribuídos/centralizados entre si. Confirma
-    # objetivamente o exemplo do pedido (4 QRs → 3 na linha 1, 1 na
-    # linha 2, nunca "4 QRs centralizados no meio da página").
-    def test_partial_page_keeps_the_same_grid_positions_and_page_margins(self):
-        self._create_equipment(4)
-        pdf_bytes = self._download()
-        images = self._images_by_page(pdf_bytes)[0]
-        self.assertEqual(len(images), 4)
-
-        # As 3 primeiras na linha 1 (mesmo `top`), a 4ª sozinha na linha 2.
-        row1 = images[0:3]
-        row2 = images[3:4]
-        tops_row1 = {round(img["top"], 1) for img in row1}
-        self.assertEqual(len(tops_row1), 1, "As 3 primeiras devem estar todas na mesma linha (mesmo `top`).")
-        self.assertGreater(row2[0]["top"], row1[0]["top"], "O 4º item deve estar numa linha abaixo, nunca ao lado/centralizado.")
-
-        # A origem da grade (margens) é a MESMA da folha cheia — a página
-        # incompleta não veio "mais centralizada" nem com margens
-        # diferentes por ter menos itens. A posição do QR é a margem da
-        # página + a folga da célula ao redor dele (ver comentário da
-        # classe — o QR não preenche mais a célula inteira).
-        self.assertAlmostEqual(row1[0]["x0"], QR_GRID_MARGIN_HORIZONTAL_MM + self.CELL_MARGIN_HORIZONTAL_MM, places=1)
-        self.assertAlmostEqual(row1[0]["top"], QR_GRID_MARGIN_VERTICAL_MM + self.CELL_MARGIN_VERTICAL_MM, places=1)
-        # E o 4º item (linha 2, coluna 1) fica na mesma coluna x0 do 1º —
-        # preenchimento em ordem de leitura, nunca centralizado sozinho.
-        self.assertAlmostEqual(row2[0]["x0"], row1[0]["x0"], places=1)
-
-    # 16 (dados). A correção de layout não altera nenhum registro —
-    # continua 100% leitura.
-    def test_layout_fix_does_not_alter_any_equipment_record(self):
+    # 8. A correção de formato não altera nenhum registro — continua
+    # 100% leitura.
+    def test_fix_does_not_alter_any_equipment_record(self):
         equipment_list = self._create_equipment(3)
         before = list(Equipment.objects.filter(pk__in=[e.pk for e in equipment_list]).order_by("pk").values())
         self._download()
@@ -630,14 +542,13 @@ class ModelQRGridPhysicalDimensionsTest(TestCase):
 
 class ModelQRGridThemeTest(TestCase):
     """
-    Tema Claro/Escuro (pedido de 16/09/2026, decisão revista na mesma
-    rodada da correção de dimensionamento): "Exportar QR Codes em PDF"
-    passou a reaproveitar o MESMO modal/`?tema=` já usado por "Etiquetas
-    em lote" — nenhum modal novo, nenhuma validação de tema nova
-    (`_validated_theme`, a mesma função de sempre). Só o FUNDO da página
-    muda; o QR em si nunca é invertido, e a geometria física (posição/
-    tamanho/margem) da correção anterior tem que continuar idêntica nos
-    dois temas.
+    Tema Claro/Escuro: "Exportar QR Codes em PDF" reaproveita o MESMO
+    modal/`?tema=` já usado por "Etiquetas em lote" — nenhum modal novo,
+    nenhuma validação de tema nova (`_validated_theme`, a mesma função de
+    sempre), preservado sem alteração pela correção de 23/09/2026. Só o
+    FUNDO da página muda; o QR em si nunca é invertido, e a geometria
+    física (posição/tamanho/margem) tem que continuar idêntica nos dois
+    temas.
     """
 
     def setUp(self):
@@ -693,9 +604,9 @@ class ModelQRGridThemeTest(TestCase):
         dark_bytes = self._get(tema="dark").content
         self.assertNotEqual(light_bytes, dark_bytes)
 
-    # 4. A geometria física da correção anterior (posição/tamanho de
-    # cada QR, margens, gutter) é IDÊNTICA nos dois temas — o tema muda
-    # só o fundo, nunca o layout/dimensionamento.
+    # 4. A geometria física (posição/tamanho do QR em cada página) é
+    # IDÊNTICA nos dois temas — o tema muda só o fundo, nunca o
+    # layout/dimensionamento.
     def test_physical_geometry_is_identical_regardless_of_theme(self):
         self._create_equipment(4)
         light_bytes = self._get(tema="light").content
@@ -703,17 +614,18 @@ class ModelQRGridThemeTest(TestCase):
 
         def measure(pdf_bytes):
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                page = pdf.pages[0]
-                images = sorted(page.images, key=lambda im: (round(im["top"], 1), round(im["x0"], 1)))
-                return [
-                    (
-                        round(im["x0"] / PT_PER_MM, 2),
-                        round(im["top"] / PT_PER_MM, 2),
-                        round((im["x1"] - im["x0"]) / PT_PER_MM, 2),
-                        round((im["bottom"] - im["top"]) / PT_PER_MM, 2),
+                result = []
+                for page in pdf.pages:
+                    im = page.images[0]
+                    result.append(
+                        (
+                            round(im["x0"] / PT_PER_MM, 2),
+                            round(im["top"] / PT_PER_MM, 2),
+                            round((im["x1"] - im["x0"]) / PT_PER_MM, 2),
+                            round((im["bottom"] - im["top"]) / PT_PER_MM, 2),
+                        )
                     )
-                    for im in images
-                ]
+                return result
 
         self.assertEqual(measure(light_bytes), measure(dark_bytes))
 
@@ -766,13 +678,73 @@ class ModelQRGridThemeTest(TestCase):
                 full_text = "".join(page.extract_text() for page in reader.pages).strip()
                 self.assertEqual(full_text, "")
 
-    # 9. `generate_qr_grid_pdf` sozinha (sem o client HTTP) também aceita
+    # 9. `generate_qr_batch_pdf` sozinha (sem o client HTTP) também aceita
     # os dois temas nomeados via constante — reforça que a função de
     # serviço, não só a view, suporta o parâmetro.
     def test_service_function_accepts_both_theme_constants(self):
+        equipment_list = self._create_equipment(2)
+        light_pdf = generate_qr_batch_pdf(equipment_list, theme=LABEL_THEME_LIGHT)
+        dark_pdf = generate_qr_batch_pdf(equipment_list, theme=LABEL_THEME_DARK)
+        self.assertTrue(light_pdf.startswith(b"%PDF"))
+        self.assertTrue(dark_pdf.startswith(b"%PDF"))
+        self.assertNotEqual(light_pdf, dark_pdf)
+
+
+class LegacyQrGridServiceStillWorksTest(TestCase):
+    """
+    `generate_qr_grid_pdf` (grade A4, 3×6 QRs por folha) NÃO foi removida
+    pela correção de 23/09/2026 — só deixou de ser o que
+    `ModelQRGridDownloadView` entrega (ver módulo/classes acima e
+    `apps/qrcodes/services.py`). Fica disponível para reuso futuro,
+    mantida com uma cobertura direta mínima (mesmo precedente já usado
+    neste projeto para `generate_qr_zip`, que ficou "órfã" por um tempo
+    sem deixar de ter teste — ver docs/apps/qrcodes.md, "Pontos
+    importantes"). Chamada direta da função de serviço, sem passar por
+    nenhuma view/URL — não existe mais nenhuma rota que a use.
+    """
+
+    def setUp(self):
+        self.category = Category.objects.create(name="Climatizador")
+        self.model = EquipmentModel.objects.create(category=self.category, name="NI23 Big Tank", code="NI23BT")
+        self.creator = User.objects.create_user(username="cadastrador_qrgrid_legado", password="senha-forte-123")
+
+    def _create_equipment(self, quantity):
+        return [create_equipment(NewEquipmentData(model_id=self.model.pk, created_by=self.creator)) for _ in range(quantity)]
+
+    def test_still_produces_an_a4_grid_of_18_per_page(self):
+        self.assertEqual(QR_GRID_COLUMNS, 3)
+        self.assertEqual(QR_GRID_ROWS, 6)
+        self.assertEqual(QR_GRID_PAGE_SIZE, 18)
+        self.assertEqual(QR_GRID_CELL_WIDTH_MM, 60)
+        self.assertEqual(QR_GRID_CELL_HEIGHT_MM, 40)
+        self.assertEqual(QR_GRID_QR_SIZE_MM, 36)
+
+        equipment_list = self._create_equipment(QR_GRID_PAGE_SIZE + 1)
+        pdf_bytes = generate_qr_grid_pdf(equipment_list, theme=LABEL_THEME_LIGHT)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            self.assertEqual(len(pdf.pages), 2, "19 itens devem gerar 2 páginas de grade (18 + 1).")
+            page = pdf.pages[0]
+            self.assertAlmostEqual(page.width / PT_PER_MM, QR_GRID_PAGE_WIDTH_MM, places=1)
+            self.assertAlmostEqual(page.height / PT_PER_MM, QR_GRID_PAGE_HEIGHT_MM, places=1)
+            self.assertEqual(len(page.images), QR_GRID_PAGE_SIZE)
+            first_image = sorted(page.images, key=lambda im: (round(im["top"], 1), round(im["x0"], 1)))[0]
+            self.assertAlmostEqual((first_image["x1"] - first_image["x0"]) / PT_PER_MM, 36.0, places=1)
+
+    def test_still_decodes_correctly_and_accepts_both_themes(self):
         equipment_list = self._create_equipment(2)
         light_pdf = generate_qr_grid_pdf(equipment_list, theme=LABEL_THEME_LIGHT)
         dark_pdf = generate_qr_grid_pdf(equipment_list, theme=LABEL_THEME_DARK)
         self.assertTrue(light_pdf.startswith(b"%PDF"))
         self.assertTrue(dark_pdf.startswith(b"%PDF"))
         self.assertNotEqual(light_pdf, dark_pdf)
+
+        reader = PdfReader(io.BytesIO(light_pdf))
+        decoded_urls = set()
+        for page in reader.pages:
+            for img in page.images:
+                decoded = decode(Image.open(io.BytesIO(img.data)))
+                self.assertEqual(len(decoded), 1)
+                decoded_urls.add(decoded[0].data.decode())
+        self.assertEqual(decoded_urls, {equipment_url(eq) for eq in equipment_list})

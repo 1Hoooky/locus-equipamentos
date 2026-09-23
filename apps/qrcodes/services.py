@@ -513,3 +513,97 @@ def generate_qr_grid_pdf(equipment_list: list[Equipment], theme: str = LABEL_THE
         },
     )
     return HTML(string=html_string).write_pdf()
+
+
+# --------------------------------------------------------------------------
+# CORREÇÃO — exportação em lote de QR "puro" para impressão real (pedido
+# de 23/09/2026): a grade A4 acima (`generate_qr_grid_pdf`) imprime
+# CORRETAMENTE quando o operador confere manualmente o zoom/escala do
+# PDF antes de mandar pra impressora, mas na prática do dia a dia (adesivo
+# alimentado folha a folha, sem o cuidado de desabilitar "ajustar à
+# página") o resultado sai cortado — o formato físico que a Locus
+# consegue imprimir sem erro operacional é "uma página = um adesivo",
+# exatamente o mesmo conceito já usado por `generate_labels_pdf`/
+# `generate_square_labels_pdf` acima (que nunca tiveram esse problema).
+#
+# `ModelQRGridDownloadView` (apps/qrcodes/views.py) passou a chamar
+# `generate_qr_batch_pdf` abaixo em vez de `generate_qr_grid_pdf` — a
+# grade A4 continua existindo no código (função, template, testes
+# diretos), só deixou de ser o formato entregue por aquele botão/URL
+# (mesmo raciocínio já registrado em "Pontos importantes" no
+# docs/apps/qrcodes.md para `generate_qr_zip`: função testada mantida
+# "órfã" em vez de removida, disponível para reuso futuro sem precisar
+# reescrever nada). Nomes de URL/view/classe FORAM mantidos
+# (`model_qr_grid`/`ModelQRGridDownloadView`/`qrcodes-{code}.pdf`) de
+# propósito — trocar o nome exigiria tocar template/JS/testes que não
+# têm nenhuma relação com o formato de impressão em si, e o projeto já
+# tem precedente de manter nome "informal" depois que o formato por trás
+# muda (`generate_square_label_pdf`/"square" mesmo depois de 60×60 virar
+# 60×40 retangular).
+#
+# Cada página do PDF = 1 adesivo real (`STICKER_WIDTH_MM` ×
+# `STICKER_HEIGHT_MM`, o MESMO canvas físico único de todo o app — nunca
+# um valor duplicado aqui) com 1 QR PURO centralizado — sem logo, nome,
+# patrimônio, código de barras, cabeçalho ou rodapé (mesma regra de
+# "QR puro" de `generate_qr_grid_pdf`/`generate_qr_zip` acima). N
+# equipamentos => N páginas, sempre — nenhum agrupamento por folha.
+# --------------------------------------------------------------------------
+
+QR_BATCH_WIDTH_MM = STICKER_WIDTH_MM
+QR_BATCH_HEIGHT_MM = STICKER_HEIGHT_MM
+
+# Mesmo valor de QR_GRID_QR_SIZE_MM (36mm) DE PROPÓSITO, não uma
+# coincidência: a matemática é idêntica — "maior quadrado que cabe
+# centralizado, com folga simétrica nos dois eixos, dentro de uma área
+# de 60×40mm" já foi auditada fisicamente uma vez (WeasyPrint +
+# pdfplumber, ver docs/apps/qrcodes.md) para exatamente essa pergunta.
+# Uma página inteira de 60×40mm com 1 QR é geometricamente a MESMA conta
+# que 1 célula da grade — reutilizar a constante em vez de duplicar um
+# "36" novo é o que garante que as duas nunca podem divergir por
+# esquecimento (mesmo espírito de fonte única de verdade das constantes
+# de canvas acima).
+QR_BATCH_QR_SIZE_MM = QR_GRID_QR_SIZE_MM
+
+
+def _qr_batch_page_context(equipment: Equipment) -> dict:
+    """Só o QR em si — mesma regra de `_qr_grid_cell_context` acima ("QR puro")."""
+    return {"qr_data_uri": _qr_data_uri(equipment)}
+
+
+def generate_qr_batch_pdf(equipment_list: list[Equipment], theme: str = LABEL_THEME_LIGHT) -> bytes:
+    """
+    QR Codes PUROS em lote, um PDF multi-página onde CADA página é um
+    adesivo físico individual (`QR_BATCH_WIDTH_MM` × `QR_BATCH_HEIGHT_MM`)
+    com 1 QR centralizado — pronto para imprimir adesivo a adesivo, sem
+    depender de o operador desabilitar "ajustar à página"/reescalar no
+    driver de impressão (o problema real que motivou esta função — ver
+    comentário da seção acima).
+
+    Paginação: cada `<div class="qr-page">` no template
+    (`qrcodes/qr_batch.html`) já nasce do tamanho exato do adesivo com
+    `page-break-after: always` — diferente de `generate_qr_grid_pdf`
+    acima, não há nenhum agrupamento/`_chunked` aqui, porque não existe
+    "página cheia": 1 equipamento é sempre 1 página inteira. `N`
+    equipamentos em `equipment_list` sempre produz `N` páginas.
+
+    Ordem de `equipment_list` é responsabilidade do CHAMADOR — mesmo
+    padrão de `generate_labels_pdf`/`generate_square_labels_pdf`/
+    `generate_qr_grid_pdf` acima, esta função nunca reordena.
+
+    `theme` — mesma regra de sempre (`LABEL_THEME_LIGHT`/`_DARK`,
+    validado pelo chamador via `views.py::_validated_theme`): só muda o
+    fundo da página; o QR em si nunca é invertido (o PNG de
+    `generate_qr_png` já é opaco com fundo branco).
+    """
+    pages = [_qr_batch_page_context(eq) for eq in equipment_list]
+    html_string = render_to_string(
+        "qrcodes/qr_batch.html",
+        {
+            "pages": pages,
+            "page_width_mm": QR_BATCH_WIDTH_MM,
+            "page_height_mm": QR_BATCH_HEIGHT_MM,
+            "qr_size_mm": QR_BATCH_QR_SIZE_MM,
+            "theme": theme,
+        },
+    )
+    return HTML(string=html_string).write_pdf()

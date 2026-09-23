@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<style>
+  /*
+    Exportação em lote de QR "puro" — CORREÇÃO de 23/09/2026: a grade A4
+    (templates/qrcodes/qr_grid.html) imprime errado na prática (sai
+    cortada quando o adesivo é alimentado folha a folha sem o operador
+    desabilitar "ajustar à página" no driver) — o formato que a Locus
+    consegue imprimir sem erro é "uma página = um adesivo", o MESMO
+    conceito já usado por label.html/label_square.html (que nunca deram
+    esse problema). Ver apps/qrcodes/services.py::generate_qr_batch_pdf
+    para o raciocínio completo.
+
+    "QR puro": só a imagem do QR, nada mais — sem logo, nome comercial,
+    patrimônio, código de barras, cabeçalho ou rodapé (mesma regra de
+    qr_grid.html/generate_qr_zip). Cada `<div class="qr-page">` é 1
+    adesivo físico inteiro (`page_width_mm` × `page_height_mm`, sempre
+    `STICKER_WIDTH_MM`/`STICKER_HEIGHT_MM` — 60×40mm, vem do Python,
+    nunca fixo aqui) com o QR (`qr_size_mm`, sempre quadrado) centralizado
+    dentro dela.
+
+    Paginação: 1 equipamento = 1 página, sempre — `page-break-after:
+    always` em toda página (inclusive a última: inofensivo, o WeasyPrint
+    não gera folha em branco extra ao final). Nenhum agrupamento/grade —
+    diferente de qr_grid.html, não existe "página cheia" aqui, então o
+    services.py não precisa de nenhum `_chunked` para este formato.
+
+    TEMA CLARO/ESCURO: mesmo mecanismo de qr_grid.html/label_square.html
+    (`?tema=light|dark` → `_validated_theme` →
+    generate_qr_batch_pdf(theme=...)) — só muda o FUNDO da página; o QR
+    em si NUNCA é invertido (o PNG de generate_qr_png já é opaco com
+    fundo branco, então a "ilha branca" acontece de graça).
+  */
+  @page {
+    size: {{ page_width_mm }}mm {{ page_height_mm }}mm;
+    margin: 0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "DejaVu Sans", Arial, sans-serif;
+    background: #fff;
+  }
+  body.theme-dark {
+    background: #0a0a0a;
+  }
+
+  .qr-page {
+    width: {{ page_width_mm }}mm;
+    height: {{ page_height_mm }}mm;
+    /* Fundo explícito por página (não só confiar no `body`) — mesmo
+       raciocínio de qr_grid.html: garante a cor certa em TODAS as
+       páginas do PDF multi-página, sem depender do `background` do
+       `body` "vazar" corretamente por trás de cada quebra de página. */
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    page-break-after: always;
+    overflow: hidden;
+  }
+  body.theme-dark .qr-page {
+    background: #0a0a0a;
+  }
+
+  .qr-image {
+    display: block;
+    /* QR sempre quadrado (`qr_size_mm` × `qr_size_mm`), centralizado
+       pelo flex da página — a folga entre o QR e a borda do adesivo é a
+       margem física do adesivo em si (mesma conta de qr_grid.html),
+       nunca um padding paralelo escrito aqui. `object-fit: contain` é
+       só defensivo — a imagem já nasce quadrada do gerador
+       (generate_qr_png), então isto nunca corta/distorce. */
+    width: {{ qr_size_mm }}mm;
+    height: {{ qr_size_mm }}mm;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+</style>
+</head>
+<body{% if theme == "dark" %} class="theme-dark"{% endif %}>
+  {% for page in pages %}
+  <div class="qr-page">
+    <img class="qr-image" src="{{ page.qr_data_uri }}" alt="QR Code">
+  </div>
+  {% endfor %}
+</body>
+</html>

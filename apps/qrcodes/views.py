@@ -19,7 +19,7 @@ from apps.qrcodes.services import (
     generate_label_pdf,
     generate_labels_pdf,
     generate_labels_zip,
-    generate_qr_grid_pdf,
+    generate_qr_batch_pdf,
     generate_qr_png,
     generate_qr_zip,
     generate_square_label_pdf,
@@ -259,26 +259,37 @@ class ModelLabelBatchDownloadView(RoleRequiredMixin, View):
 
 class ModelQRGridDownloadView(RoleRequiredMixin, View):
     """
-    QR Codes PUROS em lote de UM modelo, num único PDF A4 em grade
-    (pedido de 16/09/2026) — botão novo "Exportar QR Codes em PDF" no
-    mesmo card de modelo da listagem agrupada, ao lado do botão já
-    existente "Etiquetas em lote" (`model_label_batch`/
+    QR Codes PUROS em lote de UM modelo — botão "Exportar QR Codes em
+    PDF" no mesmo card de modelo da listagem agrupada, ao lado do botão
+    já existente "Etiquetas em lote" (`model_label_batch`/
     `ModelLabelBatchDownloadView` acima, de 08/09/2026).
 
-    Mesmo escopo/permissão/tratamento de 404 de `ModelLabelBatchDownloadView`
-    — só muda o conteúdo do PDF (QR puro em grade, via
-    `generate_qr_grid_pdf`, em vez de etiqueta simplificada por página via
-    `generate_square_labels_pdf`) e o nome do arquivo.
+    CORREÇÃO de 23/09/2026: até então o PDF entregue era uma grade A4
+    (`generate_qr_grid_pdf`, 3×6 QRs por folha) — na prática de impressão
+    real em adesivo (folha a folha, sem o operador desabilitar "ajustar à
+    página" no driver) o resultado saía cortado. Passou a entregar um PDF
+    MULTIPÁGINA via `generate_qr_batch_pdf`: cada página é 1 adesivo
+    físico inteiro (mesmo canvas `STICKER_WIDTH_MM`×`STICKER_HEIGHT_MM`
+    das etiquetas) com 1 QR puro centralizado — mesmo conceito de
+    impressão que já funciona em `generate_labels_pdf`/
+    `generate_square_labels_pdf`. `N` equipamentos ativos do modelo
+    sempre produz um PDF de `N` páginas. `generate_qr_grid_pdf`/
+    `templates/qrcodes/qr_grid.html` continuam no código (função e
+    template intactos, com cobertura de teste direta — ver
+    `apps/qrcodes/tests/test_qr_grid_export.py`), só deixaram de ser o
+    que este botão entrega; ver `apps/qrcodes/services.py` para o
+    raciocínio completo. Nome da URL/view/classe (`model_qr_grid`/
+    `ModelQRGridDownloadView`) e nome do arquivo (`qrcodes-{code}.pdf`)
+    mantidos de propósito — nenhuma relação com o formato de impressão em
+    si, e trocar exigiria tocar template/JS/testes à toa.
 
-    `?tema=light|dark` (pedido de 16/09/2026, mesma rodada da correção de
-    dimensionamento — decisão revista: inicialmente este botão não
-    interceptava o modal de tema, mas o pedido passou a ser explícito
-    para reaproveitar o MESMO modal/mecanismo já usado por
-    `ModelLabelBatchDownloadView` acima). Validado aqui via
-    `_validated_theme` — a MESMA função já usada por toda outra rota
-    deste arquivo que aceita tema, nenhuma validação nova/duplicada.
-    Muda só o fundo da página do PDF; o QR em si nunca é invertido (ver
-    `generate_qr_grid_pdf`).
+    Mesmo escopo/permissão/tratamento de 404 de
+    `ModelLabelBatchDownloadView` — só muda o conteúdo do PDF.
+
+    `?tema=light|dark` — validado aqui via `_validated_theme`, a MESMA
+    função já usada por toda outra rota deste arquivo que aceita tema,
+    nenhuma validação nova/duplicada. Muda só o fundo da página do PDF; o
+    QR em si nunca é invertido (ver `generate_qr_batch_pdf`).
 
     Ordenado por `patrimonio` (pedido explícito: "ordem determinística,
     preferencialmente por patrimônio") — `ModelLabelBatchDownloadView`
@@ -313,7 +324,7 @@ class ModelQRGridDownloadView(RoleRequiredMixin, View):
                 content_type="text/plain; charset=utf-8",
                 status=404,
             )
-        pdf_bytes = generate_qr_grid_pdf(equipment_list, theme=theme)
+        pdf_bytes = generate_qr_batch_pdf(equipment_list, theme=theme)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="qrcodes-{equipment_model.code}.pdf"'
         return response
