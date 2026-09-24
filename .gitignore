@@ -23,3 +23,6 @@ htmlcov/
 
 # SO
 .DS_Store
+
+# Saidas do Claude (Cowork) - arquivos de entrega, nao fazem parte do codigo
+Claude outputs/
