@@ -35,6 +35,7 @@ from apps.crm.services import (
     get_or_create_active_proposal,
     issue_proposal,
 )
+from apps.crm.tests._payment_test_helpers import add_full_installment
 
 User = get_user_model()
 
@@ -68,6 +69,7 @@ class ProposalDisplayNomenclatureTestBase(TestCase):
     def _issue_v1(self):
         proposal, version = self._proposal_and_version()
         add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("500")))
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         version.refresh_from_db()
         return proposal, version
@@ -131,6 +133,7 @@ class GeneratedPdfFilenameTest(ProposalDisplayNomenclatureTestBase):
         proposal, version = self._issue_v1()
         v2 = create_new_version(proposal=proposal, created_by=self.user)
         add_proposal_item(proposal_version=v2, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("500")))
+        add_full_installment(v2)
         issue_proposal(proposal_version=v2, issued_by=self.user)
 
         attachments = sorted(attachments_for(self.opportunity), key=lambda a: a.created_at)

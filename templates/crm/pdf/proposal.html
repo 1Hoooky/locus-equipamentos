@@ -4,120 +4,224 @@
 <meta charset="UTF-8">
 {% load currency %}
 <style>
-  {# A4, único caminho de PDF já existente no projeto (apps.qrcodes) usa #}
-  {# WeasyPrint do mesmo jeito — "DejaVu Sans" é a mesma família já #}
-  {# usada em templates/qrcodes/label.html, disponível no ambiente #}
-  {# (Dockerfile já instala fonts-liberation/shared-mime-info). #}
-  @page { size: A4; margin: 18mm 16mm; }
+  {# FECHAMENTO DA PROPOSTA COMERCIAL (23/09/2026): redesenho do PDF #}
+  {# (seção 37) — hierarquia CABEÇALHO → LOCUS → CLIENTE → CONDIÇÕES #}
+  {# COMERCIAIS → PRODUTOS/SERVIÇOS → RESUMO FINANCEIRO → CONDIÇÕES DE #}
+  {# PAGAMENTO → ENTREGA/OPERAÇÃO → INFORMAÇÕES COMPLEMENTARES → #}
+  {# IDENTIFICAÇÃO DAS PARTES → LOCAL/DATA. NÃO é uma cópia visual 1:1 #}
+  {# do modelo antigo em papel (seção 37 — "criar documento profissional #}
+  {# compatível com a identidade atual do LocusHub") — só o CONTEÚDO de #}
+  {# referência (seção 1) foi reaproveitado. #}
+  {# A4, mesmo caminho de PDF já existente no projeto (WeasyPrint) — #}
+  {# "DejaVu Sans" já disponível no ambiente (mesma família de #}
+  {# templates/qrcodes/label.html). Multipágina permitido por padrão #}
+  {# (seção 38): nenhuma regra aqui força "caber numa página só"; #}
+  {# `page-break-inside: avoid` nas linhas de tabela evita cortar uma #}
+  {# linha no meio entre duas páginas, e `thead` repete via #}
+  {# `display: table-header-group` (padrão HTML, sem CSS extra). #}
+  @page { size: A4; margin: 16mm 15mm; }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; font-size: 10.5pt; color: #1a1a1a; }
-  h1 { font-size: 15pt; margin: 0 0 2mm 0; }
-  h2 { font-size: 11pt; margin: 6mm 0 2mm 0; border-bottom: 0.4mm solid #111; padding-bottom: 1mm; text-transform: uppercase; letter-spacing: 0.02em; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1mm solid #111; padding-bottom: 3mm; margin-bottom: 4mm; }
-  .header .meta { text-align: right; font-size: 9pt; color: #444; }
+  body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; font-size: 9.5pt; color: #1a1a1a; }
+  h1 { font-size: 15pt; margin: 0 0 1mm 0; }
+  h2 {
+    font-size: 9.5pt; margin: 5mm 0 2mm 0; padding: 1.4mm 2.5mm;
+    background: #1a2f4b; color: #fff; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    border-bottom: 1mm solid #1a2f4b; padding-bottom: 3mm; margin-bottom: 2mm;
+  }
+  .header .brand-sub { font-size: 8.5pt; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+  .header .meta { text-align: right; font-size: 9pt; color: #333; }
+  .header .meta .doc-number { font-weight: bold; font-size: 10.5pt; color: #1a2f4b; }
   .two-col { display: flex; gap: 8mm; }
-  .two-col > div { flex: 1; }
+  .two-col > div { flex: 1; min-width: 0; }
   .field-line { margin: 0.6mm 0; }
   .field-label { color: #555; }
-  table.items { width: 100%; border-collapse: collapse; margin-top: 2mm; }
-  table.items th, table.items td { border: 0.25mm solid #ccc; padding: 1.6mm 2mm; font-size: 9.5pt; text-align: left; }
-  table.items th { background: #f2f2f2; }
+  table.items { width: 100%; border-collapse: collapse; margin-top: 1mm; }
+  table.items thead { display: table-header-group; }
+  table.items tr { page-break-inside: avoid; }
+  table.items th, table.items td { border: 0.25mm solid #ccc; padding: 1.6mm 2mm; font-size: 9pt; text-align: left; }
+  table.items th { background: #eef1f5; color: #1a2f4b; }
   table.items td.num { text-align: right; }
-  table.summary { width: 60mm; margin-left: auto; margin-top: 3mm; border-collapse: collapse; }
-  table.summary td { padding: 1mm 2mm; font-size: 10pt; }
+  table.summary { width: 72mm; margin-left: auto; margin-top: 3mm; border-collapse: collapse; }
+  table.summary td { padding: 1mm 2mm; font-size: 9.5pt; }
   table.summary td.num { text-align: right; }
-  table.summary tr.total td { font-weight: bold; font-size: 12pt; border-top: 0.4mm solid #111; padding-top: 2mm; }
-  .text-block { white-space: pre-line; font-size: 9.5pt; color: #333; margin-top: 1mm; }
-  .footer-note { margin-top: 8mm; font-size: 8pt; color: #888; }
+  table.summary tr.total td { font-weight: bold; font-size: 12pt; border-top: 0.4mm solid #1a2f4b; padding-top: 2mm; }
+  .valor-extenso { text-align: right; font-size: 8.5pt; color: #444; margin-top: 1mm; }
+  table.payments { width: 100%; border-collapse: collapse; margin-top: 1mm; }
+  table.payments tr { page-break-inside: avoid; }
+  table.payments th, table.payments td { border: 0.25mm solid #ccc; padding: 1.6mm 2mm; font-size: 9pt; text-align: left; }
+  table.payments th { background: #eef1f5; color: #1a2f4b; }
+  table.payments td.num { text-align: right; }
+  .text-block { white-space: pre-line; font-size: 9pt; color: #333; margin-top: 1mm; }
+  .signature-row { display: flex; justify-content: space-between; margin-top: 18mm; gap: 10mm; }
+  .signature-box { flex: 1; text-align: center; }
+  .signature-box .line { border-top: 0.3mm solid #333; padding-top: 1.5mm; font-size: 9pt; }
+  .signature-box .role { font-size: 8pt; color: #666; text-transform: uppercase; letter-spacing: 0.03em; }
+  .city-date { margin-top: 8mm; text-align: right; font-size: 9.5pt; }
+  .footer-note { margin-top: 6mm; font-size: 7.5pt; color: #888; }
+  .empty { color: #999; }
 </style>
 </head>
 <body>
 
+{# --- CABEÇALHO (seção 5) ------------------------------------------- #}
 <div class="header">
   <div>
-    <h1>Proposta Comercial de Locação</h1>
-    <div class="field-line"><span class="field-label">Número:</span> {{ version.display_label }}</div>
+    <h1>Proposta Comercial{% if version.commercial_plan_name_snapshot %} — {{ version.commercial_plan_name_snapshot|upper }}{% endif %}</h1>
+    <div class="brand-sub">LocusHub</div>
   </div>
   <div class="meta">
-    <div>Emissão: {{ version.issued_at|date:"d/m/Y H:i" }}</div>
+    <div class="doc-number">{{ version.display_label }}</div>
+    <div>Emissão: {{ version.issued_at|date:"d/m/Y" }}</div>
     <div>Vendedor: {{ version.seller_snapshot }}</div>
   </div>
 </div>
 
+{# --- DADOS DA LOCUS / DADOS DO CLIENTE (seção 6/7) ------------------- #}
 <div class="two-col">
   <div>
     <h2>Dados da Locus</h2>
     <div class="field-line"><strong>{{ version.company_name_snapshot }}</strong></div>
     <div class="field-line">CNPJ: {{ version.company_document_snapshot }}</div>
     <div class="field-line">{{ version.company_address_snapshot }}</div>
-    <div class="field-line">Tel.: {{ version.company_phone_snapshot }} — {{ version.company_email_snapshot }}</div>
+    <div class="field-line">Tel.: {{ version.company_phone_snapshot|default:"—" }} — {{ version.company_email_snapshot|default:"—" }}</div>
   </div>
   <div>
-    <h2>Dados do Contratante</h2>
-    <div class="field-line"><strong>{{ version.client_name_snapshot }}</strong></div>
-    <div class="field-line">Documento: {{ version.client_document_snapshot }}</div>
-    <div class="field-line">Contato: {{ version.client_contact_snapshot }}</div>
+    <h2>Dados do Cliente</h2>
+    {% if version.client_type_snapshot == "PJ" %}
+      <div class="field-line"><span class="field-label">Razão social:</span> <strong>{{ version.client_company_name_snapshot|default:version.client_name_snapshot }}</strong></div>
+      {% if version.client_trade_name_snapshot %}<div class="field-line"><span class="field-label">Nome fantasia:</span> {{ version.client_trade_name_snapshot }}</div>{% endif %}
+      <div class="field-line"><span class="field-label">CNPJ:</span> {{ version.client_document_snapshot }}</div>
+    {% elif version.client_type_snapshot == "PF" %}
+      <div class="field-line"><strong>{{ version.client_name_snapshot }}</strong></div>
+      <div class="field-line"><span class="field-label">CPF:</span> {{ version.client_document_snapshot }}</div>
+    {% else %}
+      <div class="field-line"><strong>{{ version.client_name_snapshot }}</strong></div>
+      <div class="field-line"><span class="field-label">Documento:</span> {{ version.client_document_snapshot }}</div>
+    {% endif %}
+    {% if version.client_contact_snapshot %}<div class="field-line"><span class="field-label">Contato:</span> {{ version.client_contact_snapshot }}</div>{% endif %}
     <div class="field-line">{{ version.client_address_snapshot }}</div>
-    <div class="field-line">Tel.: {{ version.client_phone_snapshot }} — {{ version.client_email_snapshot }}</div>
+    <div class="field-line">Tel.: {{ version.client_phone_snapshot|default:"—" }} — {{ version.client_email_snapshot|default:"—" }}</div>
   </div>
 </div>
 
-<h2>Dados da Locação</h2>
+{# --- CONDIÇÕES COMERCIAIS (seção 37) --------------------------------- #}
+{% if version.price_table_label or version.payment_condition %}
+<h2>Condições Comerciais</h2>
 <div class="two-col">
   <div>
-    <div class="field-line"><span class="field-label">Período contratado:</span> {{ version.contracted_start_date|date:"d/m/Y"|default:"—" }} a {{ version.contracted_end_date|date:"d/m/Y"|default:"—" }}</div>
-    <div class="field-line"><span class="field-label">Entrega prevista:</span> {{ version.expected_delivery_date|date:"d/m/Y"|default:"—" }}{% if version.expected_delivery_time %} às {{ version.expected_delivery_time|time:"H:i" }}{% endif %}</div>
-    <div class="field-line"><span class="field-label">Retirada prevista:</span> {{ version.expected_pickup_date|date:"d/m/Y"|default:"—" }}{% if version.expected_pickup_time %} às {{ version.expected_pickup_time|time:"H:i" }}{% endif %}</div>
-    <div class="field-line"><span class="field-label">Local:</span> {{ version.delivery_location|default:"—" }}</div>
-  </div>
-  <div>
-    <div class="field-line"><span class="field-label">Forma de pagamento:</span> {{ version.get_payment_method_display|default:version.payment_method_other }}</div>
-    <div class="field-line"><span class="field-label">Condição:</span> {{ version.payment_condition|default:"—" }}</div>
     {% if version.price_table_label %}<div class="field-line"><span class="field-label">Tabela de preço:</span> {{ version.price_table_label }}</div>{% endif %}
   </div>
+  <div>
+    {% if version.payment_condition %}<div class="field-line"><span class="field-label">Condição comercial:</span> {{ version.payment_condition }}</div>{% endif %}
+  </div>
 </div>
+{% endif %}
 
-<h2>Produtos/Serviços</h2>
+{# --- PRODUTOS E SERVIÇOS (seção 9/10) --------------------------------- #}
+<h2>Produtos e Serviços</h2>
 <table class="items">
   <thead>
-    <tr><th>Descrição</th><th>Qtd.</th><th>Valor unitário</th><th>Desconto</th><th>Total</th><th>Observação</th></tr>
+    <tr><th>Descrição</th><th>Período</th><th>Valor unitário</th><th>Quantidade</th><th>Valor total</th></tr>
   </thead>
   <tbody>
     {% for item in items %}
     <tr>
-      <td>{{ item.description_snapshot }}</td>
-      <td class="num">{{ item.quantity }}</td>
+      <td>{{ item.description_snapshot }}{% if item.notes %}<br><span class="field-label" style="font-size:8pt">{{ item.notes }}</span>{% endif %}</td>
+      <td>
+        {% if is_venda %}—
+        {% elif version.contracted_start_date and version.contracted_end_date %}{{ version.contracted_start_date|date:"d/m/Y" }} a {{ version.contracted_end_date|date:"d/m/Y" }}
+        {% else %}—{% endif %}
+      </td>
       <td class="num">{{ item.unit_price|brl }}</td>
-      <td class="num">{{ item.item_discount_amount|brl }}</td>
+      <td class="num">{{ item.quantity }}{% if item.unit_label_snapshot %} {{ item.unit_label_snapshot }}{% endif %}</td>
       <td class="num">{{ item.line_total|brl }}</td>
-      <td>{{ item.notes }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 
+{# --- RESUMO FINANCEIRO (seção 11/12/13) ------------------------------- #}
+<h2>Resumo Financeiro</h2>
 <table class="summary">
-  <tr><td>Subtotal</td><td class="num">{{ version.subtotal|brl }}</td></tr>
+  <tr><td>Total em equipamentos</td><td class="num">{{ equipment_total|brl }}</td></tr>
+  {% if services_total %}<tr><td>Total em serviços</td><td class="num">{{ services_total|brl }}</td></tr>{% endif %}
   <tr><td>Desconto</td><td class="num">- {{ version.general_discount|brl }}</td></tr>
-  <tr><td>Juros</td><td class="num">+ {{ version.interest_amount|brl }}</td></tr>
+  {% if version.interest_amount %}<tr><td>Juros</td><td class="num">+ {{ version.interest_amount|brl }}</td></tr>{% endif %}
   <tr><td>Frete</td><td class="num">+ {{ version.freight_amount|brl }}</td></tr>
-  <tr class="total"><td>TOTAL</td><td class="num">{{ version.total|brl }}</td></tr>
+  <tr class="total"><td>Total da Proposta</td><td class="num">{{ version.total|brl }}</td></tr>
 </table>
+<div class="valor-extenso">Valor por extenso: {{ valor_extenso }}</div>
 
-{% if version.special_clauses %}
-<h2>Cláusulas Especiais</h2>
-<div class="text-block">{{ version.special_clauses }}</div>
+{# --- CONDIÇÕES DE PAGAMENTO (seção 14/25) ------------------------------ #}
+<h2>Condições de Pagamento</h2>
+{% if installments %}
+<table class="payments">
+  <thead>
+    <tr><th>Parcela</th><th>Forma de pagamento</th><th>Valor</th><th>Vencimento</th></tr>
+  </thead>
+  <tbody>
+    {% for installment in installments %}
+    <tr>
+      <td>{{ installment.sequence }}</td>
+      <td>{{ installment.get_payment_method_display }}{% if installment.payment_method == "OUTRO" and installment.payment_method_other %} ({{ installment.payment_method_other }}){% endif %}</td>
+      <td class="num">{{ installment.amount|brl }}</td>
+      <td>{{ installment.due_date|date:"d/m/Y" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="text-block empty">Dados de pagamento não informados.</div>
 {% endif %}
 
-{% if version.payment_info_notes %}
-<h2>Informações de Valor e Pagamento</h2>
-<div class="text-block">{{ version.payment_info_notes }}</div>
+{# --- ENTREGA / OPERAÇÃO (seção 30/31/50) ------------------------------- #}
+{% if not is_venda %}
+<h2>Entrega / Operação</h2>
+<div class="two-col">
+  <div>
+    <div class="field-line"><span class="field-label">Período contratado:</span> {{ version.contracted_start_date|date:"d/m/Y"|default:"—" }} a {{ version.contracted_end_date|date:"d/m/Y"|default:"—" }}</div>
+    <div class="field-line"><span class="field-label">Entrega prevista:</span> {{ version.expected_delivery_date|date:"d/m/Y"|default:"—" }}{% if version.expected_delivery_time %} às {{ version.expected_delivery_time|time:"H:i" }}{% endif %}</div>
+    <div class="field-line"><span class="field-label">Retirada prevista:</span> {{ version.expected_pickup_date|date:"d/m/Y"|default:"—" }}{% if version.expected_pickup_time %} às {{ version.expected_pickup_time|time:"H:i" }}{% endif %}</div>
+    {% if version.event_name %}<div class="field-line"><span class="field-label">Evento:</span> {{ version.event_name }}</div>{% endif %}
+  </div>
+  <div>
+    <div class="field-line"><span class="field-label">Local:</span> {{ version.delivery_location.name|default:"—" }}</div>
+    {% if version.delivery_location.address %}
+    <div class="field-line"><span class="field-label">Endereço:</span>
+      {{ version.delivery_location.address.logradouro }}{% if version.delivery_location.address.numero %}, {{ version.delivery_location.address.numero }}{% endif %}
+      {% if version.delivery_location.address.bairro %} — {{ version.delivery_location.address.bairro }}{% endif %}
+      {% if version.delivery_location.address.cidade %} — {{ version.delivery_location.address.cidade }}/{{ version.delivery_location.address.uf }}{% endif %}
+    </div>
+    {% endif %}
+    {% if version.onsite_responsible_name %}<div class="field-line"><span class="field-label">Responsável no local:</span> {{ version.onsite_responsible_name }}</div>{% endif %}
+    {% if version.onsite_responsible_phone %}<div class="field-line"><span class="field-label">Telefone do responsável:</span> {{ version.onsite_responsible_phone }}</div>{% endif %}
+  </div>
+</div>
 {% endif %}
 
-{% if version.general_notes %}
-<h2>Observações</h2>
-<div class="text-block">{{ version.general_notes }}</div>
+{# --- INFORMAÇÕES COMPLEMENTARES (seção 39) ----------------------------- #}
+{% if version.special_clauses or version.payment_info_notes or version.general_notes %}
+<h2>Informações Complementares</h2>
+{% if version.special_clauses %}<div class="text-block"><strong>Cláusulas especiais:</strong> {{ version.special_clauses }}</div>{% endif %}
+{% if version.payment_info_notes %}<div class="text-block"><strong>Observações de pagamento:</strong> {{ version.payment_info_notes }}</div>{% endif %}
+{% if version.general_notes %}<div class="text-block"><strong>Observações gerais:</strong> {{ version.general_notes }}</div>{% endif %}
 {% endif %}
+
+{# --- IDENTIFICAÇÃO DAS PARTES / LOCAL E DATA (seção 32/33) -------------- #}
+<div class="signature-row">
+  <div class="signature-box">
+    <div class="line">{{ version.company_name_snapshot }}</div>
+    <div class="role">Proponente</div>
+  </div>
+  <div class="signature-box">
+    <div class="line">{{ version.client_name_snapshot }}</div>
+    <div class="role">Cliente</div>
+  </div>
+</div>
+<div class="city-date">{{ cidade_data_extenso }}</div>
 
 <div class="footer-note">Documento gerado automaticamente pelo LocusHub — não constitui aceite/fechamento de negócio até confirmação expressa.</div>
 

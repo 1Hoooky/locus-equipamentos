@@ -75,10 +75,19 @@ pertencendo ao MESMO envio — um único POST, um único "Salvar rascunho".
   {# ---------------- BLOCO · CONDIÇÕES COMERCIAIS ---------------- #}
   <div class="proposal-block">
     <h3 class="section-heading">{% icon "currency-dollar" size="compact" %} Condições comerciais</h3>
-    <div class="max-w-xs">
-      <label class="field-label" for="{{ conditions_form.payment_method.id_for_label }}">{{ conditions_form.payment_method.label }}</label>
-      {{ conditions_form.payment_method }}
-      {% for error in conditions_form.payment_method.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-xl">
+      <div>
+        <label class="field-label" for="{{ conditions_form.payment_method.id_for_label }}">{{ conditions_form.payment_method.label }}</label>
+        {{ conditions_form.payment_method }}
+        {% for error in conditions_form.payment_method.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div>
+        {# FECHAMENTO DA PROPOSTA COMERCIAL (23/09/2026, seção 5): plano  #}
+        {# real, exibido no cabeçalho do PDF — nunca texto hardcoded.    #}
+        <label class="field-label" for="{{ conditions_form.commercial_plan.id_for_label }}">{{ conditions_form.commercial_plan.label }}</label>
+        {{ conditions_form.commercial_plan }}
+        {% for error in conditions_form.commercial_plan.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      </div>
     </div>
     <p class="text-xs text-gray-500 mt-2">Condições específicas (parcelamento, entrada, prazos) entram em "Informações de valor e pagamento", mais abaixo.</p>
   </div>
@@ -112,6 +121,20 @@ pertencendo ao MESMO envio — um único POST, um único "Salvar rascunho".
       {% endif %}
       {% for error in conditions_form.delivery_location.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
       <p class="field-hint">{{ conditions_form.delivery_location.help_text }}</p>
+    </div>
+    {# Evento / responsável no local (seção 27/28) — da OPERAÇÃO desta   #}
+    {# versão, nunca do cadastro fiscal do Client.                      #}
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+      {% for field in conditions_form %}
+        {% if field.name in "event_name,onsite_responsible_name,onsite_responsible_phone" %}
+        <div>
+          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}<p class="field-hint">{{ field.help_text }}</p>{% endif %}
+          {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+      {% endfor %}
     </div>
   </div>
 </form>
@@ -239,6 +262,115 @@ pertencendo ao MESMO envio — um único POST, um único "Salvar rascunho".
     </table>
   </div>
 </div>
+
+{# ---------------- BLOCO · CONDIÇÕES DE PAGAMENTO ---------------- #}
+{# FECHAMENTO DA PROPOSTA COMERCIAL (23/09/2026, seção 18/23) — posição  #}
+{# recomendada pela especificação: Resumo financeiro → Condições de      #}
+{# pagamento → Informações complementares → Documento. Formulário        #}
+{# PRÓPRIO (não faz parte de `#proposal-conditions-form`), mesmo padrão  #}
+{# de "Adicionar produto/serviço" acima — cada parcela é uma entidade    #}
+{# própria (`ProposalVersionInstallment`), com seu próprio POST.         #}
+<div class="proposal-block">
+  <h3 class="section-heading">{% icon "currency-dollar" size="compact" %} Condições de pagamento</h3>
+
+  {% if installments %}
+  <table class="proposal-summary-table text-sm mb-3" style="width:100%">
+    <thead>
+      <tr class="text-gray-500 text-left">
+        <th class="pr-4">Parcela</th><th class="pr-4">Forma de pagamento</th><th class="pr-4">Valor</th><th class="pr-4">Vencimento</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for installment in installments %}
+      <tr>
+        <td class="pr-4">{{ installment.sequence }}</td>
+        <td class="pr-4">{{ installment.get_payment_method_display }}{% if installment.payment_method == "OUTRO" and installment.payment_method_other %} ({{ installment.payment_method_other }}){% endif %}</td>
+        <td class="pr-4 tabular-nums">{{ installment.amount|brl }}</td>
+        <td class="pr-4">{{ installment.due_date|date:"d/m/Y" }}</td>
+        <td>
+          {% if can_change_opportunity %}
+          <button type="button" class="icon-btn-neutral" data-open-modal="proposal-installment-remove-modal-{{ installment.pk }}">
+            <span class="sr-only">Remover parcela {{ installment.sequence }}</span>
+            {% icon "trash" size="compact" %}
+          </button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">Nenhuma parcela configurada.</p>
+  {% endif %}
+
+  {# Conferência (seção 23): Total da proposta / Total distribuído /     #}
+  {# Diferença — nunca autocorrige, só sinaliza.                         #}
+  {% if payment_reconciliation %}
+  <div class="flex flex-wrap items-center gap-4 text-sm mb-3">
+    <span><span class="text-gray-500">Total da proposta:</span> <strong class="tabular-nums">{{ payment_reconciliation.total|brl }}</strong></span>
+    <span><span class="text-gray-500">Total distribuído:</span> <strong class="tabular-nums">{{ payment_reconciliation.distributed|brl }}</strong></span>
+    <span><span class="text-gray-500">Diferença:</span> <strong class="tabular-nums">{{ payment_reconciliation.difference|brl }}</strong></span>
+    {% if payment_reconciliation.is_reconciled %}
+    <span class="badge-success icon-inline">{% icon "check-circle" size="compact" %} Pagamento conferido</span>
+    {% else %}
+    <span class="badge-warning icon-inline">{% icon "exclamation-triangle" size="compact" %} Pagamento não confere</span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if can_change_opportunity and installment_form %}
+  <div class="proposal-add-item-panel">
+    <h4 class="text-sm font-semibold text-brand-charcoal mb-3 flex items-center gap-1.5">{% icon "plus" size="compact" %} Adicionar parcela</h4>
+    <form method="post" action="{% url 'crm:proposal_installment_add' opportunity.pk %}" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {% csrf_token %}
+      {% for field in installment_form %}
+      <div>
+        <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.name == "amount" and installment_suggestion %}
+        {# Ajuda de UX (seção 20): sugere "Parcela N" + saldo ainda não  #}
+        {# distribuído — nunca preenche/redistribui sozinho, só um TEXTO#}
+        {# informativo (mesmo padrão do preço sugerido de item acima).  #}
+        <p class="text-xs text-gray-500 mt-1">Sugestão: Parcela {{ installment_suggestion.sequence }} — saldo a distribuir {{ installment_suggestion.suggested_amount|brl }}.</p>
+        {% endif %}
+        {% if field.help_text %}<p class="field-hint">{{ field.help_text }}</p>{% endif %}
+        {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      </div>
+      {% endfor %}
+      <div class="md:col-span-3">
+        <button type="submit" class="btn-neutral icon-inline">{% icon "plus" size="compact" %} Adicionar parcela</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+{% if can_change_opportunity %}
+{% for installment in installments %}
+<div id="proposal-installment-remove-modal-{{ installment.pk }}" class="kanban-modal-backdrop" hidden aria-hidden="true">
+  <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="proposal-installment-remove-modal-{{ installment.pk }}-title">
+    <div class="kanban-modal-header">
+      <h2 class="kanban-modal-title icon-inline" id="proposal-installment-remove-modal-{{ installment.pk }}-title">
+        {% icon "trash" size="compact" %} Remover parcela
+      </h2>
+      <button type="button" class="icon-btn-neutral" data-close-modal="proposal-installment-remove-modal-{{ installment.pk }}" aria-label="Fechar">
+        {% icon "x-mark" size="compact" %}
+      </button>
+    </div>
+    <form method="post" action="{% url 'crm:proposal_installment_remove' opportunity.pk installment.pk %}">
+      {% csrf_token %}
+      <div class="kanban-modal-body space-y-3">
+        <p class="text-sm text-gray-700">Remover a parcela {{ installment.sequence }} ({{ installment.amount|brl }})?</p>
+      </div>
+      <div class="kanban-modal-footer">
+        <button type="button" class="btn-neutral" data-close-modal="proposal-installment-remove-modal-{{ installment.pk }}">Cancelar</button>
+        <button type="submit" class="btn-primary">Remover</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
 
 {% if conditions_form %}
 {# ---------------- BLOCO · INFORMAÇÕES COMPLEMENTARES ---------------- #}

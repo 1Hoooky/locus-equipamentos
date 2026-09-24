@@ -523,6 +523,7 @@ class PaymentMethod(models.TextChoices):
     BOLETO = "BOLETO", "Boleto"
     CARTAO = "CARTAO", "Cartão"
     TRANSFERENCIA = "TRANSFERENCIA", "Transferência bancária"
+    DINHEIRO = "DINHEIRO", "Dinheiro"
     OUTRO = "OUTRO", "Outro"
 
 
@@ -641,6 +642,42 @@ class ProposalVersion(TimeStampedModel):
     payment_condition = models.CharField(
         max_length=150, blank=True, help_text="Ex.: 'À vista', '28 dias' — texto livre (seção 31)."
     )
+    # FECHAMENTO DA PROPOSTA COMERCIAL (23/09/2026): modalidade/plano
+    # comercial exibido no cabeçalho do PDF (seção 5 — "usar a estrutura
+    # real de CommercialPlan quando implementada, nunca hardcodar nomes
+    # via lógica de string"). `CommercialPlan` já existe (RODADA 1) mas
+    # não tinha nenhuma ligação com `ProposalVersion` até agora — este é
+    # o primeiro FK. `PROTECT`: um plano nunca pode ser apagado enquanto
+    # alguma proposta o referencia (mesmo raciocínio de todo FK de
+    # catálogo neste app). `null=True/blank=True`: nem toda proposta
+    # precisa declarar plano (ex. Venda avulsa) — texto plano de
+    # "PROPOSTA COMERCIAL" sem sufixo quando ausente.
+    commercial_plan = models.ForeignKey(
+        "CommercialPlan",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="proposal_versions",
+    )
+    # Nome do plano CONGELADO no momento da emissão (mesmo padrão de
+    # `company_name_snapshot`/`client_name_snapshot` — seção 8: um plano
+    # renomeado depois da emissão nunca pode alterar o PDF já emitido).
+    # Fica em branco enquanto DRAFT (o rascunho lê `commercial_plan.name`
+    # ao vivo); preenchido uma única vez em `issue_proposal()`.
+    commercial_plan_name_snapshot = models.CharField(max_length=100, blank=True)
+
+    # --- Evento / responsável no local (seção 27-28) ----------------------
+    # Pertencem à NEGOCIAÇÃO/OPERAÇÃO desta versão — nunca ao cadastro
+    # fiscal do Client (nunca sobrescrevem `Client.contact_name`/
+    # `Client.phone`). Como já vivem em `ProposalVersion`, são clonados
+    # normalmente por `create_new_version()` (mesmo mecanismo de todo
+    # outro campo de condição) e não precisam de um `*_snapshot` extra —
+    # a própria versão passa a ser imutável quando ISSUED.
+    event_name = models.CharField(
+        max_length=150, blank=True, help_text="Ex.: 'Expoingá 2027', 'Casamento XYZ' — opcional (seção 27)."
+    )
+    onsite_responsible_name = models.CharField(max_length=150, blank=True)
+    onsite_responsible_phone = models.CharField(max_length=30, blank=True)
 
     # --- Período contratado / logística (seção 42-51) --------------------
     contracted_start_date = models.DateField(null=True, blank=True)
@@ -680,6 +717,16 @@ class ProposalVersion(TimeStampedModel):
     client_phone_snapshot = models.CharField(max_length=30, blank=True)
     client_email_snapshot = models.CharField(max_length=254, blank=True)
     client_address_snapshot = models.TextField(blank=True)
+    # FECHAMENTO DA PROPOSTA COMERCIAL (23/09/2026, seção 7): o PDF
+    # precisa distinguir a apresentação PF/PJ ("Razão social"+"Nome
+    # fantasia"+"CNPJ" para PJ; "Nome"+"CPF" para PF) — `client_name_
+    # snapshot` acima já era só o nome de EXIBIÇÃO (`Client.display_
+    # name()`, fantasia OU razão social), insuficiente para mostrar os
+    # dois lado a lado como o modelo comercial real exige. Estes 3 campos
+    # complementam (nunca substituem) os já existentes acima.
+    client_type_snapshot = models.CharField(max_length=2, blank=True)
+    client_company_name_snapshot = models.CharField(max_length=200, blank=True)
+    client_trade_name_snapshot = models.CharField(max_length=200, blank=True)
 
     # --- Snapshot da Locus (seção 35/36/39/40) ----------------------------
     company_name_snapshot = models.CharField(max_length=200, blank=True)
@@ -687,6 +734,12 @@ class ProposalVersion(TimeStampedModel):
     company_address_snapshot = models.TextField(blank=True)
     company_phone_snapshot = models.CharField(max_length=30, blank=True)
     company_email_snapshot = models.CharField(max_length=254, blank=True)
+    # Cidade/UF isolados (seção 33: "Maringá, 23 de setembro de 2026" —
+    # usa a localidade CONFIGURADA da Locus, nunca hardcoded) —
+    # `company_address_snapshot` acima já é texto único formatado,
+    # insuficiente para extrair só a cidade de volta com segurança.
+    company_city_snapshot = models.CharField(max_length=100, blank=True)
+    company_uf_snapshot = models.CharField(max_length=2, blank=True)
     seller_snapshot = models.CharField(
         max_length=150, blank=True, help_text="Responsável/vendedor (owner da Opportunity) no momento da emissão (seção 40)."
     )
@@ -1252,6 +1305,59 @@ class ProposalItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.description_snapshot} x{self.quantity}"
+
+
+class ProposalVersionInstallment(models.Model):
+    """
+    Parcela de pagamento CONFIGURADA dentro de uma `ProposalVersion` —
+    FECHAMENTO DA PROPOSTA COMERCIAL (23/09/2026, seção 14-25). É um
+    ACORDO COMERCIAL DE PAGAMENTO (o que foi combinado com o cliente),
+    NUNCA contas a receber/faturamento/baixa bancária (seção 15 — "não
+    criar AccountsReceivable, não criar módulo financeiro" — isso é
+    escopo explicitamente futuro, fora desta implementação).
+
+    Pertence à `ProposalVersion` (nunca à `Proposal`/`Opportunity`
+    diretamente — seção 16): cada versão tem seu próprio conjunto de
+    parcelas, clonado integralmente por `apps.crm.services.
+    create_new_version()` (mesmo padrão de `ProposalItem` — nunca um
+    "snapshot" separado, a própria linha É o dado da versão). Uma versão
+    `ISSUED` é imutável — a proteção real é de serviço
+    (`_require_draft()`/`ensure_editable_version()`), igual a todo outro
+    dado de condição.
+
+    `sequence` é único dentro da versão (seção 19) — "Parcela 1",
+    "Parcela 2"... na ordem de exibição do PDF/UI. `amount` é sempre
+    monetário em R$ (`Decimal`, nunca percentual/float — seção 22). A
+    regra "soma das parcelas = total da proposta" NÃO é imposta aqui a
+    nível de banco (uma linha isolada não sabe o total da versão) — é
+    validada em `apps.crm.services.check_payment_reconciliation()` e
+    bloqueia a EMISSÃO (`issue_proposal()`), nunca o salvamento do
+    rascunho (seção 22: "rascunho pode ser salvo com pagamento
+    incompleto").
+    """
+
+    proposal_version = models.ForeignKey(ProposalVersion, on_delete=models.CASCADE, related_name="installments")
+    sequence = models.PositiveIntegerField(help_text="Ordem de exibição (\"Parcela 1\", \"Parcela 2\"...) — único dentro da versão.")
+    payment_method = models.CharField(max_length=20, choices=PaymentMethod.choices)
+    payment_method_other = models.CharField(
+        max_length=100, blank=True, help_text="Usado quando 'Forma de pagamento' = Outro."
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    due_date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "parcela da proposta"
+        verbose_name_plural = "parcelas da proposta"
+        ordering = ["proposal_version_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(fields=["proposal_version", "sequence"], name="uniq_proposal_installment_sequence"),
+            models.CheckConstraint(check=models.Q(amount__gt=0), name="proposal_installment_amount_positive"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.proposal_version} — Parcela {self.sequence}"
 
 
 class Contract(models.Model):

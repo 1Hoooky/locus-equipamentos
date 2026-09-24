@@ -37,6 +37,7 @@ from apps.clients.models import Client
 from apps.crm.forms import ProposalConditionsForm
 from apps.crm.models import BusinessType, Opportunity, PaymentMethod, ProposalVersionStatus
 from apps.crm.services import ProposalItemData, add_proposal_item, get_or_create_active_proposal, issue_proposal
+from apps.crm.tests._payment_test_helpers import add_full_installment
 from apps.crm.tests.test_proposal_views import ProposalViewsTestBase, _user_with_perms
 from apps.operations.models import Location, LocationType
 
@@ -253,6 +254,7 @@ class IssuanceAndCalculationRegressionTest(ProposalViewsTestBase):
         self.assertEqual(version.total, Decimal("150.00"))
 
     def test_issuing_document_still_works(self):
+        add_full_installment(self.proposal.latest_version)
         user = _user_with_perms("issuer_refin", "view_opportunities", "issue_proposal_documents")
         client = self._login(user)
         resp = client.post(
@@ -434,6 +436,7 @@ class DeliveryLocationScopedToOpportunityClientTest(ProposalViewsTestBase):
         )
         version = self.proposal.latest_version
         version.refresh_from_db()
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.owner)
         version.refresh_from_db()
         self.assertEqual(version.delivery_location_id, self.loc_norte.pk)

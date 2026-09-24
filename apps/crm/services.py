@@ -54,6 +54,7 @@ from apps.crm.models import (
     ProposalItem,
     ProposalItemType,
     ProposalVersion,
+    ProposalVersionInstallment,
     ProposalVersionStatus,
     ServiceCatalogItem,
 )
@@ -766,6 +767,13 @@ class ProposalConditionsData:
     payment_method: str = ""
     payment_method_other: str = ""
     payment_condition: str = ""
+    # FECHAMENTO DA PROPOSTA COMERCIAL (23/09/2026, seção 5/27/28): plano
+    # comercial + evento + responsável no local viajam junto com as demais
+    # condições — mesmo "Salvar rascunho" único, mesmo auto-versionamento.
+    commercial_plan: object | None = None  # apps.crm.models.CommercialPlan
+    event_name: str = ""
+    onsite_responsible_name: str = ""
+    onsite_responsible_phone: str = ""
     contracted_start_date: date | None = None
     contracted_end_date: date | None = None
     expected_delivery_date: date | None = None
@@ -808,6 +816,10 @@ def update_draft_conditions(*, proposal_version: ProposalVersion, data: Proposal
     proposal_version.payment_method = data.payment_method
     proposal_version.payment_method_other = data.payment_method_other
     proposal_version.payment_condition = data.payment_condition
+    proposal_version.commercial_plan = data.commercial_plan
+    proposal_version.event_name = data.event_name
+    proposal_version.onsite_responsible_name = data.onsite_responsible_name
+    proposal_version.onsite_responsible_phone = data.onsite_responsible_phone
     proposal_version.contracted_start_date = data.contracted_start_date
     proposal_version.contracted_end_date = data.contracted_end_date
     proposal_version.expected_delivery_date = data.expected_delivery_date
@@ -825,6 +837,156 @@ def update_draft_conditions(*, proposal_version: ProposalVersion, data: Proposal
 
     calculate_proposal_version(proposal_version)
     return proposal_version
+
+
+# --- Condições de pagamento / parcelas (FECHAMENTO DA PROPOSTA COMERCIAL, ---
+# 23/09/2026, seção 14-25) ----------------------------------------------------
+#
+# "DADOS DO PAGAMENTO" deixa de ser texto livre (`payment_info_notes`) e
+# passa a ser dado ESTRUTURADO — um "acordo comercial de parcelamento"
+# (seção 15: explicitamente NÃO é contas a receber/módulo financeiro,
+# nunca `AccountsReceivable`). Cada parcela pertence à `ProposalVersion`
+# (seção 16) e é clonada junto com o resto das condições por
+# `create_new_version()`, exatamente como `ProposalItem`. A regra "soma
+# das parcelas = total da proposta" (seção 22/24) é validada aqui,
+# BLOQUEANDO A EMISSÃO — nunca o salvamento do rascunho, que pode ficar
+# incompleto (seção 22).
+
+
+@dataclass
+class ProposalInstallmentData:
+    payment_method: str = ""
+    payment_method_other: str = ""
+    amount: Decimal = Decimal("0.00")
+    due_date: date | None = None
+    sequence: int | None = None  # None = próxima sequência disponível (seção 20)
+
+
+def _validate_installment_fields(data: ProposalInstallmentData) -> None:
+    if not data.payment_method:
+        raise ValueError("Selecione a forma de pagamento da parcela.")
+    if data.amount is None or data.amount <= 0:
+        raise ValueError("O valor da parcela deve ser maior que zero.")
+    if data.due_date is None:
+        raise ValueError("Informe o vencimento da parcela.")
+
+
+def next_installment_suggestion(*, proposal_version: ProposalVersion) -> dict:
+    """
+    Ajuda de UX (seção 20) para o botão "Adicionar parcela": próxima
+    `sequence` livre + saldo ainda não distribuído (total da versão menos
+    a soma das parcelas já configuradas — nunca negativo, arredondado em
+    zero quando as parcelas já somam mais que o total, deixando o próprio
+    formulário/reconciliação sinalizar a divergência). É só uma SUGESTÃO
+    de valor inicial — o usuário pode alterá-la livremente; nunca
+    redistribui parcelas já existentes (seção 20, "nunca redistribuir
+    silenciosamente").
+    """
+    existing = proposal_version.installments.all()
+    next_sequence = (existing.aggregate(Max("sequence"))["sequence__max"] or 0) + 1
+    distributed = sum((row.amount for row in existing), Decimal("0.00"))
+    remaining = proposal_version.total - distributed
+    if remaining < 0:
+        remaining = Decimal("0.00")
+    return {"sequence": next_sequence, "suggested_amount": remaining.quantize(Decimal("0.01"))}
+
+
+@transaction.atomic
+def add_installment(*, proposal_version: ProposalVersion, data: ProposalInstallmentData) -> ProposalVersionInstallment:
+    _require_draft(proposal_version)
+    _validate_installment_fields(data)
+
+    sequence = data.sequence
+    if sequence is None:
+        sequence = (proposal_version.installments.aggregate(Max("sequence"))["sequence__max"] or 0) + 1
+    elif proposal_version.installments.filter(sequence=sequence).exists():
+        raise ValueError(f"Já existe uma parcela com a sequência {sequence} nesta versão.")
+
+    return ProposalVersionInstallment.objects.create(
+        proposal_version=proposal_version,
+        sequence=sequence,
+        payment_method=data.payment_method,
+        payment_method_other=data.payment_method_other,
+        amount=data.amount,
+        due_date=data.due_date,
+    )
+
+
+@transaction.atomic
+def update_installment(*, installment: ProposalVersionInstallment, data: ProposalInstallmentData) -> ProposalVersionInstallment:
+    _require_draft(installment.proposal_version)
+    _validate_installment_fields(data)
+
+    installment.payment_method = data.payment_method
+    installment.payment_method_other = data.payment_method_other
+    installment.amount = data.amount
+    installment.due_date = data.due_date
+    installment.save()
+    return installment
+
+
+@transaction.atomic
+def remove_installment(*, installment: ProposalVersionInstallment) -> None:
+    _require_draft(installment.proposal_version)
+    installment.delete()
+
+
+@transaction.atomic
+def ensure_editable_installment(*, installment: ProposalVersionInstallment, created_by: User) -> ProposalVersionInstallment:
+    """Mesmo raciocínio de `ensure_editable_item()` — localiza a parcela clonada pela MESMA `sequence` na nova versão DRAFT."""
+    version = installment.proposal_version
+    if version.status == ProposalVersionStatus.DRAFT:
+        return installment
+    new_version = ensure_editable_version(proposal=version.proposal, created_by=created_by)
+    return new_version.installments.get(sequence=installment.sequence)
+
+
+@dataclass
+class PaymentReconciliation:
+    """Resultado de conferência (seção 23): total da proposta × soma das parcelas já configuradas — tudo em `Decimal`, nunca `float`."""
+
+    total: Decimal
+    distributed: Decimal
+
+    @property
+    def difference(self) -> Decimal:
+        return (self.total - self.distributed).quantize(Decimal("0.01"))
+
+    @property
+    def is_reconciled(self) -> bool:
+        return self.difference == Decimal("0.00")
+
+
+def check_payment_reconciliation(proposal_version: ProposalVersion) -> PaymentReconciliation:
+    distributed = sum((row.amount for row in proposal_version.installments.all()), Decimal("0.00"))
+    return PaymentReconciliation(total=proposal_version.total, distributed=distributed)
+
+
+def validate_payment_before_issue(proposal_version: ProposalVersion) -> None:
+    """
+    Checagem que BLOQUEIA a emissão (seção 22/24) — nunca o salvamento do
+    rascunho. Exige: pelo menos 1 parcela; cada uma com forma de
+    pagamento, valor > 0 e vencimento válidos (já garantido por
+    `_validate_installment_fields()` em cada escrita, revalidado aqui
+    defensivamente); soma == total, sem divergência silenciosa.
+    """
+    installments = list(proposal_version.installments.all())
+    if not installments:
+        raise ValueError("Configure ao menos uma parcela em 'Condições de pagamento' antes de emitir a proposta.")
+    for row in installments:
+        if not row.payment_method or row.amount <= 0 or row.due_date is None:
+            raise ValueError("Existe uma parcela com dados incompletos (forma de pagamento, valor ou vencimento).")
+
+    reconciliation = check_payment_reconciliation(proposal_version)
+    if not reconciliation.is_reconciled:
+        raise ValueError(
+            "Pagamento não confere: soma das parcelas ({distributed}) é diferente do total da proposta "
+            "({total}). Diferença: {difference}.".format(
+                distributed=reconciliation.distributed,
+                total=reconciliation.total,
+                difference=reconciliation.difference,
+            )
+        )
 
 
 # --- Consulta de disponibilidade (informativa — seção 11/12/76/77) ----------
@@ -1374,6 +1536,10 @@ def issue_proposal(*, proposal_version: ProposalVersion, issued_by: User) -> Pro
         raise ValueError("Não é possível emitir uma proposta sem nenhum item.")
 
     calculate_proposal_version(proposal_version)
+    # FECHAMENTO DA PROPOSTA COMERCIAL (23/09/2026, seção 22/24): bloqueia
+    # a emissão quando o pagamento não confere — nunca emite um documento
+    # cujas parcelas não somam o total exibido nele.
+    validate_payment_before_issue(proposal_version)
 
     opportunity = proposal_version.proposal.opportunity
     client = opportunity.client
@@ -1381,6 +1547,9 @@ def issue_proposal(*, proposal_version: ProposalVersion, issued_by: User) -> Pro
 
     proposal_version.client_name_snapshot = client.display_name()
     proposal_version.client_document_snapshot = client.document
+    proposal_version.client_type_snapshot = client.client_type
+    proposal_version.client_company_name_snapshot = client.company_name
+    proposal_version.client_trade_name_snapshot = client.trade_name
     proposal_version.client_contact_snapshot = client.contact_name
     proposal_version.client_phone_snapshot = client.phone
     proposal_version.client_email_snapshot = client.email
@@ -1391,7 +1560,15 @@ def issue_proposal(*, proposal_version: ProposalVersion, issued_by: User) -> Pro
     proposal_version.company_address_snapshot = _format_company_address_snapshot(company)
     proposal_version.company_phone_snapshot = company.phone
     proposal_version.company_email_snapshot = company.email
+    proposal_version.company_city_snapshot = company.cidade
+    proposal_version.company_uf_snapshot = company.uf
     proposal_version.seller_snapshot = str(opportunity.owner)
+    # Seção 8: plano/modalidade também é dado exibido no PDF e precisa
+    # ficar congelado — um `CommercialPlan` renomeado depois da emissão
+    # nunca pode alterar um documento já emitido.
+    proposal_version.commercial_plan_name_snapshot = (
+        proposal_version.commercial_plan.name if proposal_version.commercial_plan_id else ""
+    )
 
     proposal_version.status = ProposalVersionStatus.ISSUED
     proposal_version.issued_at = timezone.now()
@@ -1448,6 +1625,10 @@ def create_new_version(*, proposal: Proposal, created_by: User) -> ProposalVersi
         payment_method=latest.payment_method,
         payment_method_other=latest.payment_method_other,
         payment_condition=latest.payment_condition,
+        commercial_plan=latest.commercial_plan,
+        event_name=latest.event_name,
+        onsite_responsible_name=latest.onsite_responsible_name,
+        onsite_responsible_phone=latest.onsite_responsible_phone,
         contracted_start_date=latest.contracted_start_date,
         contracted_end_date=latest.contracted_end_date,
         expected_delivery_date=latest.expected_delivery_date,
@@ -1479,6 +1660,19 @@ def create_new_version(*, proposal: Proposal, created_by: User) -> ProposalVersi
             item_discount_amount=item.item_discount_amount,
             notes=item.notes,
             order=item.order,
+        )
+    # Seção 16/17: as parcelas são clonadas junto — uma negociação que
+    # muda de "1x PIX" para "2x PIX+Boleto" depois de emitida faz isso
+    # editando a NOVA versão (a v1 permanece com sua própria parcela
+    # intacta, nunca reescrita).
+    for installment in latest.installments.all():
+        ProposalVersionInstallment.objects.create(
+            proposal_version=new_version,
+            sequence=installment.sequence,
+            payment_method=installment.payment_method,
+            payment_method_other=installment.payment_method_other,
+            amount=installment.amount,
+            due_date=installment.due_date,
         )
     calculate_proposal_version(new_version)
     return new_version

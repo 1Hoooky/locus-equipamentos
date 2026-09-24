@@ -18,6 +18,7 @@ from apps.catalog.models import Category, EquipmentModel
 from apps.clients.models import Client
 from apps.crm.models import BusinessType, CommercialSource, Opportunity, OpportunityStage, ProposalVersionStatus
 from apps.crm.services import ProposalItemData, add_proposal_item, get_or_create_active_proposal, issue_proposal
+from apps.crm.tests._payment_test_helpers import add_full_installment
 
 User = get_user_model()
 
@@ -142,6 +143,7 @@ class GenerateDocumentViewPermissionTest(ProposalViewsTestBase):
             proposal_version=proposal.latest_version,
             data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("100")),
         )
+        add_full_installment(proposal.latest_version)
         self.proposal = proposal
 
     def test_issuing_proposta_without_issue_permission_is_forbidden(self):
@@ -193,6 +195,7 @@ class AcceptViewPermissionTest(ProposalViewsTestBase):
             proposal_version=proposal.latest_version,
             data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("100")),
         )
+        add_full_installment(proposal.latest_version)
         issue_proposal(proposal_version=proposal.latest_version, issued_by=self.owner)
         self.proposal = proposal
 

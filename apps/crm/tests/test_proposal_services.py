@@ -17,6 +17,7 @@ from django.test import TestCase
 
 from apps.attachments.models import AttachmentCategory
 from apps.attachments.services import attachments_for
+from apps.crm.tests._payment_test_helpers import add_full_installment
 from apps.catalog.models import Category, EquipmentModel
 from apps.clients.models import Client
 from apps.core.models import Address
@@ -298,6 +299,7 @@ class IssueProposalTest(ProposalServiceTestBase):
     def _issue_with_one_item(self):
         _, version = self._proposal_and_version()
         add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("500")))
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         version.refresh_from_db()
         return version
@@ -355,6 +357,7 @@ class VersioningTest(ProposalServiceTestBase):
         proposal, version = self._proposal_and_version()
         add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=2, unit_price=Decimal("100")))
         update_draft_conditions(proposal_version=version, data=ProposalConditionsData(payment_condition="À vista"))
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
 
         v2 = create_new_version(proposal=proposal, created_by=self.user)
@@ -366,6 +369,7 @@ class VersioningTest(ProposalServiceTestBase):
     def test_previous_version_preserved_after_new_version(self):
         proposal, version = self._proposal_and_version()
         add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("100")))
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         v1_total = version.total
 
@@ -377,6 +381,7 @@ class VersioningTest(ProposalServiceTestBase):
     def test_editing_v2_never_touches_v1_snapshot(self):
         proposal, version = self._proposal_and_version()
         add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("100")))
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         v1_client_snapshot = version.client_name_snapshot
 
@@ -400,6 +405,7 @@ class ContractTest(ProposalServiceTestBase):
 
     def test_generate_contract_from_issued_version(self):
         version = self._draft_with_item()
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         contract = generate_contract(proposal_version=version, created_by=self.user)
         self.assertTrue(contract.number.startswith("CONTR-"))
@@ -407,6 +413,7 @@ class ContractTest(ProposalServiceTestBase):
 
     def test_proposta_e_contrato_creates_two_distinct_documents(self):
         version = self._draft_with_item()
+        add_full_installment(version)
         result = generate_documents(proposal_version=version, document_type=DocumentType.PROPOSTA_E_CONTRATO, actor=self.user)
         version.refresh_from_db()
         self.assertEqual(version.status, ProposalVersionStatus.ISSUED)
@@ -416,6 +423,7 @@ class ContractTest(ProposalServiceTestBase):
 
     def test_generate_contract_does_not_accept_proposal(self):
         version = self._draft_with_item()
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         generate_contract(proposal_version=version, created_by=self.user)
         version.refresh_from_db()
@@ -425,6 +433,7 @@ class ContractTest(ProposalServiceTestBase):
 
     def test_contract_snapshot_matches_version(self):
         version = self._draft_with_item()
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         contract = generate_contract(proposal_version=version, created_by=self.user)
         self.assertEqual(contract.proposal_version_id, version.pk)
@@ -434,6 +443,7 @@ class AcceptTest(ProposalServiceTestBase):
     def _issued_version(self):
         _, version = self._proposal_and_version()
         add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=2, unit_price=Decimal("500")))
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         version.refresh_from_db()
         return version

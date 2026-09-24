@@ -46,6 +46,23 @@ urlpatterns = [
         views.ProposalConditionsSaveView.as_view(),
         name="proposal_conditions_save",
     ),
+    # Condições de pagamento / parcelas (FECHAMENTO DA PROPOSTA COMERCIAL,
+    # 23/09/2026, seção 18-25) — mesmo padrão de itens acima.
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/parcelas/adicionar/",
+        views.ProposalInstallmentAddView.as_view(),
+        name="proposal_installment_add",
+    ),
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/parcelas/<int:installment_pk>/editar/",
+        views.ProposalInstallmentUpdateView.as_view(),
+        name="proposal_installment_update",
+    ),
+    path(
+        "oportunidades/<int:pk>/produtos-servicos/parcelas/<int:installment_pk>/remover/",
+        views.ProposalInstallmentRemoveView.as_view(),
+        name="proposal_installment_remove",
+    ),
     path(
         "oportunidades/<int:pk>/produtos-servicos/gerar-documento/",
         views.ProposalGenerateDocumentView.as_view(),

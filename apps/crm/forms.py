@@ -29,6 +29,7 @@ from apps.crm.models import (
     ActivityType,
     BillingMode,
     BusinessType,
+    CommercialPlan,
     CommercialSource,
     LossReason,
     OpportunityStage,
@@ -628,6 +629,17 @@ class ProposalConditionsForm(forms.Form):
         choices=(("", "—"),) + tuple((value, label) for value, label in PaymentMethod.choices if value != PaymentMethod.OUTRO),
         required=False,
     )
+    # FECHAMENTO DA PROPOSTA COMERCIAL (23/09/2026, seção 5): plano
+    # comercial real — nunca hardcodado via string. Queryset escopada por
+    # `opportunity.business_type` em `__init__` (mesmo raciocínio de
+    # `delivery_location`, abaixo): só oferece planos coerentes com o
+    # tipo de negócio desta Opportunity.
+    commercial_plan = forms.ModelChoiceField(
+        label="Plano comercial",
+        queryset=CommercialPlan.objects.none(),
+        required=False,
+        help_text="Exibido no cabeçalho do PDF (ex. 'PROPOSTA COMERCIAL — LOCAÇÃO MENSAL').",
+    )
 
     contracted_start_date = forms.DateField(label="Início do contrato", required=False, widget=forms.DateInput(attrs={"type": "date"}))
     contracted_end_date = forms.DateField(label="Fim do contrato", required=False, widget=forms.DateInput(attrs={"type": "date"}))
@@ -646,6 +658,15 @@ class ProposalConditionsForm(forms.Form):
         required=False,
         help_text="Reaproveita Location real (seção 41) — nunca sobrescreve o endereço fiscal do cliente. Mostra só as unidades do cliente desta oportunidade.",
     )
+    # Evento / responsável no local (seção 27/28) — pertencem à
+    # negociação/operação desta versão, nunca ao cadastro fiscal do
+    # Client (nunca sobrescrevem `Client.contact_name`/`Client.phone`).
+    event_name = forms.CharField(
+        label="Evento", required=False, max_length=150,
+        help_text="Opcional — ex. 'Expoingá 2027', 'Casamento XYZ'.",
+    )
+    onsite_responsible_name = forms.CharField(label="Responsável no local", required=False, max_length=150)
+    onsite_responsible_phone = forms.CharField(label="Telefone do responsável", required=False, max_length=30)
 
     general_discount = forms.DecimalField(label="Desconto geral (R$)", max_digits=12, decimal_places=2, min_value=0, required=False)
     interest_amount = forms.DecimalField(label="Juros (R$)", max_digits=12, decimal_places=2, min_value=0, required=False)
@@ -686,6 +707,14 @@ class ProposalConditionsForm(forms.Form):
         client = opportunity.client if opportunity is not None else None
         self.fields["delivery_location"].queryset = _opportunity_delivery_location_queryset(client)
         self.fields["delivery_location"].label_from_instance = _client_location_display_label
+        # Seção 5: só planos ATIVOS e coerentes com o `business_type`
+        # desta Opportunity — nunca "todos os planos" (ex. não oferecer
+        # um plano de Locação numa Opportunity de Venda).
+        business_type = opportunity.business_type if opportunity is not None else None
+        plan_qs = CommercialPlan.objects.filter(is_active=True)
+        if business_type is not None:
+            plan_qs = plan_qs.filter(business_type=business_type)
+        self.fields["commercial_plan"].queryset = plan_qs
         # RODADA 4 (reorganização Ajustes financeiros/Resumo
         # financeiro/Informações complementares, 15/09/2026): o template
         # só tem UM `<form id="proposal-conditions-form">`, que envolve
@@ -733,6 +762,37 @@ class ProposalConditionsForm(forms.Form):
                     "delivery_location",
                     "Este local de entrega/operação não pertence ao cliente desta oportunidade.",
                 )
+        return cleaned
+
+
+class ProposalInstallmentForm(forms.Form):
+    """
+    Uma parcela de "Condições de pagamento" (seção 18/21) — "[+ Adicionar
+    parcela]": Forma de pagamento (select, TODAS as opções de
+    `PaymentMethod`, incluindo Outro — diferente de `ProposalConditionsForm.
+    payment_method` acima, que remove Outro por não ter onde detalhar;
+    aqui `payment_method_other` existe e é validado em `clean()`), Valor
+    (R$), Vencimento (data). `sequence` não é um campo do formulário — é
+    decidido pelo service (`add_installment()`/próxima sequência livre,
+    seção 20) para nunca depender do usuário digitar a ordem certa.
+    """
+
+    payment_method = forms.ChoiceField(label="Forma de pagamento", choices=PaymentMethod.choices)
+    payment_method_other = forms.CharField(
+        label="Descrição (quando Outro)", required=False, max_length=100,
+        help_text="Preencha só quando 'Forma de pagamento' = Outro.",
+    )
+    amount = forms.DecimalField(label="Valor (R$)", max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+    due_date = forms.DateField(label="Vencimento", widget=forms.DateInput(attrs={"type": "date"}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_input_class(self.fields)
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("payment_method") == PaymentMethod.OUTRO and not cleaned.get("payment_method_other"):
+            self.add_error("payment_method_other", "Descreva a forma de pagamento quando selecionar 'Outro'.")
         return cleaned
 
 

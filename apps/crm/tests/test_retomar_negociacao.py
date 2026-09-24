@@ -48,6 +48,7 @@ from apps.crm.services import (
     get_or_create_active_proposal,
 )
 from apps.catalog.models import Category, EquipmentModel
+from apps.crm.tests._payment_test_helpers import add_full_installment
 
 User = get_user_model()
 
@@ -281,6 +282,7 @@ class ProposalAndDocumentsPreservedOnReopenTest(TestCase):
             proposal_version=self.proposal.latest_version,
             data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("500.00")),
         )
+        add_full_installment(self.proposal.latest_version)
         generate_documents(proposal_version=self.proposal.latest_version, document_type="PROPOSTA", actor=self.owner)
         self.proposal.latest_version.refresh_from_db()
         self.accepted_version = accept_proposal_version(

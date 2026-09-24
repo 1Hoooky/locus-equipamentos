@@ -28,6 +28,7 @@ from apps.catalog.models import Category, EquipmentModel
 from apps.clients.models import Client
 from apps.crm.models import BusinessType, CommercialSource, Opportunity, OpportunityStage
 from apps.crm.services import ProposalItemData, add_proposal_item, generate_documents, get_or_create_active_proposal
+from apps.crm.tests._payment_test_helpers import add_full_installment
 
 User = get_user_model()
 
@@ -63,6 +64,7 @@ class GenerateOrcamentoFlowTestBase(TestCase):
             proposal_version=proposal.latest_version,
             data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("500.00")),
         )
+        add_full_installment(proposal.latest_version)
         self.proposal = proposal
 
     def _login(self, user):
@@ -152,6 +154,7 @@ class AutoDownloadTest(GenerateOrcamentoFlowTestBase):
             proposal_version=other_proposal.latest_version,
             data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("10.00")),
         )
+        add_full_installment(other_proposal.latest_version)
         generate_documents(proposal_version=other_proposal.latest_version, document_type="PROPOSTA", actor=other_owner)
         other_attachment = attachments_for(other_opportunity).filter(category=AttachmentCategory.ORCAMENTO_PROPOSTA).first()
 

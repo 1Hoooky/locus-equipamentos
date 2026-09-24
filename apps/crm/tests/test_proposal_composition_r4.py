@@ -37,6 +37,7 @@ from django.urls import NoReverseMatch, reverse
 from apps.catalog.models import Category, EquipmentModel
 from apps.clients.models import Client
 from apps.crm.forms import ServiceCatalogItemForm
+from apps.crm.tests._payment_test_helpers import add_full_installment
 from apps.crm.models import (
     BusinessType,
     CommercialSource,
@@ -78,6 +79,7 @@ class AceiteBlockRemovedTest(ProposalViewsTestBase):
             proposal_version=proposal.latest_version,
             data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("100")),
         )
+        add_full_installment(proposal.latest_version)
         issue_proposal(proposal_version=proposal.latest_version, issued_by=self.owner)
         self.proposal = proposal
 
@@ -143,6 +145,7 @@ class CriarNovaVersaoRemovedTest(ProposalViewsTestBase):
             proposal_version=proposal.latest_version,
             data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("100")),
         )
+        add_full_installment(proposal.latest_version)
         issue_proposal(proposal_version=proposal.latest_version, issued_by=self.owner)
         self.proposal = proposal
 
@@ -198,11 +201,13 @@ class DisplayLabelAndStatusBadgeTest(ProposalViewsTestBase):
         self.assertIn("Rascunho", body)
 
     def test_issued_shows_emitida_badge(self):
+        add_full_installment(self.proposal.latest_version)
         issue_proposal(proposal_version=self.proposal.latest_version, issued_by=self.owner)
         body = self._get_body()
         self.assertIn("Emitida", body)
 
     def test_accepted_shows_aceita_badge(self):
+        add_full_installment(self.proposal.latest_version)
         issue_proposal(proposal_version=self.proposal.latest_version, issued_by=self.owner)
         accept_proposal_version(
             proposal_version=self.proposal.latest_version, accepted_by=self.owner, won_stage=self.stage_ganho
@@ -214,6 +219,7 @@ class DisplayLabelAndStatusBadgeTest(ProposalViewsTestBase):
         """Seção 32-33: o usuário NUNCA aciona manualmente — o badge só
         volta a "Rascunho" depois de uma alteração de verdade (aqui,
         adicionar um item), nunca só por reabrir a página."""
+        add_full_installment(self.proposal.latest_version)
         issue_proposal(proposal_version=self.proposal.latest_version, issued_by=self.owner)
         body_before = self._get_body()
         self.assertIn("Emitida", body_before)
@@ -288,6 +294,7 @@ class ProposalR4ServiceTestBase(TestCase):
     def _issued_version_with_item(self):
         proposal, version = self._proposal_and_version()
         add_proposal_item(proposal_version=version, data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("100")))
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         version.refresh_from_db()
         return proposal, version
@@ -367,6 +374,7 @@ class LazyAutoVersioningHttpTest(ProposalViewsTestBase):
             proposal_version=proposal.latest_version,
             data=ProposalItemData(equipment_model=self.model, quantity=1, unit_price=Decimal("100")),
         )
+        add_full_installment(proposal.latest_version)
         issue_proposal(proposal_version=proposal.latest_version, issued_by=self.owner)
         self.proposal = proposal
 
@@ -493,6 +501,7 @@ class ItemRemovalIssuedVersionTest(ProposalViewsTestBase):
             proposal_version=self.proposal.latest_version,
             data=ProposalItemData(equipment_model=self.model2, quantity=2, unit_price=Decimal("50")),
         )
+        add_full_installment(self.proposal.latest_version)
         issue_proposal(proposal_version=self.proposal.latest_version, issued_by=self.owner)
 
     def test_remove_from_issued_version_autoversions(self):
@@ -630,6 +639,7 @@ class ServiceItemServiceLayerTest(ProposalR4ServiceTestBase):
             proposal_version=version,
             data=ProposalItemData(item_type=ProposalItemType.SERVICO, service=self.service, quantity=2, unit_price=Decimal("150.00")),
         )
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         v2 = ensure_editable_version(proposal=proposal, created_by=self.user)
         cloned_item = v2.items.get()
@@ -855,6 +865,7 @@ class PdfMixedItemsTest(ProposalR4ServiceTestBase):
             proposal_version=version,
             data=ProposalItemData(item_type=ProposalItemType.SERVICO, service=self.service, quantity=3, unit_price=Decimal("150.00")),
         )
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         version.refresh_from_db()
         pdf_bytes = render_proposal_pdf(version)
@@ -866,6 +877,7 @@ class PdfMixedItemsTest(ProposalR4ServiceTestBase):
             proposal_version=version,
             data=ProposalItemData(item_type=ProposalItemType.SERVICO, service=self.service, quantity=1, unit_price=Decimal("150.00")),
         )
+        add_full_installment(version)
         issue_proposal(proposal_version=version, issued_by=self.user)
         snapshot_before = version.items.get().description_snapshot
         self.service.name = "Nome mudou depois de emitir"
@@ -891,6 +903,7 @@ class RegressionChecklistR4Test(ProposalViewsTestBase):
         )
 
     def test_gerar_orcamento_still_never_wins_opportunity(self):
+        add_full_installment(self.proposal.latest_version)
         user = _user_with_perms("issuer_r4", "view_opportunities", "issue_proposal_documents")
         client = self._login(user)
         resp = client.post(
@@ -904,6 +917,7 @@ class RegressionChecklistR4Test(ProposalViewsTestBase):
         """Depois de emitir, alterar (auto-versão), e emitir de novo — o
         único CTA de aceite visível continua sendo o do topo, mesmo com
         o histórico de auto-versionamento no meio do caminho."""
+        add_full_installment(self.proposal.latest_version)
         user_issuer = _user_with_perms("issuer_r4b", "view_opportunities", "issue_proposal_documents", "change_opportunities")
         client = self._login(user_issuer)
         client.post(reverse("crm:proposal_generate_document", args=[self.opportunity.pk]), {"document_type": "PROPOSTA"})
@@ -921,6 +935,7 @@ class RegressionChecklistR4Test(ProposalViewsTestBase):
             proposal_version=self.proposal.latest_version,
             data=ProposalItemData(item_type=ProposalItemType.SERVICO, service=service, quantity=2, unit_price=Decimal("150.00")),
         )
+        add_full_installment(self.proposal.latest_version)
         issue_proposal(proposal_version=self.proposal.latest_version, issued_by=self.owner)
         self.proposal.latest_version.refresh_from_db()
 

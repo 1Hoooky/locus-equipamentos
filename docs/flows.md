@@ -249,11 +249,15 @@ ProposalGenerateDocumentView (POST, document_type = PROPOSTA | CONTRATO | PROPOS
                   → apps.crm.pdf.render_contract_pdf(contract) → create_attachment(categoria=CONTRATO)
   # a partir daqui version.is_editable == False — qualquer alteração exige create_new_version()
 
-ProposalNewVersionView (POST)
-  → apps.crm.services.create_new_version(proposal, created_by)
-      → exige última versão ISSUED/ACCEPTED (nunca DRAFT)
-      → clona condições + itens para nova ProposalVersion(version_number+1, DRAFT)
-      → calculate_proposal_version(nova_versão)
+[NÃO existe mais um botão/endpoint "Criar nova versão" desde a RODADA 4 (15/09/2026) —
+ `ProposalNewVersionView` foi removida; create_new_version() só é chamada pelo
+ auto-versionamento preguiçoso (ensure_editable_version()/ensure_editable_item()/
+ ensure_editable_installment(), ver seção 11-A abaixo), nunca por um botão manual]
+apps.crm.services.create_new_version(proposal, created_by)
+  → exige última versão ISSUED/ACCEPTED (nunca DRAFT)
+  → clona condições + itens + parcelas (FECHAMENTO DA PROPOSTA COMERCIAL, 23/09/2026)
+    para nova ProposalVersion(version_number+1, DRAFT)
+  → calculate_proposal_version(nova_versão)
   # a versão antiga permanece intocada/imutável para sempre — nunca editada in-place
 
 ProposalAcceptVersionView (POST)
@@ -273,6 +277,50 @@ AttachmentDownloadView (GET)
 ```
 
 "Criar/salvar" (`add_proposal_item`/`update_draft_conditions`) ≠ "emitir" (`issue_proposal`, produz PDF + snapshot + número definitivo) ≠ "gerar contrato" (`generate_contract`) ≠ "aceitar" (`accept_proposal_version`, o único caminho que fecha a Oportunidade). Cada verbo é uma função de `services.py` distinta — nenhum deles implica o próximo automaticamente, exceto a auto-emissão embutida em `generate_documents()` quando o Contrato é pedido diretamente sobre uma versão ainda em rascunho (documentado ali mesmo, não é um atalho oculto).
+
+## 11-A. Condições de pagamento (parcelas) e validação na emissão (CRM, FECHAMENTO DA PROPOSTA COMERCIAL, 23/09/2026)
+
+```
+[usuário, na aba "Produtos e Serviços", abre o painel "+Adicionar parcela"]
+  → ProposalInstallmentAddView (POST)
+      → ensure_editable_version(proposal, created_by=request.user)   # auto-versionamento preguiçoso,
+                                                                        # mesmo mecanismo da seção 11 acima
+      → _require_draft(version)
+      → ProposalInstallmentForm(prefix="parcela").is_valid()
+      → apps.crm.services.add_installment(proposal_version, ProposalInstallmentData)
+          → _validate_installment_fields()               # amount>0, due_date presente, payment_method válido
+          → ProposalVersionInstallment.objects.create(sequence=..., ...)
+  # nenhuma validação de "soma = total" acontece aqui — rascunho aceita estado incompleto (seção 22)
+
+[edição/remoção de uma parcela já existente]
+  → ProposalInstallmentUpdateView / ProposalInstallmentRemoveView (POST)
+      → ensure_editable_installment(installment, created_by=request.user)
+          → se a versão da parcela já não é DRAFT: ensure_editable_version() clona uma nova versão
+            DRAFT (parcelas + itens + condições todos clonados) e localiza, nela, a parcela
+            correspondente pelo mesmo `sequence` — só ENTÃO a edição/remoção pedida é aplicada
+          → se já é DRAFT: nenhuma versão nova, edita/remove direto
+      → update_installment(...) / remove_installment(...)
+
+[UI, a qualquer momento — nunca só no submit]
+  → apps.crm.services.check_payment_reconciliation(proposal_version)
+      → soma installments.amount vs. proposal_version.total (Decimal)
+      → devolve PaymentReconciliation(total, distributed, difference, is_reconciled)
+  → template renderiza "Total da proposta / Total distribuído / Diferença" + badge
+    "Pagamento conferido" (is_reconciled=True) ou estado de divergência — NUNCA corrige nada sozinho
+
+ProposalGenerateDocumentView (POST, document_type inclui PROPOSTA)
+  → generate_documents(...) → issue_proposal(version, issued_by=actor)
+      → _require_draft() + exige ≥1 item + calculate_proposal_version()
+      → apps.crm.services.validate_payment_before_issue(proposal_version)      # SEÇÃO 22, REGRA CENTRAL
+          → ValueError se zero parcelas configuradas
+          → ValueError se check_payment_reconciliation(...).is_reconciled é False
+          → só passando os dois: emissão prossegue normalmente (congela snapshots, gera PDF)
+  # se general_discount/item/frete mudar DEPOIS de já existir parcela configurada, e a próxima
+  # tentativa de emitir não bater mais, o MESMO ValueError acima bloqueia de novo — nenhuma
+  # parcela é jamais reescrita/redistribuída automaticamente por essa alteração (seção 24)
+```
+
+Mesma disciplina da seção 11: "salvar parcela" (`add_installment`/`update_installment`/`remove_installment`) ≠ "emitir" (`issue_proposal`, é o único ponto que EXIGE reconciliação completa). `ProposalVersionInstallment` nunca é lido/escrito por nenhum módulo financeiro — é um registro de negociação, não uma conta a receber (spec seção 15, fora de escopo — ver `docs/apps/crm.md`).
 
 ## 12. Tabela de Preços V1 → preço sugerido ao compor uma Proposta (CRM, 16/09/2026)
 
@@ -358,8 +406,11 @@ EVOLUI o fluxo #12 acima para Locação — Venda/Serviço continuam exatamente 
 
 ---
 
-[RODADA 2, ainda NÃO implementada — registrado aqui só como ponto de extensão futuro]
-  → a Proposta ainda NÃO tem seleção de CommercialPlan/CommercialTerm
+[ATUALIZADO 23/09/2026 — FECHAMENTO DA PROPOSTA COMERCIAL adicionou ProposalVersion.commercial_plan
+ (FK), mas SÓ para exibição no cabeçalho do PDF/UI ("LOCAÇÃO MENSAL") — ver docs/apps/crm.md.
+ A integração de PREÇO por plano+prazo continua a mesma coisa registrada abaixo como RODADA 2,
+ ainda NÃO implementada — só o vínculo estrutural passou a existir, nenhum cálculo/sugestão nova]
+  → a composição da proposta ainda NÃO usa CommercialTerm nem consulta preço por plano/prazo
   → SuggestedPriceView continua chamando get_suggested_price() SEM plano/prazo para Locação
   → get_suggested_price(business_type=LOCACAO, equipment_model=..., commercial_plan=None, commercial_term=None)
       → cai no MESMO caminho flat do fluxo #12 (PriceTableItem.unit_price)

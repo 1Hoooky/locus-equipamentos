@@ -67,6 +67,7 @@ from apps.crm.forms import (
     PriceTableItemForm,
     PriceTableRateForm,
     ProposalConditionsForm,
+    ProposalInstallmentForm,
     ProposalItemForm,
     ServiceCatalogItemForm,
 )
@@ -84,6 +85,7 @@ from apps.crm.models import (
     PriceTableItem,
     PriceTableRate,
     ProposalItem,
+    ProposalVersionInstallment,
     ServiceCatalogItem,
 )
 from apps.crm.services import (
@@ -95,17 +97,21 @@ from apps.crm.services import (
     PriceTableItemData,
     PriceTableRateData,
     ProposalConditionsData,
+    ProposalInstallmentData,
     ProposalItemData,
     UnlinkEquipmentData,
     acceptable_proposal_versions,
     accept_proposal_version,
+    add_installment,
     add_proposal_item,
     build_opportunity_timeline,
     change_opportunity_stage,
     check_availability,
+    check_payment_reconciliation,
     OBSERVATION_ACTIVITY_TYPE_CODE,
     create_activity,
     create_opportunity,
+    ensure_editable_installment,
     ensure_editable_item,
     ensure_editable_version,
     generate_documents,
@@ -118,12 +124,15 @@ from apps.crm.services import (
     list_commercial_plans,
     list_price_table_matrix,
     list_price_table_rows,
+    next_installment_suggestion,
     preview_opportunity_hard_delete,
+    remove_installment,
     remove_proposal_item,
     set_price_table_item,
     set_price_table_rate,
     unlink_equipment_from_opportunity,
     update_draft_conditions,
+    update_installment,
     update_opportunity,
     update_proposal_item,
 )
@@ -474,6 +483,10 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     # `ProposalConditionsSaveView.post()`), só não fazem
                     # mais parte do `initial` de exibição.
                     "payment_method": current_version.payment_method,
+                    "commercial_plan": current_version.commercial_plan_id,
+                    "event_name": current_version.event_name,
+                    "onsite_responsible_name": current_version.onsite_responsible_name,
+                    "onsite_responsible_phone": current_version.onsite_responsible_phone,
                     "contracted_start_date": current_version.contracted_start_date,
                     "contracted_end_date": current_version.contracted_end_date,
                     "expected_delivery_date": current_version.expected_delivery_date,
@@ -607,6 +620,27 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
             "document_form": document_form,
             "can_issue_proposal": can_issue_proposal,
             "can_generate_contract": can_generate_contract,
+            # Condições de pagamento / parcelas (FECHAMENTO DA PROPOSTA
+            # COMERCIAL, 23/09/2026, seção 18/23) — mesmo `current_version`
+            # de Produtos e Serviços; `installment_form` só aparece quando
+            # existe uma versão editável para não oferecer "Adicionar
+            # parcela" sem ter onde salvar (mesmo raciocínio de `item_form`).
+            "installments": current_version.installments.all() if current_version else [],
+            # `prefix="parcela"` (seção 18): `ProposalInstallmentForm.
+            # payment_method_other` tem o MESMO nome de campo que existia
+            # em `ProposalConditionsForm` (removido da UI, mas o `id`
+            # HTML default de um `Form` é só `id_<nome do campo>` — sem
+            # prefixo, duas instâncias de formulário na MESMA página com
+            # um campo de mesmo nome colidiriam no MESMO `id`, HTML
+            # inválido/acessibilidade quebrada, mesmo sem relação nenhuma
+            # com a Proposta em si).
+            "installment_form": ProposalInstallmentForm(prefix="parcela") if (can_change_opportunity and current_version) else None,
+            "installment_suggestion": (
+                next_installment_suggestion(proposal_version=current_version) if current_version else None
+            ),
+            "payment_reconciliation": (
+                check_payment_reconciliation(current_version) if current_version else None
+            ),
             # Equipamentos
             "equipment_links": equipment_links,
             "can_link_equipment": can_link_equipment,
@@ -1779,6 +1813,10 @@ class ProposalConditionsSaveView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     payment_method=cleaned["payment_method"],
                     payment_method_other=version.payment_method_other,
                     payment_condition=version.payment_condition,
+                    commercial_plan=cleaned["commercial_plan"],
+                    event_name=cleaned["event_name"],
+                    onsite_responsible_name=cleaned["onsite_responsible_name"],
+                    onsite_responsible_phone=cleaned["onsite_responsible_phone"],
                     contracted_start_date=cleaned["contracted_start_date"],
                     contracted_end_date=cleaned["contracted_end_date"],
                     expected_delivery_date=cleaned["expected_delivery_date"],
@@ -1799,6 +1837,104 @@ class ProposalConditionsSaveView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
         messages.success(request, "Rascunho salvo.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class ProposalInstallmentAddView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """"[+ Adicionar parcela]" (FECHAMENTO DA PROPOSTA COMERCIAL, 23/09/2026, seção 18-20) — mesmo padrão de `ProposalItemAddView`."""
+
+    permission_required = ("crm.view_opportunities", "crm.change_opportunities")
+
+    def post(self, request, pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        version = _get_or_create_editable_version(request, opportunity)
+        form = ProposalInstallmentForm(request.POST, prefix="parcela")
+        if not form.is_valid():
+            messages.error(request, "Não foi possível adicionar a parcela — corrija os erros abaixo.")
+            for field_errors in form.errors.values():
+                for error in field_errors:
+                    messages.error(request, error)
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        cleaned = form.cleaned_data
+        try:
+            add_installment(
+                proposal_version=version,
+                data=ProposalInstallmentData(
+                    payment_method=cleaned["payment_method"],
+                    payment_method_other=cleaned["payment_method_other"],
+                    amount=cleaned["amount"],
+                    due_date=cleaned["due_date"],
+                ),
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, "Parcela adicionada.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class ProposalInstallmentUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """Mesmo padrão de `ProposalItemUpdateView` — resolve a parcela correspondente numa versão editável antes de gravar."""
+
+    permission_required = ("crm.view_opportunities", "crm.change_opportunities")
+
+    def post(self, request, pk, installment_pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        installment = get_object_or_404(ProposalVersionInstallment, pk=installment_pk)
+        if installment.proposal_version.proposal.opportunity_id != opportunity.pk:
+            raise Http404("Parcela não pertence a esta oportunidade.")
+
+        form = ProposalInstallmentForm(request.POST, prefix="parcela")
+        if not form.is_valid():
+            messages.error(request, "Não foi possível atualizar a parcela — corrija os erros abaixo.")
+            for field_errors in form.errors.values():
+                for error in field_errors:
+                    messages.error(request, error)
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        installment = ensure_editable_installment(installment=installment, created_by=request.user)
+
+        cleaned = form.cleaned_data
+        try:
+            update_installment(
+                installment=installment,
+                data=ProposalInstallmentData(
+                    payment_method=cleaned["payment_method"],
+                    payment_method_other=cleaned["payment_method_other"],
+                    amount=cleaned["amount"],
+                    due_date=cleaned["due_date"],
+                ),
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, "Parcela atualizada.")
+        return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+
+class ProposalInstallmentRemoveView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """Mesmo padrão de `ProposalItemRemoveView`."""
+
+    permission_required = ("crm.view_opportunities", "crm.change_opportunities")
+
+    def post(self, request, pk, installment_pk):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        installment = get_object_or_404(ProposalVersionInstallment, pk=installment_pk)
+        if installment.proposal_version.proposal.opportunity_id != opportunity.pk:
+            raise Http404("Parcela não pertence a esta oportunidade.")
+
+        installment = ensure_editable_installment(installment=installment, created_by=request.user)
+
+        try:
+            remove_installment(installment=installment)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("crm:opportunity_detail", pk=opportunity.pk)
+
+        messages.success(request, "Parcela removida.")
         return redirect("crm:opportunity_detail", pk=opportunity.pk)
 
 
