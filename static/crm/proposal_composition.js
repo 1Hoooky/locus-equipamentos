@@ -100,6 +100,16 @@
       return;
     }
 
+    // RODADA 2 (13/10/2026): "Condições comerciais" (plano + período) e
+    // "Adicionar produto/serviço" são dois `<form>` DISTINTOS na MESMA
+    // página (ver `templates/crm/_proposal_composition.html`) — por
+    // isso a busca é pelo `document`, nunca só dentro de `form`. Podem
+    // não existir (ex.: Oportunidade sem `conditions_form` ainda) —
+    // tratado como "sem plano/datas", nunca um erro.
+    var commercialPlanField = document.querySelector('[name="commercial_plan"]');
+    var startDateField = document.querySelector('[name="contracted_start_date"]');
+    var endDateField = document.querySelector('[name="contracted_end_date"]');
+
     unitPriceField.addEventListener("input", function () {
       unitPriceField.setAttribute("data-user-edited", "1");
     });
@@ -117,6 +127,19 @@
         params = "service=" + encodeURIComponent(serviceField.value);
       } else if (modelField && modelField.value) {
         params = "equipment_model=" + encodeURIComponent(modelField.value);
+        // A matriz (plano+prazo) só existe para EQUIPAMENTO — o backend
+        // é quem decide se vai usá-la ou não (nunca o JS: seção
+        // "JavaScript não decide prazo/termo/rate"); aqui só repassamos
+        // o que já está preenchido na tela, sem interpretar nada.
+        if (commercialPlanField && commercialPlanField.value) {
+          params += "&commercial_plan=" + encodeURIComponent(commercialPlanField.value);
+        }
+        if (startDateField && startDateField.value) {
+          params += "&contracted_start_date=" + encodeURIComponent(startDateField.value);
+        }
+        if (endDateField && endDateField.value) {
+          params += "&contracted_end_date=" + encodeURIComponent(endDateField.value);
+        }
       } else {
         hintEl.hidden = true;
         return;
@@ -133,12 +156,23 @@
           }
           if (!data.found) {
             hintEl.hidden = false;
-            hintEl.textContent = "Sem valor sugerido na Tabela de Preços — informe manualmente.";
+            hintEl.textContent = data.reason || "Sem valor sugerido na Tabela de Preços — informe manualmente.";
             return;
           }
           var formatted = "R$ " + Number(data.unit_price).toFixed(2).replace(".", ",");
           hintEl.hidden = false;
-          hintEl.textContent = "Preço sugerido (" + data.business_type_display + "): " + formatted;
+          if (data.commercial_plan && data.commercial_term) {
+            // Locação com matriz: mostra plano + prazo aplicado, nunca
+            // só o valor cru — a origem do preço precisa ficar visível
+            // (seção "exibir discretamente a origem do preço").
+            hintEl.textContent =
+              "Preço sugerido: " + formatted + " — " + data.commercial_plan + " · prazo aplicado: " + data.commercial_term;
+            if (data.billing_mode_display) {
+              hintEl.textContent += " (" + data.billing_mode_display + ")";
+            }
+          } else {
+            hintEl.textContent = "Preço sugerido (" + data.business_type_display + "): " + formatted;
+          }
           if (!unitPriceField.value && !unitPriceField.getAttribute("data-user-edited")) {
             unitPriceField.value = data.unit_price;
           }
@@ -157,6 +191,16 @@
     if (typeSelect) {
       typeSelect.addEventListener("change", check);
     }
+    // RODADA 2: mudar plano/período reconsulta automaticamente SE já
+    // houver um Produto/Modelo escolhido (`check()` já sai sem
+    // nenhum efeito quando não há — seção "alteração de plano ou
+    // período"). Nunca altera um `ProposalItem` já salvo — isto só
+    // afeta o campo ainda em composição, antes do POST.
+    [commercialPlanField, startDateField, endDateField].forEach(function (field) {
+      if (field) {
+        field.addEventListener("change", check);
+      }
+    });
   }
 
   /*

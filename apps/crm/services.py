@@ -11,6 +11,7 @@ existente (FK), nunca modifica seus campos cadastrais (ver
 `apps/crm/models.py`, docstring de `Opportunity`).
 """
 
+import calendar
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -40,6 +41,7 @@ from apps.crm.models import (
     CommercialSource,
     CommercialTerm,
     Contract,
+    DurationUnit,
     LossReason,
     NumberingCounter,
     Opportunity,
@@ -1133,6 +1135,178 @@ def get_suggested_price(
     return SuggestedPrice(amount=item.unit_price, billing_mode=None, source="item")
 
 
+# ---------------------------------------------------------------------------
+# RODADA 2 (13/10/2026, "INTEGRAÇÃO DA MATRIZ DE PREÇOS COM A PROPOSTA") —
+# EVOLUI `get_suggested_price()` acima, nunca a duplica: esta seção é
+# responsável só por calcular a duração contratada e escolher o
+# `CommercialTerm` correto dentro de um `CommercialPlan` de Locação;
+# `get_suggested_price()` continua sendo a ÚNICA resolução da célula exata
+# (plano+prazo → `PriceTableRate`). Nenhuma `PriceTableRate`/`CommercialTerm`
+# é criada por este caminho (seção: "só leitura").
+#
+# Duração COMERCIAL (seleção de prazo) é deliberadamente um conceito
+# separado da duração de EXIBIÇÃO do PDF (`apps.crm.pdf._period_label()`,
+# que usa `(end-start).days`, sem `+1`, e não é alterada por esta rodada):
+# aqui, mesma data de início/fim conta como 1 dia (dia de retirada e de
+# devolução contam os dois) — decisão de negócio confirmada explicitamente
+# para esta rodada, não inferida.
+# ---------------------------------------------------------------------------
+
+
+def _contracted_rental_days(start: date, end: date) -> int:
+    """Duração comercial (dias) para SELEÇÃO DE PRAZO — ver docstring da seção acima. Nunca usada pela exibição do PDF."""
+    return (end - start).days + 1
+
+
+def _calendar_month_limit(start: date, months: int) -> date:
+    """
+    `start` + `months` meses de CALENDÁRIO REAL — nunca 30 dias/mês nem
+    365/12 (seção: "comparação deve ser calendário-real, sem aproximação
+    artificial"). Quando o dia de `start` não existir no mês de destino
+    (ex.: 31/01 + 1 mês), "gruda" no último dia desse mês (28/02, ou
+    29/02 em ano bissexto — via `calendar.monthrange()`) — mesmo
+    comportamento que `dateutil.relativedelta` teria; usa só a biblioteca
+    padrão porque `python-dateutil` não está instalado no projeto
+    (confirmado na auditoria) e não é necessário para isto.
+    """
+    month_index = start.month - 1 + months
+    year = start.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(start.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+@dataclass
+class RentalPriceSuggestion:
+    """Retorno de `get_suggested_rental_price()` — nunca um `Decimal | None` puro (precisa expressar o prazo/motivo junto)."""
+
+    found: bool
+    amount: Decimal | None = None
+    billing_mode: str | None = None
+    commercial_term: "CommercialTerm | None" = None
+    contracted_duration: int | None = None
+    contracted_duration_unit: str | None = None
+    reason: str = ""
+
+
+def get_suggested_rental_price(
+    *,
+    equipment_model: EquipmentModel,
+    commercial_plan: CommercialPlan,
+    contracted_start_date: date | None,
+    contracted_end_date: date | None,
+) -> RentalPriceSuggestion:
+    """
+    Só LEITURA. Única responsável por decidir "qual prazo comercial
+    corresponde a este período contratado" para um `commercial_plan` de
+    Locação — `SuggestedPriceView` é o único chamador nesta rodada, mas
+    a regra fica aqui (nunca na view/JS, seção "backend é a autoridade").
+
+    Regra fundamental (nunca violada): prazo exatamente igual → usa
+    aquele; prazo entre dois termos → usa SEMPRE o próximo MAIOR; nunca
+    usa termo inferior; nunca interpola; nunca calcula diária
+    proporcional; nunca multiplica valor automaticamente; nunca inventa
+    preço. Acima do maior prazo disponível → `found=False`.
+
+    Ordem obrigatória: primeiro escolhe o `CommercialTerm` pela duração,
+    SÓ DEPOIS procura o `PriceTableRate` daquele termo — se o rate exato
+    não existir, `found=False` (nunca pula para o próximo termo que
+    tiver preço, isso esconderia um erro de cadastro da tabela — mesmo
+    comportamento já garantido por `get_suggested_price()`, RODADA 1,
+    reaproveitado aqui sem duplicação).
+
+    `commercial_plan` já deveria ter sido validado por quem chama
+    (existe/ativo/`business_type=LOCACAO`/compatível com a Opportunity —
+    `SuggestedPriceView._suggest_rental_price()`) — mesmo assim, esta
+    função é quem decide a regra de negócio, então revalida o essencial
+    (`business_type`/`pricing_mode`) em vez de confiar ciegamente no que
+    chegou, pelo mesmo raciocínio de defesa em profundidade já usado em
+    `_validate_price_table_rate_fields()`.
+
+    Datas ausentes/invertidas e "sem prazo configurado" são casos
+    ESPERADOS (`found=False` + `reason`), nunca uma exceção — só uso
+    incorreto da própria API (ex.: `commercial_plan` de Venda) levanta
+    `ValueError`, igual ao padrão de `get_suggested_price()`.
+    """
+    if contracted_start_date is None or contracted_end_date is None:
+        return RentalPriceSuggestion(found=False, reason="Informe a data inicial e a data final do contrato.")
+    if contracted_end_date < contracted_start_date:
+        return RentalPriceSuggestion(found=False, reason="A data final não pode ser anterior à data inicial.")
+    if commercial_plan.business_type != BusinessType.LOCACAO:
+        raise ValueError("get_suggested_rental_price() só se aplica a commercial_plan de Locação.")
+    if commercial_plan.pricing_mode != PricingMode.ITEM_TERM:
+        return RentalPriceSuggestion(found=False, reason="Este plano usa um modo de precificação ainda não suportado nesta versão.")
+
+    terms = list(commercial_plan.terms.filter(is_active=True).order_by("duration_value"))
+    if not terms:
+        return RentalPriceSuggestion(found=False, reason="Este plano comercial não tem nenhum prazo configurado.")
+
+    # Seção "termos com unidades misturadas" (revisão): o model não
+    # impõe uma única `duration_unit` por plano — se os termos ATIVOS
+    # misturarem DIAS+MESES, é configuração comercial inválida; nunca
+    # escolhe um algoritmo arbitrariamente, nunca gera 500.
+    units = {term.duration_unit for term in terms}
+    if len(units) > 1:
+        return RentalPriceSuggestion(
+            found=False,
+            reason="Configuração comercial inválida: este plano mistura prazos em dias e em meses na Tabela de Preços.",
+        )
+    unit = units.pop()
+
+    if unit == DurationUnit.DIAS:
+        contracted_duration = _contracted_rental_days(contracted_start_date, contracted_end_date)
+        contracted_duration_unit = DurationUnit.DIAS
+        chosen_term = next((term for term in terms if term.duration_value >= contracted_duration), None)
+    else:
+        # RODADA 2, seção "planos com prazo em meses": calendário real,
+        # nunca 30 dias/mês nem 365/12 — ver `_calendar_month_limit()`.
+        # Não há um único número de "duração contratada" limpo neste
+        # caso (é uma comparação de datas, não uma contagem de dias) —
+        # `contracted_duration` fica `None` aqui de propósito; quem
+        # exibir pode usar as próprias datas/o prazo escolhido.
+        contracted_duration = None
+        contracted_duration_unit = DurationUnit.MESES
+        chosen_term = next(
+            (
+                term
+                for term in terms
+                if _calendar_month_limit(contracted_start_date, term.duration_value) >= contracted_end_date
+            ),
+            None,
+        )
+
+    if chosen_term is None:
+        return RentalPriceSuggestion(
+            found=False,
+            reason="Não existe prazo configurado nesta tabela para atender esse período — o período contratado é maior que o maior prazo disponível.",
+            contracted_duration=contracted_duration,
+            contracted_duration_unit=contracted_duration_unit,
+        )
+
+    suggestion = get_suggested_price(
+        business_type=BusinessType.LOCACAO,
+        equipment_model=equipment_model,
+        commercial_plan=commercial_plan,
+        commercial_term=chosen_term,
+    )
+    if suggestion is None:
+        return RentalPriceSuggestion(
+            found=False,
+            reason=f'Prazo "{chosen_term.label}" identificado, mas sem valor cadastrado na Tabela de Preços para este equipamento.',
+            commercial_term=chosen_term,
+            contracted_duration=contracted_duration,
+            contracted_duration_unit=contracted_duration_unit,
+        )
+    return RentalPriceSuggestion(
+        found=True,
+        amount=suggestion.amount,
+        billing_mode=suggestion.billing_mode,
+        commercial_term=chosen_term,
+        contracted_duration=contracted_duration,
+        contracted_duration_unit=contracted_duration_unit,
+    )
+
+
 @dataclass
 class PriceTableItemData:
     business_type: str
@@ -1554,6 +1728,21 @@ def issue_proposal(*, proposal_version: ProposalVersion, issued_by: User) -> Pro
     proposal_version.client_phone_snapshot = client.phone
     proposal_version.client_email_snapshot = client.email
     proposal_version.client_address_snapshot = _format_address_snapshot(client.fiscal_address)
+    # REDESENHO VISUAL DA PROPOSTA (24/09/2026): campos granulares além do
+    # texto único acima — ver docstring dos campos em models.py.
+    client_address = client.fiscal_address
+    if client_address is not None:
+        proposal_version.client_street_snapshot = f"{client_address.logradouro}, {client_address.numero}".strip(", ")
+        proposal_version.client_neighborhood_snapshot = client_address.bairro
+        proposal_version.client_city_snapshot = client_address.cidade
+        proposal_version.client_uf_snapshot = client_address.uf
+        proposal_version.client_zip_snapshot = client_address.cep
+    else:
+        proposal_version.client_street_snapshot = ""
+        proposal_version.client_neighborhood_snapshot = ""
+        proposal_version.client_city_snapshot = ""
+        proposal_version.client_uf_snapshot = ""
+        proposal_version.client_zip_snapshot = ""
 
     proposal_version.company_name_snapshot = company.company_name
     proposal_version.company_document_snapshot = company.cnpj
@@ -1562,6 +1751,11 @@ def issue_proposal(*, proposal_version: ProposalVersion, issued_by: User) -> Pro
     proposal_version.company_email_snapshot = company.email
     proposal_version.company_city_snapshot = company.cidade
     proposal_version.company_uf_snapshot = company.uf
+    # REDESENHO VISUAL DA PROPOSTA (24/09/2026): idem, granular além do
+    # texto único (`company_address_snapshot`).
+    proposal_version.company_street_snapshot = f"{company.logradouro}, {company.numero}".strip(", ")
+    proposal_version.company_neighborhood_snapshot = company.bairro
+    proposal_version.company_zip_snapshot = company.cep
     proposal_version.seller_snapshot = str(opportunity.owner)
     # Seção 8: plano/modalidade também é dado exibido no PDF e precisa
     # ficar congelado — um `CommercialPlan` renomeado depois da emissão

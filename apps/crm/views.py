@@ -40,6 +40,7 @@ from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils.dateparse import parse_date
 from django.views import View
 from django.views.generic import ListView
 
@@ -118,6 +119,7 @@ from apps.crm.services import (
     get_observation_activity_type,
     get_or_create_active_proposal,
     get_suggested_price,
+    get_suggested_rental_price,
     hard_delete_opportunity,
     link_equipment_to_opportunity,
     linked_equipment_for,
@@ -2179,16 +2181,27 @@ class AvailabilityCheckView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
 class SuggestedPriceView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
-    "Preço sugerido" (Tabela de Preços V1, seção 23) — SÓ LEITURA, AJAX,
-    GET (mesmo raciocínio de `AvailabilityCheckView`: não é mudança de
-    estado). Ao escolher um Produto/Modelo OU Serviço no form de
-    adicionar item, `static/crm/proposal_composition.js` consulta este
-    endpoint e PREENCHE (nunca trava — seção 24) o campo "Valor unitário"
-    se ele ainda estiver vazio; o vendedor continua livre para digitar
-    outro valor por cima. Resolve o `BusinessType` da própria Opportunity
-    da URL (nunca aceita um `business_type` vindo do GET — eliminaria por
-    construção qualquer tentativa de consultar o preço de um tipo de
-    negócio diferente do desta oportunidade).
+    "Preço sugerido" — SÓ LEITURA, AJAX, GET (mesmo raciocínio de
+    `AvailabilityCheckView`: não é mudança de estado). Ao escolher um
+    Produto/Modelo OU Serviço no form de adicionar item,
+    `static/crm/proposal_composition.js` consulta este endpoint e
+    PREENCHE (nunca trava) o campo "Valor unitário" se ele ainda estiver
+    vazio; o vendedor continua livre para digitar outro valor por cima.
+    Resolve o `BusinessType` da própria Opportunity da URL (nunca aceita
+    um `business_type` vindo do GET).
+
+    RODADA 2 (13/10/2026, "INTEGRAÇÃO DA MATRIZ DE PREÇOS COM A
+    PROPOSTA"): para uma Opportunity de `LOCACAO` e um item de
+    EQUIPAMENTO, a matriz (`PriceTableRate`, via
+    `get_suggested_rental_price()`) é a ÚNICA fonte de sugestão — NUNCA
+    cai de volta no `PriceTableItem` flat da V1, mesmo que
+    `commercial_plan`/datas não tenham sido informados ainda (nesse
+    caso, `found=False` com um motivo claro, nunca um fallback
+    silencioso — seção "Locação sem plano ou datas" da revisão). Um
+    item de SERVIÇO numa Opportunity de Locação continua usando o
+    caminho flat de sempre (a matriz desta rodada é só de equipamentos,
+    comportamento V1 100% preservado). Venda/Serviço nunca passam por
+    este caminho novo.
     """
 
     permission_required = "crm.view_opportunities"
@@ -2208,6 +2221,9 @@ class SuggestedPriceView(LoginRequiredMixin, PermissionRequiredMixin, View):
         if equipment_model is None and service is None:
             return JsonResponse({"ok": False, "error": "Selecione um produto/modelo ou um serviço."}, status=400)
 
+        if opportunity.business_type == BusinessType.LOCACAO and equipment_model is not None:
+            return self._suggest_rental_price(request=request, opportunity=opportunity, equipment_model=equipment_model)
+
         suggestion = get_suggested_price(
             business_type=opportunity.business_type, equipment_model=equipment_model, service=service
         )
@@ -2219,6 +2235,70 @@ class SuggestedPriceView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 "business_type_display": opportunity.get_business_type_display(),
             }
         )
+
+    def _suggest_rental_price(self, *, request, opportunity, equipment_model):
+        """
+        RODADA 2. Monta o `CommercialPlan` real a partir do ID recebido
+        — NUNCA confia só no ID enviado pelo front (seção "validação do
+        commercial_plan" da revisão): a queryset abaixo já exige
+        existir + `is_active=True` + `business_type=LOCACAO`; a
+        compatibilidade com o `business_type` desta própria Opportunity
+        é revalidada explicitamente mesmo sendo redundante com o
+        `if` que levou a este método (defesa em profundidade, mesmo
+        padrão já usado em `_validate_price_table_rate_fields()`).
+        """
+        business_type_display = opportunity.get_business_type_display()
+        commercial_plan_id = request.GET.get("commercial_plan", "")
+        if not commercial_plan_id.isdigit():
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "found": False,
+                    "unit_price": None,
+                    "reason": "Selecione um plano comercial.",
+                    "business_type_display": business_type_display,
+                }
+            )
+        commercial_plan = CommercialPlan.objects.filter(
+            pk=commercial_plan_id, is_active=True, business_type=BusinessType.LOCACAO
+        ).first()
+        if commercial_plan is None or opportunity.business_type != commercial_plan.business_type:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "found": False,
+                    "unit_price": None,
+                    "reason": "Plano comercial inválido ou inativo.",
+                    "business_type_display": business_type_display,
+                }
+            )
+
+        contracted_start_date = parse_date(request.GET.get("contracted_start_date", ""))
+        contracted_end_date = parse_date(request.GET.get("contracted_end_date", ""))
+
+        result = get_suggested_rental_price(
+            equipment_model=equipment_model,
+            commercial_plan=commercial_plan,
+            contracted_start_date=contracted_start_date,
+            contracted_end_date=contracted_end_date,
+        )
+        payload = {"ok": True, "found": result.found, "business_type_display": business_type_display}
+        if result.found:
+            payload.update(
+                {
+                    "unit_price": str(result.amount),
+                    "commercial_plan": commercial_plan.name,
+                    "commercial_term": result.commercial_term.label,
+                    "billing_mode": result.billing_mode,
+                    "billing_mode_display": BillingMode(result.billing_mode).label,
+                    "contracted_duration": result.contracted_duration,
+                    "contracted_duration_unit": result.contracted_duration_unit,
+                }
+            )
+        else:
+            payload["unit_price"] = None
+            payload["reason"] = result.reason
+        return JsonResponse(payload)
 
 
 class AttachmentDownloadView(LoginRequiredMixin, PermissionRequiredMixin, View):
