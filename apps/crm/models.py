@@ -727,6 +727,19 @@ class ProposalVersion(TimeStampedModel):
     client_type_snapshot = models.CharField(max_length=2, blank=True)
     client_company_name_snapshot = models.CharField(max_length=200, blank=True)
     client_trade_name_snapshot = models.CharField(max_length=200, blank=True)
+    # REDESENHO VISUAL DA PROPOSTA (24/09/2026): a grade "Dados do
+    # Contratante" do novo PDF mostra Endereço/Bairro/Cidade-UF/CEP em
+    # linhas SEPARADAS (igual ao bloco "Dados do Contratado") —
+    # `client_address_snapshot` acima já é texto único formatado,
+    # insuficiente pra extrair essas partes de volta com segurança (mesmo
+    # motivo que já valeu para `company_city_snapshot`/`company_uf_
+    # snapshot` no fechamento anterior). Estes 5 campos complementam
+    # (nunca substituem) `client_address_snapshot`.
+    client_street_snapshot = models.CharField(max_length=200, blank=True)
+    client_neighborhood_snapshot = models.CharField(max_length=100, blank=True)
+    client_city_snapshot = models.CharField(max_length=100, blank=True)
+    client_uf_snapshot = models.CharField(max_length=2, blank=True)
+    client_zip_snapshot = models.CharField(max_length=10, blank=True)
 
     # --- Snapshot da Locus (seção 35/36/39/40) ----------------------------
     company_name_snapshot = models.CharField(max_length=200, blank=True)
@@ -740,6 +753,12 @@ class ProposalVersion(TimeStampedModel):
     # insuficiente para extrair só a cidade de volta com segurança.
     company_city_snapshot = models.CharField(max_length=100, blank=True)
     company_uf_snapshot = models.CharField(max_length=2, blank=True)
+    # REDESENHO VISUAL DA PROPOSTA (24/09/2026): mesmo motivo do bloco do
+    # cliente acima — a grade "Dados do Contratado" precisa de Endereço e
+    # Bairro/CEP separados de `company_address_snapshot`.
+    company_street_snapshot = models.CharField(max_length=200, blank=True)
+    company_neighborhood_snapshot = models.CharField(max_length=100, blank=True)
+    company_zip_snapshot = models.CharField(max_length=10, blank=True)
     seller_snapshot = models.CharField(
         max_length=150, blank=True, help_text="Responsável/vendedor (owner da Opportunity) no momento da emissão (seção 40)."
     )

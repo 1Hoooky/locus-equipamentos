@@ -610,7 +610,12 @@ class PdfContentTest(ProposalClosureTestBase):
     def test_installments_table_present_with_amount_and_due_date(self):
         version = self._fully_issued_version()
         text = _pdf_text(render_proposal_pdf(version))
-        self.assertIn("Parcela", text)
+        # REDESENHO VISUAL DA PROPOSTA (24/09/2026): cabeçalho da tabela
+        # agora é renderizado em caixa alta via CSS (`text-transform:
+        # uppercase`), que o WeasyPrint já bake nos glifos extraídos pelo
+        # pdfplumber — mesmo padrão já usado abaixo para "RESUMO
+        # FINANCEIRO".
+        self.assertIn("PARCELA", text.upper())
         self.assertIn("PIX", text)
 
     def test_no_installments_table_shows_placeholder_never_crashes(self):
@@ -641,6 +646,82 @@ class PfClientDisplayTest(ProposalClosureTestBase):
         self.assertIn("CPF", text)
         self.assertIn("123.456.789-00", text)
         self.assertNotIn("Razão social", text)
+
+
+# ---------------------------------------------------------------------------
+# 5-B. Redesenho visual (24/09/2026) — endereço granular + período como
+#      duração calculada
+# ---------------------------------------------------------------------------
+
+
+class RedesignGranularAddressAndPeriodTest(ProposalClosureTestBase):
+    def _issued_version(self):
+        version = self._version_with_item()
+        add_installment(proposal_version=version, data=ProposalInstallmentData(payment_method=PaymentMethod.PIX, amount=version.total, due_date=date(2026, 9, 30)))
+        issue_proposal(proposal_version=version, issued_by=self.user)
+        version.refresh_from_db()
+        return version
+
+    def test_granular_address_snapshots_are_populated_on_issue(self):
+        """
+        Grade "Dados do Contratado"/"Dados do Contratante" do PDF
+        redesenhado mostra Endereço/Bairro/Cidade-UF/CEP em linhas
+        separadas — precisa dos campos granulares, não só do texto único
+        `*_address_snapshot`.
+        """
+        version = self._issued_version()
+        self.assertEqual(version.company_street_snapshot, "AVENIDA JOAQUIM DUARTE MOLEIRINHO, 0")
+        self.assertEqual(version.company_neighborhood_snapshot, "JARDIM UNIVERSO")
+        self.assertEqual(version.company_zip_snapshot, "87060-472")
+        self.assertEqual(version.client_street_snapshot, "AVENIDA AMERICO BELAY, 1185")
+        self.assertEqual(version.client_neighborhood_snapshot, "JARDIM IMPERIAL")
+        self.assertEqual(version.client_city_snapshot, "MARINGA")
+        self.assertEqual(version.client_uf_snapshot, "PR")
+        self.assertEqual(version.client_zip_snapshot, "87023-000")
+
+    def test_granular_address_survives_later_changes_to_client(self):
+        version = self._issued_version()
+        before = version.client_neighborhood_snapshot
+        self.address.bairro = "BAIRRO MUDOU"
+        self.address.save()
+        version.refresh_from_db()
+        self.assertEqual(version.client_neighborhood_snapshot, before)
+        self.assertNotEqual(version.client_neighborhood_snapshot, "BAIRRO MUDOU")
+
+    def test_pdf_shows_granular_address_fields(self):
+        version = self._issued_version()
+        text = _pdf_text(render_proposal_pdf(version))
+        self.assertIn("JARDIM UNIVERSO", text)
+        self.assertIn("87060-472", text)
+        self.assertIn("JARDIM IMPERIAL", text)
+        self.assertIn("87023-000", text)
+
+    def test_period_label_shows_calculated_duration_in_days(self):
+        """
+        Coluna "Período" da tabela de Produtos e Serviços mostra a
+        duração calculada (retirada − entrega), ex. "6 dias" — não mais
+        as duas datas cruas (pedido explícito do usuário no processo
+        colaborativo, Etapa 4).
+        """
+        version = self._version_with_item()
+        update_draft_conditions(
+            proposal_version=version,
+            data=ProposalConditionsData(contracted_start_date=date(2026, 9, 24), contracted_end_date=date(2026, 9, 30)),
+        )
+        version.refresh_from_db()
+        add_installment(proposal_version=version, data=ProposalInstallmentData(payment_method=PaymentMethod.PIX, amount=version.total, due_date=date(2026, 9, 30)))
+        issue_proposal(proposal_version=version, issued_by=self.user)
+        version.refresh_from_db()
+        text = _pdf_text(render_proposal_pdf(version))
+        self.assertIn("6 dias", text)
+
+    def test_period_label_dash_when_dates_missing(self):
+        version = self._version_with_item()  # sem contracted_start/end_date
+        add_installment(proposal_version=version, data=ProposalInstallmentData(payment_method=PaymentMethod.PIX, amount=version.total, due_date=date(2026, 9, 30)))
+        issue_proposal(proposal_version=version, issued_by=self.user)
+        version.refresh_from_db()
+        text = _pdf_text(render_proposal_pdf(version))
+        self.assertIn("—", text)
 
 
 # ---------------------------------------------------------------------------
