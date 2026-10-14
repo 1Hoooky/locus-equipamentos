@@ -170,6 +170,13 @@ pertencendo ao MESMO envio — um único POST, um único "Salvar rascunho".
             {% icon "ellipsis-horizontal" size="compact" %}
           </button>
           <div class="action-menu-panel hidden" data-action-menu-panel role="menu">
+            {# RODADA 2.1 (14/10/2026) — "Editar item" abre o MESMO modal #}
+            {# por item que já existe para "Remover item" (mesma família  #}
+            {# `.kanban-modal-*`), nunca um fluxo paralelo.                #}
+            <button type="button" class="action-menu-item w-full" role="menuitem"
+                    data-open-modal="proposal-item-edit-modal-{{ item.pk }}">
+              {% icon "pencil" size="compact" %} Editar item
+            </button>
             <button type="button" class="action-menu-item-danger w-full" role="menuitem"
                     data-open-modal="proposal-item-remove-modal-{{ item.pk }}">
               {% icon "trash" size="compact" %} Remover item
@@ -473,6 +480,56 @@ pertencendo ao MESMO envio — um único POST, um único "Salvar rascunho".
       <div class="kanban-modal-footer">
         <button type="button" class="btn-neutral" data-close-modal="proposal-item-remove-modal-{{ item.pk }}">Cancelar</button>
         <button type="submit" class="btn-primary">Remover</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{# ---------------- MODAIS "EDITAR ITEM" ---------------- #}
+{# RODADA 2.1 (14/10/2026, "Adicionar edição de produto/serviço já       #}
+{# inserido na proposta") — um modal por item, mesmo padrão exato dos    #}
+{# modais "Remover item" acima. `item.edit_form` é montado no GET da     #}
+{# view (`OpportunityDetailView.get()`), pré-preenchido com os valores   #}
+{# ATUAIS do item (nunca recalculado da Tabela de Preços — seção 11),    #}
+{# com `auto_id` próprio por item (nunca `prefix`, que mudaria o `name`  #}
+{# dos campos e quebraria os seletores já existentes no JS). O POST vai  #}
+{# para a URL `proposal_item_update`, que já existia e já reusa          #}
+{# `update_proposal_item()`/`ensure_editable_item()` — nenhuma lógica    #}
+{# nova de versionamento/snapshot/permissão foi criada para isto.        #}
+{% if can_change_opportunity %}
+{% for item in proposal_items %}
+<div id="proposal-item-edit-modal-{{ item.pk }}" class="kanban-modal-backdrop" hidden aria-hidden="true">
+  <div class="kanban-modal" role="dialog" aria-modal="true" aria-labelledby="proposal-item-edit-modal-{{ item.pk }}-title">
+    <div class="kanban-modal-header">
+      <h2 class="kanban-modal-title icon-inline" id="proposal-item-edit-modal-{{ item.pk }}-title">
+        {% icon "pencil" size="compact" %} Editar item
+      </h2>
+      <button type="button" class="icon-btn-neutral" data-close-modal="proposal-item-edit-modal-{{ item.pk }}" aria-label="Fechar">
+        {% icon "x-mark" size="compact" %}
+      </button>
+    </div>
+    <form method="post" action="{% url 'crm:proposal_item_update' opportunity.pk item.pk %}" data-proposal-item-edit-form>
+      {% csrf_token %}
+      <div class="kanban-modal-body grid grid-cols-1 gap-3">
+        {% for field in item.edit_form %}
+        <div {% if field.name == "equipment_model" %}data-item-type-group="EQUIPAMENTO"{% elif field.name == "service" %}data-item-type-group="SERVICO"{% endif %}>
+          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.name == "unit_price" %}
+          {# Mesma consulta/preenchimento automático do form de adicionar  #}
+          {# (RODADA 2.1, seção 3/12) — reaproveita `initSuggestedPrice()` #}
+          {# sem nenhuma função nova.                                      #}
+          <p class="text-xs text-gray-500 mt-1" data-suggested-price-hint hidden></p>
+          {% endif %}
+          {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="kanban-modal-footer">
+        <button type="button" class="btn-neutral" data-close-modal="proposal-item-edit-modal-{{ item.pk }}">Cancelar</button>
+        <button type="submit" class="btn-primary">Salvar alterações</button>
       </div>
     </form>
   </div>

@@ -14,7 +14,7 @@ Venda/Serviço deste arquivo só confirmam que o caminho novo não os afeta.
 """
 
 import importlib
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -85,28 +85,41 @@ def _user_with_perms(username, *codenames):
 # deixar a diferença explícita e travada.
 # ---------------------------------------------------------------------------
 class ContractedRentalDaysTest(TestCase):
+    """
+    Regra comercial DEFINITIVA de dias (corrigida em 14/10/2026 a partir
+    de bug reportado em teste manual): `max(1, (end-start).days)` — NUNCA
+    `(end-start).days + 1`. Dia de início == dia de fim é 1 dia; 1 dia de
+    calendário de diferença também é 1 dia (não 2); só a partir de 2 dias
+    de calendário de diferença a duração comercial passa a ser 2, e assim
+    por diante — sem piso artificial além do mínimo de 1.
+    """
+
     def test_same_date_is_one_day(self):
-        self.assertEqual(_contracted_rental_days(date(2026, 10, 10), date(2026, 10, 10)), 1)
+        self.assertEqual(_contracted_rental_days(date(2026, 10, 14), date(2026, 10, 14)), 1)
 
-    def test_next_day_is_two_days(self):
-        self.assertEqual(_contracted_rental_days(date(2026, 10, 10), date(2026, 10, 11)), 2)
+    def test_next_day_is_still_one_day(self):
+        # Bug reportado: dia 14 → dia 15 estava virando 2 dias (e puxando
+        # o prazo de 5 dias). O correto é 1 dia.
+        self.assertEqual(_contracted_rental_days(date(2026, 10, 14), date(2026, 10, 15)), 1)
 
-    def test_six_calendar_days_apart_is_seven_rental_days(self):
-        self.assertEqual(_contracted_rental_days(date(2026, 9, 24), date(2026, 9, 30)), 7)
+    def test_six_calendar_days_apart_is_six_rental_days(self):
+        self.assertEqual(_contracted_rental_days(date(2026, 9, 24), date(2026, 9, 30)), 6)
 
     def test_display_period_label_is_unaffected(self):
         # `_period_label()` (pdf.py) continua "(end-start).days", sem
-        # "+1" — mesmas datas do teste de PDF já existente
-        # (`test_period_label_shows_calculated_duration_in_days`),
-        # confirmando que as duas semânticas convivem sem se misturar.
+        # piso de 1 — quando início==fim ele mostra "—" (0 dias não é
+        # exibido), enquanto a duração COMERCIAL (`_contracted_rental_days`)
+        # tem piso de 1. Esse é o ponto exato onde as duas semânticas
+        # divergem, provando que continuam desacopladas mesmo após a
+        # correção da regra de dias.
         from apps.crm.pdf import _period_label
 
         class _FakeVersion:
-            contracted_start_date = date(2026, 9, 24)
-            contracted_end_date = date(2026, 9, 30)
+            contracted_start_date = date(2026, 10, 14)
+            contracted_end_date = date(2026, 10, 14)
 
-        self.assertEqual(_period_label(_FakeVersion(), is_venda=False), "6 dias")
-        self.assertEqual(_contracted_rental_days(date(2026, 9, 24), date(2026, 9, 30)), 7)
+        self.assertEqual(_period_label(_FakeVersion(), is_venda=False), "—")
+        self.assertEqual(_contracted_rental_days(date(2026, 10, 14), date(2026, 10, 14)), 1)
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +182,22 @@ class RentalPriceServiceTestBase(TestCase):
 
 
 class DayGridSelectionTest(RentalPriceServiceTestBase):
-    """Grade 1/5/15/30 — exemplos obrigatórios da revisão."""
+    """
+    Grade 1/5/15/30 — exemplos obrigatórios da regra comercial DEFINITIVA
+    de dias (corrigida em 14/10/2026): `max(1, (end-start).days)`. Início
+    fixo no dia 14 — os mesmos números do bug report original:
+
+    14→14 = 1 dia  → termo 1
+    14→15 = 1 dia  → termo 1
+    14→16 = 2 dias → termo 5
+    14→19 = 5 dias → termo 5
+    14→20 = 6 dias → termo 15
+    14→29 = 15 dias → termo 15
+    14→30 = 16 dias → termo 30
+    acima de 30 → found=False
+    """
+
+    START = date(2026, 10, 14)
 
     def setUp(self):
         super().setUp()
@@ -178,59 +206,63 @@ class DayGridSelectionTest(RentalPriceServiceTestBase):
         self._set_rate(self.term_15, "1300.00")
         self._set_rate(self.term_30, "2200.00")
 
-    def _days(self, n):
-        return date(2026, 10, 1), date(2026, 10, n)
+    def _end(self, calendar_days_apart):
+        return self.START + timedelta(days=calendar_days_apart)
 
-    def test_1_to_1(self):
-        result = self._suggest(*self._days(1))
+    def test_same_date_is_one_day_picks_term_1(self):
+        result = self._suggest(self.START, self._end(0))
         self.assertTrue(result.found)
         self.assertEqual(result.commercial_term, self.term_1)
         self.assertEqual(result.amount, Decimal("300.00"))
 
-    def test_2_to_5(self):
-        result = self._suggest(*self._days(2))
+    def test_14_to_15_is_one_day_picks_term_1(self):
+        # Exemplo exato do bug report: isto NUNCA pode virar 2 dias.
+        result = self._suggest(self.START, self._end(1))
+        self.assertEqual(_contracted_rental_days(self.START, self._end(1)), 1)
+        self.assertTrue(result.found)
+        self.assertEqual(result.commercial_term, self.term_1)
+
+    def test_14_to_16_is_two_days_picks_term_5(self):
+        result = self._suggest(self.START, self._end(2))
+        self.assertEqual(_contracted_rental_days(self.START, self._end(2)), 2)
         self.assertEqual(result.commercial_term, self.term_5)
 
-    def test_4_to_5(self):
-        result = self._suggest(date(2026, 10, 1), date(2026, 10, 4))
-        self.assertEqual(_contracted_rental_days(date(2026, 10, 1), date(2026, 10, 4)), 4)
+    def test_exactly_5_days_picks_term_5(self):
+        result = self._suggest(self.START, self._end(5))
         self.assertEqual(result.commercial_term, self.term_5)
 
-    def test_5_to_5(self):
-        result = self._suggest(*self._days(5))
-        self.assertEqual(result.commercial_term, self.term_5)
-
-    def test_6_to_15(self):
-        result = self._suggest(*self._days(6))
+    def test_6_days_picks_term_15(self):
+        result = self._suggest(self.START, self._end(6))
         self.assertEqual(result.commercial_term, self.term_15)
 
-    def test_10_to_15(self):
-        result = self._suggest(*self._days(10))
+    def test_10_days_picks_term_15(self):
+        result = self._suggest(self.START, self._end(10))
         self.assertEqual(result.commercial_term, self.term_15)
 
-    def test_15_to_15(self):
-        result = self._suggest(*self._days(15))
+    def test_exactly_15_days_picks_term_15(self):
+        result = self._suggest(self.START, self._end(15))
         self.assertEqual(result.commercial_term, self.term_15)
 
-    def test_16_to_30(self):
-        result = self._suggest(*self._days(16))
+    def test_16_days_picks_term_30(self):
+        result = self._suggest(self.START, self._end(16))
+        self.assertEqual(_contracted_rental_days(self.START, self._end(16)), 16)
         self.assertEqual(result.commercial_term, self.term_30)
 
-    def test_25_to_30(self):
-        result = self._suggest(*self._days(25))
+    def test_25_days_picks_term_30(self):
+        result = self._suggest(self.START, self._end(25))
         self.assertEqual(result.commercial_term, self.term_30)
 
-    def test_30_to_30(self):
-        result = self._suggest(*self._days(30))
+    def test_exactly_30_days_picks_term_30(self):
+        result = self._suggest(self.START, self._end(30))
         self.assertEqual(result.commercial_term, self.term_30)
 
     def test_above_30_without_bigger_term_returns_not_found(self):
-        result = self._suggest(date(2026, 10, 1), date(2026, 10, 31))
+        result = self._suggest(self.START, self._end(31))
         self.assertFalse(result.found)
         self.assertIn("maior prazo disponível", result.reason)
 
     def test_never_picks_lower_term(self):
-        result = self._suggest(*self._days(6))
+        result = self._suggest(self.START, self._end(6))
         self.assertNotEqual(result.commercial_term, self.term_5)
         self.assertNotEqual(result.commercial_term, self.term_1)
 

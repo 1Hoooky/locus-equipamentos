@@ -455,6 +455,37 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
         # 11/12, "lazy": "não criar versão apenas porque o usuário abriu
         # a tela").
         item_form = ProposalItemForm() if (can_change_opportunity and current_version) else None
+        # RODADA 2.1 (14/10/2026, "Edição de produto/serviço já inserido"):
+        # cada item ganha seu PRÓPRIO `ProposalItemForm`, pré-preenchido com
+        # os valores ATUAIS daquele item (nunca um valor recalculado da
+        # Tabela de Preços — seção 11: "abrir para editar nunca troca o
+        # preço salvo pelo valor atual da tabela"). Só GET, só leitura —
+        # nenhuma versão/item é criado ou alterado aqui (seção 16). Lista
+        # (não QuerySet) porque o template itera duas vezes (cartão do item
+        # + modal de edição) e porque precisamos anexar `.edit_form` a cada
+        # instância. `auto_id` próprio por item (nunca o `prefix` do Django,
+        # que mudaria o `name` dos campos e quebraria os seletores já
+        # existentes em `static/crm/proposal_composition.js`, todos por
+        # `[name="..."]` escopados ao próprio `<form>`) — só garante um
+        # `id`/`for` HTML único por modal, sem duplicar `id="id_quantity"`
+        # várias vezes na mesma página.
+        proposal_items = (
+            list(current_version.items.select_related("equipment_model", "service")) if current_version else []
+        )
+        if can_change_opportunity:
+            for proposal_item in proposal_items:
+                proposal_item.edit_form = ProposalItemForm(
+                    initial={
+                        "item_type": proposal_item.item_type,
+                        "equipment_model": proposal_item.equipment_model_id,
+                        "service": proposal_item.service_id,
+                        "quantity": proposal_item.quantity,
+                        "unit_price": proposal_item.unit_price,
+                        "item_discount_amount": proposal_item.item_discount_amount,
+                        "notes": proposal_item.notes,
+                    },
+                    auto_id=f"id_edit_item_{proposal_item.pk}_%s",
+                )
         # RODADA 4 (CORREÇÃO — "Local de entrega/operação", 15/09/2026,
         # seção 6): se a versão AINDA não tem `delivery_location` salvo e
         # o cliente da Oportunidade tem exatamente UMA unidade ativa,
@@ -614,9 +645,7 @@ class OpportunityDetailView(LoginRequiredMixin, PermissionRequiredMixin, View):
             # Produtos e Serviços
             "proposal": proposal,
             "current_version": current_version,
-            "proposal_items": (
-                current_version.items.select_related("equipment_model", "service") if current_version else []
-            ),
+            "proposal_items": proposal_items,
             "item_form": item_form,
             "conditions_form": conditions_form,
             "document_form": document_form,

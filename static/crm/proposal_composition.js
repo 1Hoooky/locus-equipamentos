@@ -80,15 +80,28 @@
 
   /*
    * Tabela de Preços V1 (16/09/2026, seção 23): ao escolher um
-   * Produto/Modelo OU um Serviço no form de adicionar item, consulta
-   * `SuggestedPriceView` (só leitura, GET, AJAX — mesmo padrão de
-   * `initAvailabilityCheck` acima) e PREENCHE "Valor unitário" — só se o
-   * campo ainda estiver vazio (nunca sobrescreve um valor que o usuário
-   * já digitou, seção 24: "não travar unit_price... o vendedor pode
-   * negociar valor diferente"). Um "toque" real do usuário no campo
-   * (evento `input`, nunca disparado por atribuição via JS) marca
-   * `data-user-edited`, e a partir daí a sugestão nunca mais sobrescreve
-   * o campo automaticamente — só atualiza o texto informativo ao lado.
+   * Produto/Modelo OU um Serviço no form de adicionar/editar item,
+   * consulta `SuggestedPriceView` (só leitura, GET, AJAX — mesmo padrão
+   * de `initAvailabilityCheck` acima) e PREENCHE "Valor unitário". Um
+   * "toque" real do usuário no campo (evento `input`, nunca disparado
+   * por atribuição via JS) marca `data-user-edited`, e a partir daí a
+   * sugestão nunca mais sobrescreve o campo automaticamente — só
+   * atualiza o texto informativo ao lado (seção 24: "não travar
+   * unit_price... o vendedor pode negociar valor diferente").
+   *
+   * RODADA 2.1 (14/10/2026, "Automatizar o preenchimento do preço da
+   * tabela"): deixou de preencher só quando o campo está vazio — agora
+   * SEMPRE atualiza `unit_price` enquanto não houver `data-user-edited`
+   * (seção 3: "se o usuário alterar Produto/Modelo, Plano ou datas, e
+   * ainda não tiver editado manualmente, atualizar automaticamente com
+   * o novo valor"). No form de EDIÇÃO de um item já salvo, isso também
+   * cobre a seção 12 ("trocar o equipamento/plano/data durante a edição
+   * PODE buscar nova referência de tabela") sem nenhum código extra: o
+   * valor pré-preenchido com o preço ATUAL do item nunca é tocado até o
+   * usuário mudar algo que dispare uma nova consulta (nenhum `check()`
+   * roda sozinho ao abrir o modal — só em `change`, ver listeners mais
+   * abaixo), e só então passa a refletir a nova sugestão — exatamente
+   * como já acontecia na composição de um item novo.
    */
   function initSuggestedPrice(form) {
     var modelField = form.querySelector('[name="equipment_model"]');
@@ -173,7 +186,7 @@
           } else {
             hintEl.textContent = "Preço sugerido (" + data.business_type_display + "): " + formatted;
           }
-          if (!unitPriceField.value && !unitPriceField.getAttribute("data-user-edited")) {
+          if (!unitPriceField.getAttribute("data-user-edited")) {
             unitPriceField.value = data.unit_price;
           }
         })
@@ -237,12 +250,20 @@
     applyVisibility();
   }
 
+  // RODADA 2.1 (14/10/2026, "Edição de produto/serviço já inserido"):
+  // além do form de "Adicionar produto/serviço" (`data-proposal-item-add-form`),
+  // cada item já salvo agora tem seu PRÓPRIO `<form>` de edição dentro
+  // de um modal (`data-proposal-item-edit-form`, um por item — mesmo
+  // padrão dos modais "Remover item" já existentes). As três funções já
+  // escopam toda busca a `form.querySelector(...)` (nunca ao
+  // `document`), então rodar as três em cada form, inclusive vários
+  // forms de edição na mesma página, é seguro sem nenhuma mudança nelas.
   document.addEventListener("DOMContentLoaded", function () {
-    var form = document.querySelector("[data-proposal-item-add-form]");
-    if (form) {
+    var forms = document.querySelectorAll("[data-proposal-item-add-form], [data-proposal-item-edit-form]");
+    forms.forEach(function (form) {
       initAvailabilityCheck(form);
       initItemTypeToggle(form);
       initSuggestedPrice(form);
-    }
+    });
   });
 })();

@@ -1146,15 +1146,29 @@ def get_suggested_price(
 #
 # Duração COMERCIAL (seleção de prazo) é deliberadamente um conceito
 # separado da duração de EXIBIÇÃO do PDF (`apps.crm.pdf._period_label()`,
-# que usa `(end-start).days`, sem `+1`, e não é alterada por esta rodada):
-# aqui, mesma data de início/fim conta como 1 dia (dia de retirada e de
-# devolução contam os dois) — decisão de negócio confirmada explicitamente
-# para esta rodada, não inferida.
+# que usa `(end-start).days`, e não é alterada por esta rodada): aqui a
+# duração comercial em DIAS é `max(1, (end-start).days)` — a diferença de
+# calendário entre início e fim, com piso de 1 dia só para início==fim
+# (regra comercial definitiva, corrigida em 14/10/2026 a partir de teste
+# manual; ver docstring de `_contracted_rental_days()` para os exemplos
+# aprovados).
 # ---------------------------------------------------------------------------
 
 
 def _contracted_rental_days(start: date, end: date) -> int:
-    """Duração comercial (dias) para SELEÇÃO DE PRAZO — ver docstring da seção acima. Nunca usada pela exibição do PDF."""
+    """
+    Duração comercial (dias) para SELEÇÃO DE PRAZO — ver docstring da
+    seção acima. Nunca usada pela exibição do PDF (`_period_label()`).
+
+    CORREÇÃO (14/10/2026, bug reportado em teste manual da RODADA 2):
+    a regra comercial definitiva é `max(1, (end - start).days)` — NÃO
+    `(end - start).days + 1`. A diferença de datas em dias já É a
+    duração comercial (dia 14→15 é 1 dia, não 2); `max(1, ...)` só
+    garante o piso de 1 dia quando `start == end` (0 dias de calendário
+    = 1 dia comercial, nunca 0). Exemplos aprovados: 14→14 = 1 dia;
+    14→15 = 1 dia; 14→16 = 2 dias; 14→19 = 5 dias; 14→20 = 6 dias;
+    14→29 = 15 dias; 14→30 = 16 dias.
+    """
     return max(1, (end - start).days)
 
 
