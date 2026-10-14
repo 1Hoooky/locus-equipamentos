@@ -1155,7 +1155,7 @@ def get_suggested_price(
 
 def _contracted_rental_days(start: date, end: date) -> int:
     """Duração comercial (dias) para SELEÇÃO DE PRAZO — ver docstring da seção acima. Nunca usada pela exibição do PDF."""
-    return (end - start).days + 1
+    return max(1, (end - start).days)
 
 
 def _calendar_month_limit(start: date, months: int) -> date:
