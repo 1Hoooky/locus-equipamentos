@@ -582,6 +582,7 @@ def create_proposal(*, opportunity: Opportunity, created_by: User) -> Proposal:
     return proposal
 
 
+@transaction.atomic
 def get_or_create_active_proposal(*, opportunity: Opportunity, created_by: User) -> Proposal:
     """
     A composição comercial que a aba "Produtos e Serviços" mostra é
@@ -591,7 +592,27 @@ def get_or_create_active_proposal(*, opportunity: Opportunity, created_by: User)
     (chamador decide); esta função só existe para o primeiro POST de
     edição não precisar de um passo "criar proposta" explícito e
     separado.
+
+    DATA-001 (Auditoria Geral Adversarial, 14/10/2026; Saneamento
+    Pós-Auditoria, P0-02): sem proteção, "ler se já existe Proposal" e
+    "criar se não existe" é um check-then-act — duas requisições
+    concorrentes (duas abas, dois usuários, ou só duas pessoas abrindo a
+    mesma Opportunity ao mesmo tempo) podiam ambas ler "nenhuma Proposal
+    ainda" antes de qualquer uma comitar sua criação, produzindo DUAS
+    `Proposal` para a mesma Opportunity — uma delas órfã do fluxo visual
+    (só a mais recente por `created_at` é exibida), com qualquer item já
+    adicionado nela silenciosamente invisível. `select_for_update()`
+    direto em `Proposal` não ajudaria aqui: se nenhuma linha existe
+    ainda, não há nada para o Postgres travar, então a corrida persiste.
+    A `Opportunity`, ao contrário, já existe nas duas transações — por
+    isso travamo-la primeiro (mesmo padrão já usado por
+    `change_opportunity_stage()` acima), ANTES de ler/decidir sobre
+    Proposal: a segunda transação concorrente só chega à sua própria
+    leitura depois que a primeira já comitou a criação (se houve),
+    então ela enxerga a Proposal recém-criada em vez de decidir criar
+    outra.
     """
+    opportunity = Opportunity.objects.select_for_update().get(pk=opportunity.pk)
     proposal = opportunity.proposals.order_by("-created_at").first()
     if proposal is not None:
         return proposal
