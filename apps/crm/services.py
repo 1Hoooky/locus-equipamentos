@@ -1739,8 +1739,68 @@ def issue_proposal(*, proposal_version: ProposalVersion, issued_by: User) -> Pro
     arquitetura de auditoria paralela para o mesmo propósito que
     `django-simple-history`/`OpportunityStageChange`/`Movement` já cobrem
     no resto do projeto.
+
+    CONCORRÊNCIA/IDEMPOTÊNCIA (DATA-002 / ABUSE-001, Saneamento
+    Pós-Auditoria P0-03): a auditoria pré-correção confirmou que a
+    checagem original (`_require_draft()`, um simples "lê e levanta",
+    sem lock) também duplicava o PDF/Attachment de Proposta sob
+    concorrência real — duas threads podiam ler `status == DRAFT` antes
+    de qualquer uma comitar. A correção trava a própria
+    `ProposalVersion` (`select_for_update()`, válido porque a função
+    inteira já roda dentro de `@transaction.atomic` — o lock vale mesmo
+    quando chamada diretamente, não só via `generate_documents()`) e
+    relê seu estado FRESCO sob esse lock.
+
+    IDENTIDADE DO OBJETO: o restante desta função — e vários
+    chamadores existentes (ex. `generate_documents()`, e testes que
+    leem `proposal_version.<campo>` depois de chamar esta função SEM
+    `refresh_from_db()`) — depende de `issue_proposal()` mutar EM PLACE
+    a MESMA instância Python recebida por parâmetro (convenção
+    pré-existente neste módulo). O lock pertence à TRANSAÇÃO/conexão,
+    não à instância Python que um `SELECT ... FOR UPDATE` devolve — por
+    isso adquirimos o lock com uma consulta à parte (resultado
+    descartado de propósito) e, com o lock já ativo NA MESMA transação,
+    dessincronizamos o objeto original com `proposal_version.
+    refresh_from_db()` (uma leitura comum, sem `FOR UPDATE` — mas já
+    posterior ao lock: qualquer transação concorrente que estivesse
+    escrevendo essa linha já terá comitado ou sido revertida antes do
+    `SELECT FOR UPDATE` acima retornar, então este refresh sempre vê o
+    estado committed mais recente). Continuamos operando sobre o MESMO
+    `proposal_version` recebido por parâmetro em toda a função.
+
+    MUDANÇA DE SEMÂNTICA PÚBLICA, DELIBERADA, AUTORIZADA E DELIMITADA
+    (não silenciosa — documentada aqui e no relatório da rodada):
+    SOMENTE o caso `status == ISSUED` passa a ser idempotente (devolve
+    a mesma instância já emitida, sem exceção, sem segundo PDF/
+    Attachment — cobre exatamente a corrida desta rodada: uma segunda
+    emissão, sequencial ou concorrente, da MESMA versão). Qualquer OUTRO
+    status não-DRAFT (hoje, só `ACCEPTED`; qualquer status futuro que
+    não seja `DRAFT` nem `ISSUED`) continua rejeitado com `ValueError`
+    exatamente como antes, via `_require_draft()` — esta correção NÃO
+    amplia a tolerância para além do caso específico de reemissão
+    duplicada.
+
+    Esta função só adquire o lock de `ProposalVersion` — nunca toca
+    `Opportunity` — então não introduz nenhuma ordem de lock nova em
+    relação às já existentes no módulo, evitando deadlock contra
+    `accept_proposal_version()`/`change_opportunity_stage()`.
     """
+    ProposalVersion.objects.select_for_update().get(pk=proposal_version.pk)
+    proposal_version.refresh_from_db()
+
+    if proposal_version.status == ProposalVersionStatus.ISSUED:
+        # Idempotência (DATA-002/ABUSE-001): uma segunda emissão —
+        # sequencial (chamada muito depois, já comitada) ou concorrente
+        # (chamada que esperou o lock e só agora o obteve) — da MESMA
+        # versão não é um erro: devolve a instância já emitida, sem
+        # gerar um segundo PDF/Attachment. Não altera nenhum outro
+        # status: ACCEPTED (ou qualquer status futuro além de
+        # DRAFT/ISSUED) continua caindo em `_require_draft()` abaixo,
+        # que levanta ValueError exatamente como antes desta correção.
+        return proposal_version
+
     _require_draft(proposal_version)
+
     if not proposal_version.items.exists():
         raise ValueError("Não é possível emitir uma proposta sem nenhum item.")
 
@@ -1916,9 +1976,44 @@ def generate_contract(*, proposal_version: ProposalVersion, created_by: User) ->
     o PDF de proposta já exige). `issue_proposal()` já ficou responsável
     por congelar; se a versão ainda é DRAFT, quem chama esta função
     (`generate_documents()`) já a emitiu antes.
+
+    CONCORRÊNCIA/IDEMPOTÊNCIA (DATA-002 / ABUSE-001, Saneamento
+    Pós-Auditoria P0-03): a decisão "já existe Contract?" NUNCA pode ser
+    tomada sobre a instância `proposal_version` recebida por parâmetro —
+    ela pode ter sido lida antes de outra transação concorrente (ou de
+    uma chamada sequencial anterior) já ter criado um Contract. Por
+    isso, a PRIMEIRA coisa que esta função faz é travar a própria
+    `ProposalVersion` (`select_for_update()`, válido porque a função
+    inteira já roda dentro de `@transaction.atomic` — o lock é mantido
+    até esta transação terminar, mesmo quando chamada diretamente, não
+    só através de `generate_documents()`) e reler seu estado FRESCO sob
+    esse lock. Toda decisão abaixo (status, Contract já existente) usa
+    essa instância relida, nunca a recebida por parâmetro.
+
+    Isso resolve as DUAS dimensões do achado: uma segunda chamada
+    SEQUENCIAL (sem nenhuma corrida — a primeira já comitou) encontra o
+    Contract já existente e o reaproveita; uma segunda chamada
+    CONCORRENTE (outra thread/sessão, mesma ProposalVersion) bloqueia no
+    lock até a primeira transação comitar, e só então enxerga o Contract
+    já criado — nunca as duas decidem "não existe, vou criar" ao mesmo
+    tempo. A checagem de existência acontece ANTES de consumir
+    `_next_document_number()`: uma chamada duplicada nunca gasta um
+    número CONTR-* novo nem gera um PDF/Attachment novo.
+
+    Esta função só adquire o lock de `ProposalVersion` — nunca toca
+    `Opportunity` — então não introduz nenhuma ordem de lock nova em
+    relação às já existentes no módulo (ver mapa de locks no relatório
+    de auditoria P0-03), evitando deadlock contra
+    `accept_proposal_version()`/`change_opportunity_stage()`.
     """
+    proposal_version = ProposalVersion.objects.select_for_update().get(pk=proposal_version.pk)
+
     if proposal_version.status == ProposalVersionStatus.DRAFT:
         raise ValueError("É necessário emitir a proposta (congelar a versão) antes de gerar o contrato.")
+
+    existing_contract = proposal_version.contracts.first()
+    if existing_contract is not None:
+        return existing_contract
 
     number = _next_document_number(key="contract", prefix="CONTR")
     contract = Contract.objects.create(proposal_version=proposal_version, number=number, created_by=created_by)
