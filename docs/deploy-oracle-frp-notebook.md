@@ -185,7 +185,9 @@ recalculado incorretamente (seção 3 acima).
 
 ## 8. O que continua igual (não repetido aqui — ver `docs/deploy-fase1.md`)
 
-Backup (`pg_dump` + cópia externa), procedimento de rollback,
+Backup (`scripts/backup.sh`/`scripts/restore.sh`, cobrindo PostgreSQL
+**e** `MEDIA_ROOT` — um `pg_dump` isolado não é backup completo, ver
+seção 11 de `docs/deploy-fase1.md`), procedimento de rollback,
 checklist de validação real no celular e a ressalva sobre e-mail
 transacional ainda não configurado seguem exatamente como documentados
 em `docs/deploy-fase1.md` (seções 10 a 15) — nada disso depende de qual

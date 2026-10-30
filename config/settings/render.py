@@ -123,11 +123,16 @@ AXES_IPWARE_META_PRECEDENCE_ORDER = ("HTTP_X_FORWARDED_FOR", "REMOTE_ADDR")
 
 # --------------------------------------------------------------------------
 # Mídia — o disco do Free tier da Render é efêmero (não sobrevive a
-# redeploys/reinícios). Não é um problema HOJE porque `apps/attachments`
-# (fotos/anexos) ainda é um esqueleto vazio na Fase 1 — mas fica registrado
-# aqui para não ser esquecido quando essa funcionalidade for implementada:
-# nesse momento, MEDIA precisa migrar para armazenamento externo
-# (S3-compatible, já previsto na especificação seção 15) antes de usar
-# fotos em produção na Render. Nenhuma mudança feita agora — é só o aviso
-# no lugar certo para quem for implementar fotos depois.
+# redeploys/reinícios). ATENÇÃO: isto já é um problema real, não mais
+# hipotético — `apps.attachments` deixou de ser um esqueleto vazio e está
+# em uso em produção desde 14/09/2026 (PDFs de proposta/contrato, único
+# FileField/ImageField do projeto; ver INFRA-002/P0-06 em
+# `docs/deploy-fase1.md` seção 11 para a estratégia de backup de
+# PostgreSQL + MEDIA_ROOT). Se este settings (`config.settings.render`)
+# chegar a ser usado para servir produção com anexos reais, MEDIA precisa
+# migrar para armazenamento externo (S3-compatible, já previsto na
+# especificação seção 15) antes disso — cada redeploy/reinício no Free
+# tier perde os arquivos físicos enquanto os registros no banco (que fica
+# em Neon, não no disco efêmero) continuam existindo. Nenhuma mudança de
+# código feita agora — é só a correção do aviso, que estava desatualizado.
 # --------------------------------------------------------------------------

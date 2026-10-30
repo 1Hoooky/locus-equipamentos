@@ -152,29 +152,55 @@ A partir daí, esse usuário usa a tela própria de gestão de usuários (`/cont
 
 ## 11. Backup antes e depois do deploy
 
-Ainda não existe automação de backup no repositório (item da seção 17 da especificação, sinalizado desde o relatório de fechamento como pendência de infraestrutura, não de código). Para este primeiro deploy de validação, o procedimento é manual:
+**Um `pg_dump` isolado do PostgreSQL não é um backup completo do LocusHub.** Os PDFs de proposta/contrato (`Attachment.file`, hoje a única informação persistente fora do banco) ficam em `MEDIA_ROOT`, fora do dump — um restore feito só com o `pg_dump` recupera os registros, mas os downloads desses documentos passam a falhar (`FileNotFoundError`), porque o banco volta a referenciar arquivos que nunca foram salvos de volta. Isso foi investigado e comprovado formalmente na auditoria (achado INFRA-002 / P0-06) e corrigido com os dois scripts abaixo, que tratam PostgreSQL + `MEDIA_ROOT` como uma unidade só.
 
-**Antes do deploy** (o banco de produção, no primeiro deploy, está vazio — mas o hábito começa aqui, para todo deploy futuro):
-
-```bash
-docker compose exec -T db pg_dump -U ${DB_USER} ${DB_NAME} | gzip > backup-pre-deploy-$(date +%Y%m%d-%H%M).sql.gz
-```
-
-**Depois do deploy**, assim que os dados de validação (equipamentos de teste, ou já os primeiros reais) estiverem cadastrados:
+**Criar um backup** (gera `database.dump` + `media.tar.gz` + checksums num diretório novo sob `BACKUP_DIR`; só promove o backup depois que tudo validar — um backup incompleto nunca fica com cara de válido):
 
 ```bash
-docker compose exec -T db pg_dump -U ${DB_USER} ${DB_NAME} | gzip > backup-pos-deploy-$(date +%Y%m%d-%H%M).sql.gz
+scripts/backup.sh
 ```
 
-Copiar os dois arquivos para fora do VPS (download local, ou já para o armazenamento externo que a Locus escolher — Backblaze B2 via `rclone` é a opção citada na especificação, seção 17, ainda não decidida). Não deixar backups só no mesmo disco do VPS.
+Variáveis mais relevantes (todas com default, ver comentários no topo do script para a lista completa): `BACKUP_DIR` (onde os backups ficam — default `./backups`; aponte para um disco/pasta que depois seja copiado para fora do VPS, ver abaixo) e `BACKUP_RETENTION_DAYS` (default 30 dias — precisa ser um inteiro >= 0; um valor inválido aborta o backup inteiro antes de qualquer trabalho, nunca é silenciosamente ignorado; só remove backups antigos depois que o novo já foi promovido com sucesso).
 
-**Teste de restore** (fazer pelo menos uma vez, num ambiente separado — nunca testar restore contra o banco de produção):
+Cada execução de `scripts/backup.sh` gera um diretório final com nome intrinsecamente único (timestamp + sufixo aleatório) — duas execuções concorrentes no mesmo segundo nunca colidem nem se sobrescrevem. Antes de aceitar o `media.tar.gz`, o script também valida a **segurança** do conteúdo do archive (`scripts/validate_media_archive.py`, biblioteca padrão do Python) — rejeita qualquer membro que não seja diretório ou arquivo regular dentro de `media/` (caminho absoluto, `..`, symlink, hardlink, device ou FIFO nunca são aceitos), não só a estrutura geral do `tar`.
+
+**Validar/restaurar um backup** — por padrão o script só valida (checksums + estrutura do dump + estrutura **e segurança** do archive de media) e não toca em nada. A restauração de fato exige confirmação explícita **e** exige que o destino (banco + `MEDIA_ROOT`) esteja **genuinamente vazio** — não existe (de propósito) nenhuma opção para sobrescrever um destino que já tenha dados. Se o banco já tiver qualquer tabela, ou `MEDIA_ROOT` já tiver qualquer arquivo, o restore recusa e para, sem tocar em nada:
 
 ```bash
-gunzip -c backup-pos-deploy-*.sql.gz | docker compose exec -T db psql -U ${DB_USER} ${DB_NAME}
+scripts/restore.sh backups/20261030-140000              # só valida o backup, não restaura nada
+CONFIRM=yes scripts/restore.sh backups/20261030-140000   # restaura, só se o destino estiver genuinamente vazio
 ```
 
-Rotina diária automática (cron + retenção 30–90 dias) segue como pendência de infraestrutura para logo após este primeiro deploy — não bloqueia a validação, mas não deve ser esquecida depois que dados reais começarem a entrar.
+O procedimento oficial de disaster recovery é sempre: preparar um destino limpo (banco novo vazio + `MEDIA_ROOT` vazio) → restaurar → verificar → só então colocar em serviço. Se o destino de produção já estiver rodando com dados, ele não é um destino válido para `restore.sh` — a forma correta de "substituir" um ambiente existente é provisionar um novo (banco/`MEDIA_ROOT` vazios) e só trocar o tráfego para ele depois que o restore e a verificação abaixo tiverem passado.
+
+Se qualquer etapa do restore falhar **depois** que `pg_restore`/a extração do media já tiverem rodado (ex.: a verificação final detecta um `Attachment` sem arquivo correspondente), o destino já terá sido alterado — `restore.sh` não faz rollback automático. Nesse caso o destino deve ser tratado como inválido/descartável e recriado vazio antes de tentar de novo; como o restore só começa contra um destino vazio, o pior caso de uma falha nunca é um ambiente que já estava em produção.
+
+Ao final de uma restauração real, o próprio `restore.sh` roda `python manage.py verify_media_integrity` dentro do container `web` — se qualquer `Attachment` do banco restaurado apontar para um arquivo que não existe fisicamente, o restore termina com código de saída diferente de zero (o restore é tratado como falho, nunca como "parcialmente bem-sucedido"). Esse mesmo comando pode ser rodado isoladamente, a qualquer momento, para auditar a consistência atual entre o banco e `MEDIA_ROOT`:
+
+```bash
+docker compose exec -T web python manage.py verify_media_integrity
+```
+
+**Backup local não é a mesma coisa que disaster recovery.** Um backup gerado só no mesmo notebook/VPS que hospeda a aplicação protege contra erro humano (ex.: apagar um registro errado) mas não protege contra a perda do próprio equipamento, disco ou site inteiro — nesse cenário o backup se perde junto. `scripts/backup.sh` aceita `BACKUP_DIR` apontando para qualquer destino (ex.: um disco externo, uma pasta sincronizada por outro mecanismo); o script em si **não** envia nada para nenhum serviço externo — isso é uma decisão operacional separada, feita e testada à parte, nunca hardcoded num provedor específico dentro do script. **O P0-06/INFRA-002 só deve ser considerado totalmente encerrado em produção depois que existir uma segunda cópia do backup fora do host de produção, e essa cópia tiver sido testada com `restore.sh` pelo menos uma vez** — até lá, o que existe é só backup local.
+
+**Teste de restore** — fazer periodicamente (recomendação inicial: mensal), **sempre num ambiente isolado** (banco e `MEDIA_ROOT` sintéticos/temporários, nunca contra produção):
+
+```bash
+# num ambiente separado, nunca contra o db/web de produção:
+scripts/backup.sh
+CONFIRM=yes scripts/restore.sh backups/<timestamp-do-backup-gerado>
+```
+
+**RPO/RTO** (recomendação, não um SLA garantido): RPO inicial sugerido de até 24h (ou seja, backup automático diário) — esse valor precisa de aprovação operacional da Locus antes de ser tratado como compromisso; RTO técnico alvo inicial de 4 a 8 horas para um restore completo num ambiente novo, assumindo o backup off-host disponível.
+
+**Automação (cron diário)** — documentada aqui como recomendação; a ativação real do cron/systemd no notebook/VPS de produção é uma decisão operacional separada, feita deliberadamente fora desta rodada para primeiro validar os scripts isoladamente:
+
+```bash
+# crontab -e (no host que roda o docker compose de produção) — exemplo, não ativado:
+# 0 3 * * * cd /caminho/do/projeto && BACKUP_DIR=/caminho/para/disco/externo scripts/backup.sh >> /var/log/locushub-backup.log 2>&1
+```
+
+Segredos (`.env`, `DB_PASSWORD`, `DJANGO_SECRET_KEY`, tokens/chaves) nunca entram no backup nem são impressos pelos scripts — o `pg_dump`/`pg_restore` roda dentro do container `db`, usando as variáveis que já existem lá.
 
 ## 12. Procedimento de rollback
 
