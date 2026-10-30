@@ -6,10 +6,14 @@
 # Um backup incompleto NUNCA deve parecer um backup válido: tudo é
 # construído num diretório temporário, validado passo a passo (incluindo
 # validação estrutural E de segurança do archive de media — ver
-# scripts/validate_media_archive.py), e só promovido (rename atômico)
-# para dentro de BACKUP_DIR depois que TODAS as validações passarem. Se
-# qualquer etapa falhar, o script sai com código != 0 e nenhum backup
-# anterior válido é afetado.
+# scripts/validate_media_archive.py — e a consistência da própria ORIGEM
+# via manage.py verify_media_integrity, descoberta num smoke real: uma
+# origem já inconsistente ANTES do backup nunca deve virar um backup
+# "válido"), e só promovido (rename atômico) para dentro de BACKUP_DIR
+# depois que TODAS as validações passarem. Se qualquer etapa falhar, o
+# script sai com código != 0, o diretório temporário é removido (nunca
+# promovido), a retenção não roda, e nenhum backup anterior válido é
+# afetado.
 #
 # O diretório final de cada backup tem nome intrinsecamente único
 # (timestamp + sufixo aleatório reaproveitado do próprio `mktemp`), para
@@ -118,6 +122,26 @@ if ! compose exec -T "$WEB_SERVICE" tar -C /app -czf - media > "$tmp_dir/media.t
   fail "tar de MEDIA_ROOT falhou."
 fi
 [ -s "$tmp_dir/media.tar.gz" ] || fail "media.tar.gz ficou vazio."
+
+# ---------------------------------------------------------------------------
+# 3b. Verificar a consistência da ORIGEM (antes de aceitar este backup).
+#
+# Um Attachment.file que já não tem arquivo físico correspondente ANTES
+# deste backup (ex.: perda parcial de disco, edição manual indevida fora
+# do fluxo de create_attachment(), ou qualquer outra causa anterior) não
+# pode virar um backup "válido" — promover esse backup faria o problema
+# ser só herdado/mascarado (um restore a partir dele reproduziria a mesma
+# referência quebrada, sem nenhum sinal de que ela já existia ANTES do
+# backup, não depois). Reaproveita o mesmo comando read-only que
+# scripts/restore.sh já usa depois de um restore — ver
+# apps/attachments/management/commands/verify_media_integrity.py. Não
+# apaga nem recria nenhum Attachment/arquivo, não altera o banco nem
+# MEDIA_ROOT de origem.
+# ---------------------------------------------------------------------------
+log "Verificando consistência da ORIGEM (PostgreSQL × MEDIA_ROOT, manage.py verify_media_integrity, serviço '$WEB_SERVICE')..."
+if ! compose exec -T "$WEB_SERVICE" python manage.py verify_media_integrity; then
+  fail "A ORIGEM já está inconsistente: pelo menos um Attachment.file não tem arquivo físico correspondente ANTES deste backup (ver mensagens acima). Backup recusado — nenhum backup incompleto/inconsistente foi promovido, nenhum backup anterior válido foi afetado, e o banco/MEDIA_ROOT de origem não foram alterados por este script. Corrija a inconsistência na origem antes de tentar um novo backup."
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Validar os dois artefatos ANTES de aceitar o backup.
