@@ -37,6 +37,18 @@
 # o "pior caso" de uma falha é sempre um destino descartável que nunca
 # estava em produção — nunca um ambiente real que já estava servindo
 # tráfego.
+#
+# Ownership de MEDIA_ROOT num volume novo: um `media_volume` Docker
+# recém-criado (o caso normal de disaster recovery) nasce root:root, não
+# com o dono do usuário não-root da imagem (appuser). Antes de extrair o
+# archive de media, este script descobre em tempo de execução o uid/gid
+# do usuário padrão do serviço `web` e ajusta o dono só da RAIZ de
+# /app/media (nunca recursivo, nunca o conteúdo) como root — a extração
+# em si continua rodando como o usuário normal (não-root) do serviço, só
+# como esse diretório raiz já pertence a ele. Sem isso, a extração falha
+# com "Cannot mkdir: Permission denied" na primeira entrada que tenta
+# criar dentro de uma raiz root:root — um bug real encontrado no smoke
+# test com Docker de verdade (volume novo), corrigido nesta rodada.
 
 set -Eeuo pipefail
 umask 077
@@ -137,6 +149,48 @@ compose exec -T "$DB_SERVICE" sh -c 'pg_restore --clean --if-exists -U "$POSTGRE
   || fail "pg_restore falhou. Destino pode estar parcialmente alterado — descarte-o e recrie vazio antes de tentar de novo."
 
 log "Restaurando MEDIA_ROOT (serviço '$WEB_SERVICE')..."
+
+# ---------------------------------------------------------------------------
+# Um volume Docker nomeado recém-criado (o caso normal de disaster recovery:
+# "media B vazio" é, na prática, um volume novo que o Compose acabou de
+# criar) nasce root:root — nunca com o dono do usuário não-root da imagem
+# (appuser, normalmente uid/gid 1000). A checagem de "destino vazio" acima
+# só precisa de leitura (permitida a qualquer usuário em modo 755), então
+# passa normalmente mesmo nesse caso — mas a EXTRAÇÃO como o usuário normal
+# do serviço falharia ("Cannot mkdir: Permission denied") ao tentar criar
+# a primeira entrada dentro de /app/media, porque esse usuário não é dono
+# do diretório raiz do volume.
+#
+# Corrige isso preparando SÓ a raiz de /app/media (nunca -R, nunca o
+# conteúdo) como root, ajustando o dono para o uid/gid real do usuário
+# padrão do serviço `web` — descoberto em tempo de execução, nunca
+# hardcoded. A extração em si continua rodando como o usuário normal
+# (não-root) do serviço, exatamente como antes.
+# ---------------------------------------------------------------------------
+web_uid="$(compose exec -T "$WEB_SERVICE" id -u 2>/dev/null | tr -d '[:space:]')" \
+  || fail "Não foi possível obter o UID do usuário padrão do serviço '$WEB_SERVICE'. O banco de destino já foi restaurado (passo anterior) — destino já está alterado e deve ser descartado/recriado vazio antes de tentar de novo."
+web_gid="$(compose exec -T "$WEB_SERVICE" id -g 2>/dev/null | tr -d '[:space:]')" \
+  || fail "Não foi possível obter o GID do usuário padrão do serviço '$WEB_SERVICE'. O banco de destino já foi restaurado (passo anterior) — destino já está alterado e deve ser descartado/recriado vazio antes de tentar de novo."
+
+case "$web_uid" in
+  ''|*[!0-9]*)
+    fail "UID do usuário padrão do serviço '$WEB_SERVICE' não é numérico: '$web_uid'. O banco de destino já foi restaurado (passo anterior) — destino já está alterado e deve ser descartado/recriado vazio antes de tentar de novo."
+    ;;
+esac
+case "$web_gid" in
+  ''|*[!0-9]*)
+    fail "GID do usuário padrão do serviço '$WEB_SERVICE' não é numérico: '$web_gid'. O banco de destino já foi restaurado (passo anterior) — destino já está alterado e deve ser descartado/recriado vazio antes de tentar de novo."
+    ;;
+esac
+log "Usuário padrão do serviço '$WEB_SERVICE': uid=$web_uid gid=$web_gid"
+
+log "Preparando a raiz de /app/media como root (só mkdir -p + chown da raiz, nunca -R, nunca o conteúdo)..."
+compose exec -T --user root "$WEB_SERVICE" mkdir -p /app/media \
+  || fail "Não foi possível criar/preparar /app/media como root. O banco de destino já foi restaurado (passo anterior) — destino já está alterado e deve ser descartado/recriado vazio antes de tentar de novo."
+compose exec -T --user root "$WEB_SERVICE" chown "${web_uid}:${web_gid}" /app/media \
+  || fail "Não foi possível ajustar o dono de /app/media para ${web_uid}:${web_gid}. O banco de destino já foi restaurado (passo anterior) — destino já está alterado e deve ser descartado/recriado vazio antes de tentar de novo."
+log "Raiz de /app/media preparada (agora pertence a ${web_uid}:${web_gid})."
+
 compose exec -T "$WEB_SERVICE" sh -c 'tar -C /app -xzf -' \
   < "$BACKUP_PATH/media.tar.gz" \
   || fail "Extração do archive de media falhou. Destino pode estar parcialmente alterado — descarte-o e recrie vazio antes de tentar de novo."
