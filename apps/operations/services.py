@@ -80,6 +80,27 @@ class LocationUpdateData:
     change_reason: str = "Edição de unidade/localização."
 
 
+def _location_has_equipment_here(*, location_id: int) -> bool:
+    """
+    "Equipamento presente nesta Location" para fins da proteção de
+    OPS-001 (P0-05) — MESMO filtro já usado por `LocationDetailView`
+    (`apps/operations/views.py`) para decidir quais equipamentos contam
+    como presentes numa unidade: `current_location` + `is_active=True`.
+
+    Manager usado: `Equipment.objects` — o único manager que existe
+    (`SoftDeleteModel` deliberadamente NUNCA filtra automaticamente por
+    `is_active`, ver docstring de `apps.core.models.SoftDeleteModel`:
+    "cada app decide explicitamente"). Aqui a decisão explícita é
+    `is_active=True`, por ser a mesma já tomada por `LocationDetailView`
+    para esta mesma pergunta ("o que está presente nesta Location"),
+    nunca por `status` do Equipment (`DISPONIVEL`/`EM_OPERACAO`/
+    `MANUTENCAO`/`INATIVO`) — a invariante `current_client ==
+    current_location.client` não depende do status operacional do
+    equipamento, só de ele apontar (ativamente) para esta Location.
+    """
+    return Equipment.objects.filter(current_location_id=location_id, is_active=True).exists()
+
+
 @transaction.atomic
 def update_location(*, location: Location, data: LocationUpdateData) -> Location:
     """
@@ -88,12 +109,39 @@ def update_location(*, location: Location, data: LocationUpdateData) -> Location
     `apps.core.services.update_address()` diretamente sobre o `Address` já
     vinculado (mesmo raciocínio de `apps.clients.services.update_client()`
     para o endereço fiscal).
+
+    P0-05/OPS-001: alterar `client`/`type` de uma Location que já tem
+    Equipment apontando para ela (`Equipment.current_location`) deixava
+    `Equipment.current_client` dessincronizado — nada resincronizava o
+    cache depois da edição (só a PRÓXIMA `create_movement()` o faria).
+    A correção é bloquear a alteração estrutural (client/type) enquanto
+    houver equipamento presente — nunca sincronizar em cascata (isso
+    equivaleria a um Movement silencioso, sem o evento estruturado
+    correspondente) e nunca travar por isso uma simples renomeação.
+
+    Nunca confia no objeto `location` que o chamador já tinha em mãos
+    (pode estar obsoleto) — trava a MESMA linha via `select_for_update()`
+    dentro desta transação e relê o estado persistido (via
+    `refresh_from_db()`, preservando a identidade do objeto do chamador —
+    mesmo padrão já usado em `apps.crm.services.issue_proposal()`) antes
+    de decidir se a mudança pedida é estrutural.
     """
     if not data.name.strip():
         raise ValueError("Nome da localização é obrigatório.")
     if data.type not in LocationType.values:
         raise ValueError(f"Tipo de localização inválido: {data.type!r}.")
     _validate_location_client_matches_type(type_=data.type, client=data.client)
+
+    Location.objects.select_for_update().get(pk=location.pk)  # lock adquirido, resultado descartado
+    location.refresh_from_db()
+
+    new_client_id = data.client.pk if data.client is not None else None
+    is_structural_change = location.type != data.type or location.client_id != new_client_id
+    if is_structural_change and _location_has_equipment_here(location_id=location.pk):
+        raise ValueError(
+            "Não é possível alterar o cliente ou o tipo desta localização enquanto houver "
+            "equipamentos nela. Movimente os equipamentos primeiro."
+        )
 
     location._change_reason = data.change_reason
     location.name = data.name
@@ -290,10 +338,25 @@ def create_movement(data: NewMovementData) -> Movement:
     # origem divergente do estado real no momento da transação.
     origin_location = equipment.current_location
 
+    # P0-05/OPS-001 — TOCTOU comprovado na investigação: `data.destination_location`
+    # é o objeto Python que o CHAMADOR (view/form) já tinha em mãos, obtido
+    # ANTES desta transação — se outra transação mudar `client`/`type`
+    # dessa Location nesse intervalo, decidir/gravar com esse objeto
+    # obsoleto grava um `current_client` que já não corresponde ao estado
+    # real no banco. Trava a MESMA linha, sob `select_for_update()`, e
+    # relê o estado persistido — a partir daqui, só a instância fresca é
+    # usada (nunca mais `data.destination_location`). Ordem de locks:
+    # Equipment (acima) sempre antes de Location (aqui) — `update_location()`
+    # só trava Location, nunca Equipment, então não há ciclo possível
+    # entre os dois serviços.
+    destination_location = data.destination_location
+    if destination_location is not None:
+        destination_location = Location.objects.select_for_update().get(pk=destination_location.pk)
+
     new_status = _validate_transition(
         equipment=equipment,
         movement_type=data.movement_type,
-        destination_location=data.destination_location,
+        destination_location=destination_location,
     )
 
     if data.movement_type == MovementType.OUTRO and not data.reason.strip():
@@ -303,13 +366,11 @@ def create_movement(data: NewMovementData) -> Movement:
         equipment=equipment,
         movement_type=data.movement_type,
         origin_location=origin_location,
-        destination_location=data.destination_location,
+        destination_location=destination_location,
         origin_location_name=origin_location.name if origin_location else "",
-        destination_location_name=data.destination_location.name if data.destination_location else "",
+        destination_location_name=destination_location.name if destination_location else "",
         origin_client_name=_client_display_name(origin_location.client) if origin_location else "",
-        destination_client_name=_client_display_name(data.destination_location.client)
-        if data.destination_location
-        else "",
+        destination_client_name=_client_display_name(destination_location.client) if destination_location else "",
         reason=data.reason,
         created_by=data.created_by,
     )
@@ -335,7 +396,7 @@ def create_movement(data: NewMovementData) -> Movement:
     # tratado como evento apenas anotado, e current_location/current_client
     # permanecem inalterados (mantém o valor já bloqueado), em vez de
     # zerá-los por ausência de destino.
-    destination = data.destination_location if data.destination_location is not None else origin_location
+    destination = destination_location if destination_location is not None else origin_location
     equipment.current_location = destination
     equipment.current_client = destination.client if destination else None
     equipment.save(update_fields=["current_location", "current_client", "updated_at"])

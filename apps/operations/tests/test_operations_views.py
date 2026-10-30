@@ -10,8 +10,8 @@ from django.test import TestCase
 from apps.catalog.models import Category, EquipmentModel
 from apps.clients.models import Client
 from apps.equipment.services import NewEquipmentData, create_equipment
-from apps.operations.models import Location, LocationType
-from apps.operations.services import NewLocationData, create_location
+from apps.operations.models import Location, LocationType, MovementType
+from apps.operations.services import NewLocationData, NewMovementData, create_location, create_movement
 
 User = get_user_model()
 
@@ -63,6 +63,64 @@ class LocationViewPermissionTest(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Location.objects.filter(name="Nova Unidade HTTP").exists())
+
+
+class LocationUpdateHttpCannotBypassOps001Test(TestCase):
+    """
+    P0-05/OPS-001 (especificação, ponto 11): o fluxo HTTP de edição de
+    Location não pode contornar a proteção de `update_location()`, e o
+    erro tem que chegar à pessoa de forma compreensível — nunca um
+    `ValueError`/500 cru. `LocationUpdateView.post()` já tinha
+    `except ValueError as exc: form.add_error(None, str(exc))`
+    genérico antes desta rodada — por isso nenhuma mudança de
+    view/form foi necessária, só a cobertura de teste abaixo.
+    """
+
+    def setUp(self):
+        User.objects.create_user(username="loc_update_admin", password="senha-forte-123", role="ADMIN")
+        category = Category.objects.create(name="Aquecedor")
+        model = EquipmentModel.objects.create(category=category, name="Aquecedor HTTP", code="AQHT")
+        self.operador = User.objects.create_user(username="loc_update_operador", password="senha-forte-123", role="OPERACIONAL")
+
+        self.cliente_a = Client.objects.create(company_name="Cliente HTTP A LTDA")
+        self.cliente_b = Client.objects.create(company_name="Cliente HTTP B LTDA")
+        self.location = create_location(
+            NewLocationData(name="Unidade HTTP A", type=LocationType.CLIENTE, client=self.cliente_a)
+        )
+        self.equipment = create_equipment(NewEquipmentData(model_id=model.pk, created_by=self.operador))
+        create_movement(
+            NewMovementData(
+                equipment_id=self.equipment.pk,
+                movement_type=MovementType.INSTALACAO,
+                created_by=self.operador,
+                destination_location=self.location,
+            )
+        )
+        self.equipment.refresh_from_db()
+        self.client.login(username="loc_update_admin", password="senha-forte-123")
+
+    def _post(self, **overrides):
+        data = {"name": self.location.name, "type": self.location.type, "client": self.cliente_a.pk}
+        data.update(overrides)
+        return self.client.post(f"/operacao/unidades/{self.location.pk}/editar/", data)
+
+    def test_http_rejects_client_change_with_equipment_present(self):
+        response = self._post(client=self.cliente_b.pk)
+
+        self.assertEqual(response.status_code, 200)  # re-renderiza o form com erro, não redireciona
+        self.assertContains(response, "Movimente os equipamentos primeiro")
+
+        self.location.refresh_from_db()
+        self.equipment.refresh_from_db()
+        self.assertEqual(self.location.client_id, self.cliente_a.pk)
+        self.assertEqual(self.equipment.current_client_id, self.cliente_a.pk)
+
+    def test_http_still_allows_renaming_with_equipment_present(self):
+        response = self._post(name="Unidade HTTP A Renomeada", client=self.cliente_a.pk)
+
+        self.assertEqual(response.status_code, 302)
+        self.location.refresh_from_db()
+        self.assertEqual(self.location.name, "Unidade HTTP A Renomeada")
 
 
 class MovementCreatePermissionTest(TestCase):
